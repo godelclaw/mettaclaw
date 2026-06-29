@@ -1,0 +1,13 @@
+# Python dependencies for the pettaclaw runtime.
+# Install into the environment referenced by `petta_py_env` in config/local.toml:
+#   pip install -r requirements.txt
+#
+# Required to load the library and run the channels + memory store:
+requests           # telegram & mattermost channels
+websocket-client   # mattermost channel
+chromadb           # long-term memory vector store (petta_lib_chromadb)
+
+# Long-term memory embeddings (remember / query) additionally need a local
+# Qwen3-Embedding-8B model plus the external `session_memory` helper; install
+# sentence-transformers in that case. Memory stays off until embed_model is set.
+# sentence-transformers

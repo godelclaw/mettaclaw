@@ -7,7 +7,7 @@
 (= (initLoop)
    (progn (configure maxLoops 50) ;20
           (configure sleepInterval 1) ;10
-          (configure LLM gpt-5.4)
+          (configure LLM syn:large:text)
           (configure maxOutputToken 6000)
           (configure reasoningMode medium)
           (change-state! &prevmsg "")
@@ -45,7 +45,7 @@
                                        ($_ (println! $lastmessage))
                                        ($send (py-str ($prompt $lastmessage)))
                                        ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                       ($respi (useGPT (LLM) (maxOutputToken) (reasoningMode) $send))
+                                       ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) (reasoningMode) $send)))
                                        ($resp (py-call (helper.balance_parentheses $respi)))
                                        ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
                                        ($sexpr (catch (sread $response)))

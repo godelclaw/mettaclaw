@@ -1,0 +1,52 @@
+# Copy to config/local.toml and edit there. config/local.toml is ignored.
+
+[paths]
+# These are expanded by initialize.sh when it generates .env.
+petta_root = "$HOME/repos/PeTTa"
+# Python env PeTTa/swipl links against; install requirements.txt into it.
+# Point this at YOUR env -- the name below is only a placeholder.
+petta_py_env = "$HOME/miniforge3/envs/pettaclaw"
+
+# Optional session-memory helper. Required only for Qwen-backed remember/query.
+session_memory_python = ""
+session_memory_tools = ""
+
+# Live state defaults stay under this checkout.
+chroma_dir = "$ROOT/chroma_db"
+telegram_offset_path = "$ROOT/telegram_offset.txt"
+prompt_path = "$ROOT/memory/prompt.txt"
+history_path = "$ROOT/memory/history.metta"
+repos_dir = "$ROOT/repos"
+
+# Local Qwen3-Embedding-8B path. Fill this before using remember/query.
+embed_model = ""
+
+[agent]
+owner = "$USER"
+# Any OpenAI-compatible provider. Put the key in config/secrets.env.
+synthetic_base_url = "https://api.synthetic.new/openai/v1"
+synthetic_model = "syn:large:text"
+
+[channel]
+# Communication channel: "telegram" (needs a bot token), "irc", or "mattermost".
+kind = "telegram"
+
+[telegram]
+allow_private = true
+allowed_chat_ids = []
+
+[memory]
+collection = "pettaclaw_ltm"
+metric = "cosine"
+embed_backend = "sentence-transformers"
+embed_protocol = "qwen3-embedding-8b-1024-v1"
+embed_dim = 1024
+embed_device = "auto"
+embed_query_prompt_name = "query"
+embed_normalize = true
+embed_max_tokens = 4096
+
+# Chroma currently stores the only indexed long-term memory copy.
+# Historical .metta import/rebuild can be added later.
+source_of_truth = "chroma"
+index_is_rebuildable = false

@@ -1,0 +1,30 @@
+.env
+.env.*
+config/local.toml
+config/secrets.env
+config/channel.metta
+*.log
+*.pid
+*.ps
+__pycache__/
+*/__pycache__/
+
+# Live agent state: private, mutable, and not source.
+memory/prompt.txt
+memory/MANIFEST.toml
+memory/history.metta
+memory/LTM.metta
+memory/persistent.metta
+memory/promoted_memories.metta
+memory/promotions.db*
+memory/*.sqlite*
+promotions.db*
+*.sqlite*
+chroma_db/
+episodes/
+chat/
+telegram_offset.txt
+archive/
+
+# Vendored deps git-cloned on first run (e.g. petta_lib_chromadb).
+repos/

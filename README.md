@@ -28,33 +28,68 @@ This project also aims to explore the potential of Agentic Physical AI, a ROS2 p
 
 **Installation**
 
-First, get [SWI-Prolog](https://www.swi-prolog.org/). Then:
+Prerequisites: [SWI-Prolog](https://www.swi-prolog.org/), a built local
+[PeTTa](https://github.com/trueagi-io/PeTTa) checkout (this fork launches PeTTa's
+own `run.sh`), and Python 3.11+. Then clone this repository and install the
+Python dependencies into the environment PeTTa uses:
 
 ```
-git clone https://github.com/trueagi-io/PeTTa
-cd PeTTa
-mkdir -p repos && git clone https://github.com/patham9/mettaclaw repos/mettaclaw
+git clone https://github.com/godelclaw/mettaclaw
+cd mettaclaw
+pip install -r requirements.txt
+./initialize.sh
 ```
 
-**Usage**
+`initialize.sh` creates local, ignored runtime files:
 
-Run the system via the following command which ensures the system is started from the root folder of PeTTa:
+- `config/local.toml` — human-edited paths and ordinary settings (copied from `config/default.toml`).
+- `config/secrets.env` — API keys and bot tokens; kept mode 600.
+- `.env` — generated runtime environment; do not edit directly.
+- `memory/prompt.txt` — live identity, seeded from `identity/default-prompt.txt`.
 
-```
-cp repos/mettaclaw/run.metta ./
-OPENAI_API_KEY=... sh run.sh run.metta
-```
-
-**Auto-install/run**
-
-Alternatively, if PeTTa is already installed and the latest version pulled (v1.0.2 or latest commit), then, running the following MeTTa file from the root folder, installs and runs MeTTaClaw (assuming OPENAI_API_KEY is set):
+Edit `config/local.toml` if your PeTTa checkout, Python environment,
+provider/model, embedding model, memory paths, or channel differ from the
+defaults. Put secrets only in `config/secrets.env`:
 
 ```
-!(import! &self (library lib_import))
-!(git-import! "https://github.com/patham9/mettaclaw.git")
-!(import! &self (library mettaclaw lib_mettaclaw))
+SYNTHETIC_API_KEY=sk-...
+METTACLAW_TELEGRAM_BOT_TOKEN=123456789:...
+```
 
-!(mettaclaw)
+The LLM provider is any OpenAI-compatible endpoint (default `api.synthetic.new`);
+adjust `synthetic_base_url` / `synthetic_model` in `config/local.toml`. The
+communication channel defaults to Telegram (set `[channel] kind` to `irc` or
+`mattermost` to switch). Long-term memory (`remember` / `query`) is optional and
+stays off until you set `embed_model` to a local Qwen3-Embedding-8B path. To use
+your own agent identity, edit `identity/default-prompt.txt` before the first
+`initialize.sh` (the seed), or `memory/prompt.txt` directly (the live copy).
+
+**Running**
+
+Both methods launch from the repository root.
+
+*Wrapper (recommended).* `run.sh` regenerates `.env` from `config/local.toml`,
+sources `config/secrets.env`, initializes runtime files, then starts the agent
+loop:
+
+```
+./run.sh
+```
+
+To validate your PeTTa + Python setup without starting the loop, run the
+import-only smoke test first — it loads the full library (git-cloning the
+`petta_lib_chromadb` dependency into `./repos` on the first run) and exits:
+
+```
+./run.sh smoketest.metta        # prints SMOKE_OK and exits
+```
+
+*Direct.* After `initialize.sh` has generated `.env`, you can launch PeTTa
+yourself in the same configured environment:
+
+```
+set -a; . .env; . config/secrets.env; set +a
+"$PETTA_ROOT/run.sh" run.metta default
 ```
 
 **Illustrations**
@@ -74,7 +109,6 @@ Shell output of the actual invocation of the generated MeTTa code:
 System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
-
 
 
 

@@ -1,3 +1,6 @@
+import os
+
+
 def balance_parentheses(s):
     s = s.strip()
     left = 0
@@ -8,3 +11,7 @@ def balance_parentheses(s):
         right += 1
     core = s[left:len(s) - right if right else len(s)].strip()
     return f"(({core}))"
+
+
+def path_from_env(name, default):
+    return os.environ.get(str(name), str(default))

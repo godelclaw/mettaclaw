@@ -10,10 +10,10 @@
           (configure maxHistory 30000)))
 
 (= (getPrompt)
-   (read-file (library mettaclaw ./memory/prompt.txt)))
+   (read-file (py-call (helper.path_from_env "METTACLAW_PROMPT_PATH" "./memory/prompt.txt"))))
 
 (= (getHistory)
-   (let $ret (read-file (library mettaclaw ./memory/history.metta))
+   (let $ret (read-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")))
         (last_chars $ret (maxHistory))))
 
 (= (addToHistory $lastmessage $response $sexpr $msgnew)
@@ -26,10 +26,12 @@
            (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
 
 (= (appendToHistory $addition)
-   (append-file (library mettaclaw ./memory/history.metta) (swrite $addition)))
+   (append-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")) (swrite $addition)))
 
 (= (remember $str)
-   (py-call (lib_chromadb.remember $str (useGPTEmbedding (string-safe $str)) (get_time_as_string))))
+   (let $embedding (py-call (qwen_embed.embed_document (string-safe $str)))
+        (py-call (lib_chromadb.remember $str $embedding (get_time_as_string)))))
 
 (= (query $str)
-   (py-call (lib_chromadb.query (useGPTEmbedding (string-safe $str)) (maxRecallItems))))
+   (let $embedding (py-call (qwen_embed.embed_query (string-safe $str)))
+        (py-call (lib_chromadb.query $embedding (maxRecallItems)))))
