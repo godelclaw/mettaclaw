@@ -29,9 +29,11 @@
    (append-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")) (swrite $addition)))
 
 (= (remember $str)
-   (let $embedding (py-call (qwen_embed.embed_document (string-safe $str)))
-        (py-call (lib_chromadb.remember $str $embedding (get_time_as_string)))))
+   (let $memory (py-call (helper.decode_safe_text $str))
+        (let $embedding (py-call (qwen_embed.embed_document (string-safe $memory)))
+             (py-call (lib_chromadb.remember $memory $embedding (get_time_as_string))))))
 
 (= (query $str)
-   (let $embedding (py-call (qwen_embed.embed_query (string-safe $str)))
-        (py-call (lib_chromadb.query $embedding (maxRecallItems)))))
+   (let $query (py-call (helper.decode_safe_text $str))
+        (let $embedding (py-call (qwen_embed.embed_query (string-safe $query)))
+             (py-call (lib_chromadb.query $embedding (maxRecallItems))))))

@@ -35,6 +35,11 @@ kind = "telegram"
 allow_private = true
 allowed_chat_ids = []
 
+[search]
+# "auto" tries Tavily first when TAVILY_API_KEY is set, then DuckDuckGo HTML.
+# Use "tavily" or "ddg" to force one provider for the default (search "...").
+provider = "auto"
+
 [memory]
 collection = "pettaclaw_ltm"
 metric = "cosine"

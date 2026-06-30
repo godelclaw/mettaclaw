@@ -43,12 +43,27 @@
 ;Send a message to all communication channels:
 (= (send $msg)
    (let $safemsg (string-replace $msg  "\n" "\\n")
-        (if (== (commchannel) irc)
-            (let $temp (cut) (py-call (irc.send_message $safemsg)))
-            (if (== (commchannel) telegram)
-                (let $temp (cut) (py-call (telegram.send_message $safemsg)))
-                (let $temp (cut) (py-call (mattermost.send_message $safemsg)))))))
+        (let $outmsg (py-call (helper.decode_safe_text $safemsg))
+             (if (== (commchannel) irc)
+                 (let $temp (cut) (py-call (irc.send_message $outmsg)))
+	                 (if (== (commchannel) telegram)
+	                     (let $temp (cut) (py-call (telegram.send_message $outmsg)))
+	                     (let $temp (cut) (py-call (mattermost.send_message $outmsg))))))))
+
+(= (send-telegram-chat $chat_id $msg)
+   (let $safemsg (string-replace $msg  "\n" "\\n")
+        (let $outmsg (py-call (helper.decode_safe_text $safemsg))
+             (let $temp (cut) (py-call (telegram.send_message_to_chat $chat_id $outmsg))))))
 
 ;Search the internet for some information:
 (= (search $msg)
-   (py-call (websearch.search $msg)))
+   (let $query (py-call (helper.decode_safe_text $msg))
+        (py-call (websearch.search $query))))
+
+(= (search-tavily $msg)
+   (let $query (py-call (helper.decode_safe_text $msg))
+        (py-call (websearch.search_tavily $query))))
+
+(= (search-ddg $msg)
+   (let $query (py-call (helper.decode_safe_text $msg))
+        (py-call (websearch.search_ddg $query))))
