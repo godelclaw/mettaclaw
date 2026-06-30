@@ -1,6 +1,20 @@
 import os
 
 
+SAFE_TEXT_REPLACEMENTS = (
+    ("_newline_", "\n"),
+    ("_quote_", '"'),
+    ("_apostrophe_", "'"),
+)
+
+
+def decode_safe_text(value):
+    text = str(value)
+    for old, new in SAFE_TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
 def balance_parentheses(s):
     s = s.strip()
     left = 0

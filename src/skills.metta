@@ -8,9 +8,12 @@
     "- Read file to string: (read-file filename)"
     "- Write string to file: (write-file filename string)"
     "- Append line to file: (append-file filename string)",
-    ;COMMUNICATION CHANNELS:
-    "- Send message to user: (send string)"
-    "- Search the web: (search string)"
+	    ;COMMUNICATION CHANNELS:
+	    "- Send message to user: (send string)"
+	    "- Send Telegram message to a specific chat id: (send-telegram-chat chat_id string)"
+	    "- Search the web using the configured provider: (search string)"
+    "- Search the web using Tavily API: (search-tavily string)"
+    "- Search the web using DuckDuckGo HTML: (search-ddg string)"
     ;CODE EXECUTION:
     "- Execute MeTTa expression: (metta string)"))
 

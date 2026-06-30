@@ -10,7 +10,8 @@ _token = ""
 _allowed_chat_ids = set()
 _allow_private_chats = True
 _last_chat_id = ""
-_last_message = ""
+_reply_chat_id = ""
+_pending_messages = []
 _offset = None
 _offset_path = ""
 _msg_lock = threading.Lock()
@@ -32,18 +33,20 @@ def _chat_is_allowed(chat):
 
 
 def _set_last(chat_id, name, text):
-    global _last_chat_id, _last_message
+    global _last_chat_id
     with _msg_lock:
         _last_chat_id = str(chat_id)
         msg = f"{name}: {text}" if name else str(text)
-        _last_message = msg if not _last_message else _last_message + " | " + msg
+        _pending_messages.append((_last_chat_id, msg))
+        del _pending_messages[:-50]
 
 
 def getLastMessage():
-    global _last_message
+    global _reply_chat_id
     with _msg_lock:
-        msg = _last_message
-        _last_message = ""
+        if not _pending_messages:
+            return ""
+        _reply_chat_id, msg = _pending_messages.pop(0)
         return msg
 
 
@@ -148,8 +151,15 @@ def stop_telegram():
     _running = False
 
 
-def send_message(text):
-    chat_id = _last_chat_id
+def _reply_target(chat_id=""):
+    if chat_id:
+        return str(chat_id)
+    with _msg_lock:
+        return _reply_chat_id or _last_chat_id
+
+
+def send_message(text, chat_id=""):
+    chat_id = _reply_target(chat_id)
     if not _token or not chat_id:
         print("[telegram] cannot send: missing token or chat id")
         return
@@ -158,3 +168,7 @@ def send_message(text):
         json={"chat_id": chat_id, "text": str(text).replace("\\n", "\n")},
         timeout=30,
     )
+
+
+def send_message_to_chat(chat_id, text):
+    return send_message(text, chat_id=chat_id)
