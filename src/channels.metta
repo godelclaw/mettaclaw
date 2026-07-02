@@ -40,6 +40,11 @@
            (py-call (irc.getLastMessage))
            (py-call (mattermost.getLastMessage)))))
 
+(= (lastMessageIsHuman)
+   (if (== (commchannel) telegram)
+       (== (py-call (telegram.lastMessageIsHuman)) 1)
+       True))
+
 ;Send a message to all communication channels:
 (= (send $msg)
    (let $safemsg (string-replace $msg  "\n" "\\n")
