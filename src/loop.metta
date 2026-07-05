@@ -16,11 +16,9 @@
           (change-state! &loops (maxLoops))
           (change-state! &last-heartbeat (get_time))))
 
-;; Heartbeat (optional): re-arm the loop to a fresh (maxLoops)-cycle burst on a
-;; timer, so Lila works autonomously even with no human message and without
-;; micro-managing it. The clock resets whenever a human message arms the loop,
-;; so a burst fires at most heartbeatInterval seconds after the last activity.
-;; 1800 s = 30 min; set heartbeatInterval to 0 to turn the heartbeat off.
+;; Heartbeat (optional): when the loop wakes and this clock is stale, re-arm a
+;; fresh (maxLoops)-cycle burst. Human messages reset the clock, so the timer is
+;; measured from the last human-armed turn. 1800 s = 30 min; 0 disables it.
 (= (heartbeatInterval) 1800)
 
 (= (maybeHeartbeat)
@@ -54,37 +52,37 @@
                                (initMemory)
                                (initChannels))
                         (change-state! &loops (max 0 (- (get-state &loops) 1))))
-          (let $prompt (getContext)
-               (progn (println! (---------iteration $k))
-                      (let* (($msg (string-safe (repr (receive))))
-                             ($msgnew (prog1 (!= $msg (get-state &prevmsg))
-                                             (change-state! &prevmsg $msg)))
-                             ($humanmsg (lastMessageIsHuman))
-                             ($_ (if $msgnew
-                                     (if $humanmsg
-                                         (progn (change-state! &loops (maxLoops))
-                                                (change-state! &sleepInterval (sleepInterval))
-                                                (change-state! &last-heartbeat (get_time)))
-                                         _)
-                                     _))
-                             ($_hb (maybeHeartbeat)))
-                            (if (> (get-state &loops) 0)
-                                (let* (($lastmessage (HUMAN-LAST-MSG: $msg
-                                                      MESSAGE-IS-NEW: $msgnew
-                                                      HUMAN-MESSAGE-ARMS-LOOP: $humanmsg))
-                                       ($_ (println! $lastmessage))
-                                       ($send (py-str ($prompt $lastmessage)))
-                                       ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                       ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) (reasoningMode) $send)))
-                                       ($resp (py-call (helper.balance_parentheses $respi)))
-                                       ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
-                                       ($sexpr (catch (sread $response)))
-                                       ($_ (change-state! &error ()))
-                                       ($_ (HandleError MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_RETRY $response $sexpr))
-                                       ($_ (println! (RESPONSE: $sexpr)))
-                                       ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (eval $s)))))))))
-                                       ($_ (println! $results)))
-                                      (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
-                                             (change-state! &lastresults (string-safe (repr $results))))) _))
-                      (sleep (get-state &sleepInterval))
-                      (mettaclaw (+ 1 $k))))))
+         (progn (println! (---------iteration $k))
+                (let* (($msg (string-safe (repr (receive))))
+                       ($msgnew (prog1 (!= $msg (get-state &prevmsg))
+                                       (change-state! &prevmsg $msg)))
+                       ($humanmsg (lastMessageIsHuman))
+                       ($_ (if $msgnew
+                               (if $humanmsg
+                                   (progn (change-state! &loops (maxLoops))
+                                          (change-state! &sleepInterval (sleepInterval))
+                                          (change-state! &last-heartbeat (get_time)))
+                                   _)
+                               _))
+                       ($_hb (maybeHeartbeat)))
+                      (if (> (get-state &loops) 0)
+                          (let* (($prompt (getContext))
+                                 ($lastmessage (HUMAN-LAST-MSG: $msg
+                                               MESSAGE-IS-NEW: $msgnew
+                                               HUMAN-MESSAGE-ARMS-LOOP: $humanmsg))
+                                 ($_ (println! $lastmessage))
+                                 ($send (py-str ($prompt $lastmessage)))
+                                 ($_ (println! (CHARS_SENT: (string_length $send) $send)))
+                                 ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) (reasoningMode) $send)))
+                                 ($resp (py-call (helper.balance_parentheses $respi)))
+                                 ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
+                                 ($sexpr (catch (sread $response)))
+                                 ($_ (change-state! &error ()))
+                                 ($_ (HandleError MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_RETRY $response $sexpr))
+                                 ($_ (println! (RESPONSE: $sexpr)))
+                                 ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (eval $s)))))))))
+                                 ($_ (println! $results)))
+                                (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
+                                       (change-state! &lastresults (string-safe (repr $results))))) _))
+                (sleep (get-state &sleepInterval))
+                (mettaclaw (+ 1 $k)))))
