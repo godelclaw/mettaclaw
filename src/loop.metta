@@ -13,7 +13,26 @@
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
           (change-state! &sleepInterval (sleepInterval))
-          (change-state! &loops (maxLoops))))
+          (change-state! &loops (maxLoops))
+          (change-state! &last-heartbeat (get_time))))
+
+;; Heartbeat (optional): re-arm the loop to a fresh (maxLoops)-cycle burst on a
+;; timer, so Lila works autonomously even with no human message and without
+;; micro-managing it. The clock resets whenever a human message arms the loop,
+;; so a burst fires at most heartbeatInterval seconds after the last activity.
+;; 1800 s = 30 min; set heartbeatInterval to 0 to turn the heartbeat off.
+(= (heartbeatInterval) 1800)
+
+(= (maybeHeartbeat)
+   (if (<= (heartbeatInterval) 0)
+       _
+       (let $now (get_time)
+            (if (>= (- $now (get-state &last-heartbeat)) (heartbeatInterval))
+                (progn (println! (HEARTBEAT_REARM at (get_time_as_string) loops (maxLoops)))
+                       (change-state! &loops (maxLoops))
+                       (change-state! &sleepInterval (sleepInterval))
+                       (change-state! &last-heartbeat $now))
+                _))))
 
 (= (getContext)
    (string-safe (py-str ("PROMPT: " (getPrompt) " SKILLS: " (getSkills)
@@ -44,9 +63,11 @@
                              ($_ (if $msgnew
                                      (if $humanmsg
                                          (progn (change-state! &loops (maxLoops))
-                                                (change-state! &sleepInterval (sleepInterval)))
+                                                (change-state! &sleepInterval (sleepInterval))
+                                                (change-state! &last-heartbeat (get_time)))
                                          _)
-                                     _)))
+                                     _))
+                             ($_hb (maybeHeartbeat)))
                             (if (> (get-state &loops) 0)
                                 (let* (($lastmessage (HUMAN-LAST-MSG: $msg
                                                       MESSAGE-IS-NEW: $msgnew
