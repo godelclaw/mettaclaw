@@ -7,9 +7,12 @@ import unittest
 from src.wire import (
     MAX_INPUT_BYTES,
     MAX_NESTING,
+    PATRICK_LINE_DECODER_COMMITS,
     WireError,
     WireErrorCode,
+    decode_patrick_line_output,
     decode_sexpr_output,
+    observe_model_output,
 )
 
 
@@ -80,6 +83,69 @@ class CommandWireFixtureTests(unittest.TestCase):
             )
             decoded = decode_sexpr_output("\n".join(actions))
             self.assertEqual(decoded.actions, actions)
+
+
+class PatrickLineDecoderTests(unittest.TestCase):
+    def test_provenance_names_both_patrick_commits(self):
+        self.assertEqual(
+            PATRICK_LINE_DECODER_COMMITS,
+            (
+                "edb1a811b06ff2ba54936c8e2ddcc72f3f1e2608",
+                "0aa488eeb4dca3bd4032df5a742da8e1c2e7d13d",
+            ),
+        )
+
+    def test_multiline_shell_blocks_from_corrected_patrick_parser(self):
+        value = """shell cat <<'PYEOF' > /tmp/example.py
+print("hello")
+PYEOF
+shell python /tmp/example.py"""
+        decoded = decode_patrick_line_output(value)
+        self.assertEqual(
+            decoded.actions,
+            (
+                "(shell \"cat <<'PYEOF' > /tmp/example.py\\nprint(\\\"hello\\\")\\nPYEOF\")",
+                '(shell "python /tmp/example.py")',
+            ),
+        )
+        self.assertEqual(decoded.encoding, "patrick-lines")
+
+    def test_write_file_has_two_arguments(self):
+        decoded = decode_patrick_line_output(
+            'write-file "proof.py" print(lambda x: x)'
+        )
+        self.assertEqual(
+            decoded.actions,
+            ('(write-file "proof.py" "print(lambda x: x)")',),
+        )
+
+    def test_json_quoted_filename_handles_escaped_quote(self):
+        decoded = decode_patrick_line_output(
+            'write-file "a\\\"b.txt" hello'
+        )
+        self.assertEqual(
+            decoded.actions,
+            ('(write-file "a\\\"b.txt" "hello")',),
+        )
+
+    def test_leading_prose_is_not_invented_as_a_command(self):
+        with self.assertRaises(WireError) as raised:
+            decode_patrick_line_output("Here is what I will do:\nsend hello")
+        self.assertEqual(raised.exception.code, WireErrorCode.INVALID_ACTION_HEAD)
+
+    def test_line_decoder_shares_five_action_limit(self):
+        with self.assertRaises(WireError) as raised:
+            decode_patrick_line_output("\n".join("pin x" for _ in range(6)))
+        self.assertEqual(raised.exception.code, WireErrorCode.TOO_MANY_ACTIONS)
+
+    def test_observation_is_sanitized_and_keeps_decoders_distinct(self):
+        strict, patrick = observe_model_output("send hello")
+        self.assertFalse(strict.accepted)
+        self.assertEqual(strict.error_code, "ActionNotExpression")
+        self.assertTrue(patrick.accepted)
+        self.assertEqual(patrick.action_count, 1)
+        self.assertEqual(patrick.encoding, "patrick-lines")
+        self.assertNotIn("hello", repr((strict, patrick)))
 
 
 if __name__ == "__main__":
