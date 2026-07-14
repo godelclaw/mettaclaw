@@ -1,11 +1,38 @@
 from dataclasses import dataclass
 from enum import Enum
+import json
 import re
 
 
 MAX_ACTIONS = 5
 MAX_INPUT_BYTES = 65536
 MAX_NESTING = 4096
+
+# This migration decoder follows Patrick Hammer's corrected mettaclaw parser.
+# The first commit records Patrick's OmegaClaw import; the second explicitly
+# replaces that parser as broken. Keeping both ids preserves those two distinct
+# provenance layers instead of flattening them into generic "upstream".
+PATRICK_LINE_DECODER_COMMITS = (
+    "edb1a811b06ff2ba54936c8e2ddcc72f3f1e2608",
+    "0aa488eeb4dca3bd4032df5a742da8e1c2e7d13d",
+)
+PATRICK_LINE_COMMANDS = frozenset(
+    {
+        "append-file",
+        "demote",
+        "episodes",
+        "metta",
+        "pin",
+        "promote",
+        "query",
+        "read-file",
+        "remember",
+        "search",
+        "send",
+        "shell",
+        "write-file",
+    }
+)
 
 
 class WireErrorCode(str, Enum):
@@ -36,6 +63,15 @@ class DecodedTurn:
 
     def as_legacy_list(self):
         return "(" + " ".join(self.actions) + ")"
+
+
+@dataclass(frozen=True)
+class DecoderObservation:
+    decoder: str
+    accepted: bool
+    action_count: int = 0
+    encoding: str | None = None
+    error_code: str | None = None
 
 
 _AFFECT_VALUE = r"[-+]?(?:1(?:\.0*)?|0?(?:\.\d+))"
@@ -201,3 +237,136 @@ def decode_sexpr_output(value):
     if len(actions) > MAX_ACTIONS:
         raise WireError(WireErrorCode.TOO_MANY_ACTIONS, 0, MAX_ACTIONS)
     return DecodedTurn(tuple(actions), affect, encoding)
+
+
+def _patrick_starts_command_line(line):
+    candidate = line.lstrip()
+    if candidate.startswith("("):
+        candidate = candidate[1:].lstrip()
+    if not candidate:
+        return False
+    command = candidate.split(maxsplit=1)[0].rstrip(")")
+    return command in PATRICK_LINE_COMMANDS
+
+
+def _patrick_command_blocks(text):
+    blocks = []
+    current = []
+    for raw_line in text.splitlines():
+        if not raw_line.strip():
+            if current:
+                current.append(raw_line)
+            continue
+        if _patrick_starts_command_line(raw_line):
+            if current:
+                blocks.append("\n".join(current).strip())
+            current = [raw_line]
+        elif current:
+            current.append(raw_line)
+        else:
+            raise WireError(WireErrorCode.INVALID_ACTION_HEAD, 0, 0)
+    if current:
+        blocks.append("\n".join(current).strip())
+    return blocks
+
+
+def _json_string_if_complete(value):
+    if not value.startswith('"'):
+        return None
+    try:
+        decoded, end = json.JSONDecoder().raw_decode(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(decoded, str) or value[end:].strip():
+        return None
+    return decoded
+
+
+def _patrick_file_arguments(rest, action_index):
+    if not rest:
+        return ()
+    if rest.startswith('"'):
+        try:
+            filename, end = json.JSONDecoder().raw_decode(rest)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise WireError(WireErrorCode.SYNTAX, 0, action_index) from None
+        if not isinstance(filename, str):
+            raise WireError(WireErrorCode.SYNTAX, 0, action_index)
+        content = rest[end:].strip()
+    else:
+        parts = rest.split(maxsplit=1)
+        filename = parts[0]
+        content = parts[1].strip() if len(parts) > 1 else ""
+    arguments = [json.dumps(filename, ensure_ascii=False)]
+    if content:
+        decoded = _json_string_if_complete(content)
+        arguments.append(json.dumps(
+            content if decoded is None else decoded,
+            ensure_ascii=False,
+        ))
+    return tuple(arguments)
+
+
+def decode_patrick_line_output(value):
+    text = str(value).replace("_quote_", '"').replace("_newline_", "\n")
+    if len(text.encode("utf-8")) > MAX_INPUT_BYTES:
+        raise WireError(WireErrorCode.INPUT_TOO_LARGE, MAX_INPUT_BYTES, 0)
+    if text.startswith("\ufeff"):
+        raise WireError(WireErrorCode.UNSUPPORTED_BOM, 0, 0)
+
+    actions = []
+    for action_index, block in enumerate(_patrick_command_blocks(text)):
+        line = block.strip()
+        if line.startswith("(-"):
+            line = "(pin -" + line[2:]
+        elif line.startswith("-"):
+            line = "pin " + line
+        if line.startswith("(") and line.endswith(")"):
+            line = line[1:-1].strip()
+        elif line.startswith("("):
+            line = line[1:].strip()
+        parts = line.split(maxsplit=1)
+        if not parts or parts[0] not in PATRICK_LINE_COMMANDS:
+            raise WireError(WireErrorCode.INVALID_ACTION_HEAD, 0, action_index)
+        command = parts[0]
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        if command in {"write-file", "append-file"}:
+            arguments = _patrick_file_arguments(rest, action_index)
+        elif rest:
+            decoded = _json_string_if_complete(rest)
+            arguments = (
+                json.dumps(rest if decoded is None else decoded, ensure_ascii=False),
+            )
+        else:
+            arguments = ()
+        actions.append(
+            "(" + " ".join((command, *arguments)).rstrip() + ")"
+        )
+
+    # Reuse the strict decoder as the syntax, action-count, and AST boundary.
+    decoded = decode_sexpr_output("\n".join(actions))
+    return DecodedTurn(decoded.actions, decoded.affect, "patrick-lines")
+
+
+def observe_model_output(value):
+    observations = []
+    for name, decoder in (
+        ("StrictSexpr", decode_sexpr_output),
+        ("PatrickLines", decode_patrick_line_output),
+    ):
+        try:
+            decoded = decoder(value)
+        except WireError as error:
+            observations.append(
+                DecoderObservation(name, False, error_code=error.code.value)
+            )
+        else:
+            observations.append(
+                DecoderObservation(
+                    name,
+                    True,
+                    action_count=len(decoded.actions),
+                    encoding=decoded.encoding,
+                )
+            )
+    return tuple(observations)
