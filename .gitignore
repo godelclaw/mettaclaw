@@ -3,28 +3,26 @@
 config/local.toml
 config/secrets.env
 config/channel.metta
+.mcp.json
 *.log
 *.pid
 *.ps
 __pycache__/
 */__pycache__/
 
-# Live agent state: private, mutable, and not source.
-memory/prompt.txt
-memory/MANIFEST.toml
-memory/history.metta
-memory/LTM.metta
-memory/persistent.metta
-memory/promoted_memories.metta
-memory/promotions.db*
-memory/*.sqlite*
+# Live agent state: private, mutable, and not source. Public defaults and
+# examples belong under identity/ and config/, never under the live tree.
+memory/
 promotions.db*
 *.sqlite*
 chroma_db/
 episodes/
 chat/
 telegram_offset.txt
+telegram_offset.txt.*
+telegram_updates.jsonl
 archive/
+to-claws/
 
 # Vendored deps git-cloned on first run (e.g. petta_lib_chromadb).
 repos/
