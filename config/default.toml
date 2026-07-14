@@ -5,17 +5,19 @@
 petta_root = "$HOME/repos/PeTTa"
 # Python env PeTTa/swipl links against; install requirements.txt into it.
 # Point this at YOUR env -- the name below is only a placeholder.
-petta_py_env = "$HOME/miniforge3/envs/pettaclaw"
+petta_py_env = "$HOME/miniforge3/envs/petta"
 
-# Optional session-memory helper. Required only for Qwen-backed remember/query.
-session_memory_python = ""
+# Optional session-memory helper source. Its Python dependencies must be
+# installed in petta_py_env; do not inject another venv into PYTHONPATH.
 session_memory_tools = ""
 
 # Live state defaults stay under this checkout.
 chroma_dir = "$ROOT/chroma_db"
 telegram_offset_path = "$ROOT/telegram_offset.txt"
+telegram_log_path = "$ROOT/telegram_updates.jsonl"
 prompt_path = "$ROOT/memory/prompt.txt"
 history_path = "$ROOT/memory/history.metta"
+memory_log_dir = "$ROOT/memory/remembered"
 repos_dir = "$ROOT/repos"
 
 # Local Qwen3-Embedding-8B path. Fill this before using remember/query.
@@ -41,7 +43,7 @@ allowed_chat_ids = []
 provider = "auto"
 
 [memory]
-collection = "pettaclaw_ltm"
+collection = "memories"
 metric = "cosine"
 embed_backend = "sentence-transformers"
 embed_protocol = "qwen3-embedding-8b-1024-v1"
@@ -51,7 +53,7 @@ embed_query_prompt_name = "query"
 embed_normalize = true
 embed_max_tokens = 4096
 
-# Chroma currently stores the only indexed long-term memory copy.
-# Historical .metta import/rebuild can be added later.
-source_of_truth = "chroma"
+# Dated remembered-memory JSONL is the canonical event record. Chroma is its
+# derived search index; keep rebuildability false until a replay tool exists.
+source_of_truth = "remembered-jsonl"
 index_is_rebuildable = false
