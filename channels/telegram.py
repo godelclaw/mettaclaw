@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import threading
 import time
 
@@ -186,6 +187,91 @@ def _extract_message(update):
     return "unsupported", None
 
 
+# ---- attachments -----------------------------------------------------------
+# Files from ALLOWED chats are downloaded via the Bot API into a local inbox
+# (inside the gitignored memory/ tree) so the agent can actually read them;
+# the saved path is announced in the message text it sees. Disallowed chats
+# are never fetched. getFile's own 20MB bot limit is enforced as our cap too.
+_MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+_ATTACHMENT_SINGLE_KINDS = ("document", "video", "audio", "voice", "animation", "video_note", "sticker")
+
+
+def _attachment_info(message):
+    """(kind, file_id, file_name, mime, size) of the message's file, or None."""
+    for kind in _ATTACHMENT_SINGLE_KINDS:
+        item = (message or {}).get(kind)
+        if item:
+            return (kind, item.get("file_id"), item.get("file_name"),
+                    item.get("mime_type"), item.get("file_size"))
+    photos = (message or {}).get("photo") or []
+    if photos:
+        best = max(photos, key=lambda p: p.get("file_size") or 0)
+        return ("photo", best.get("file_id"), None, "image/jpeg", best.get("file_size"))
+    return None
+
+
+def _safe_filename(name, fallback):
+    name = os.path.basename(str(name or fallback))
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name).strip("._") or str(fallback)
+    return name[:120]
+
+
+def _attachments_dir():
+    configured = os.environ.get("METTACLAW_TELEGRAM_ATTACHMENTS_DIR", "")
+    if configured:
+        return configured
+    base = os.path.dirname(_offset_path or "") or "."
+    return os.path.join(base, "memory", "attachments")
+
+
+def _download_attachment(message):
+    """Fetch the message's attachment; return an announcement line or None.
+
+    Never raises, and never includes the token or a tokened URL in its output
+    (transport exceptions are reduced to their type name)."""
+    info = _attachment_info(message)
+    if not info:
+        return None
+    kind, file_id, file_name, mime, size = info
+    label = f"{kind} {file_name or file_id or '?'}" \
+        + (f", {mime}" if mime else "") + (f", {size}b" if size else "")
+    if not file_id:
+        return f"[attachment {label} — no file_id]"
+    if size and size > _MAX_ATTACHMENT_BYTES:
+        return f"[attachment {label} — exceeds {_MAX_ATTACHMENT_BYTES}b cap, not downloaded]"
+    try:
+        resp = requests.get(_api("getFile"), params={"file_id": file_id}, timeout=30)
+        resp.raise_for_status()
+        remote_path = (resp.json().get("result") or {}).get("file_path")
+        if not remote_path:
+            return f"[attachment {label} — getFile returned no path]"
+        dest_dir = _attachments_dir()
+        os.makedirs(dest_dir, exist_ok=True)
+        base = _safe_filename(file_name or os.path.basename(remote_path), (file_id or "file")[:16])
+        dest = os.path.join(dest_dir, f"{(message or {}).get('message_id', 'x')}-{base}")
+        partial = dest + ".part"
+        url = f"https://api.telegram.org/file/bot{_token}/{remote_path}"
+        try:
+            with requests.get(url, stream=True, timeout=120) as r:
+                r.raise_for_status()
+                written = 0
+                with open(partial, "wb") as f:
+                    for chunk in r.iter_content(65536):
+                        written += len(chunk)
+                        if written > _MAX_ATTACHMENT_BYTES:
+                            raise ValueError("size cap exceeded mid-download")
+                        f.write(chunk)
+            os.replace(partial, dest)
+        finally:
+            try:
+                os.unlink(partial)
+            except FileNotFoundError:
+                pass
+        return f"[attachment saved: {dest} ({label})]"
+    except Exception as exc:
+        return f"[attachment {label} — download failed: {type(exc).__name__}]"
+
+
 def _append_update_log(update, kind, message, allowed, queued, note=""):
     if not _log_path:
         return True
@@ -315,10 +401,14 @@ def _poll_loop():
                     text = message.get("text") or message.get("caption")
                     if not allowed:
                         note = "disallowed_chat"
-                    elif not text:
-                        note = "no_text_or_caption"
                     else:
-                        queued = True
+                        attachment_note = _download_attachment(message)
+                        if attachment_note:
+                            text = (text + "\n" if text else "") + attachment_note
+                        if not text:
+                            note = "no_text_or_caption"
+                        else:
+                            queued = True
                 if not _append_update_log(update, kind, message, allowed, queued, note):
                     print("[telegram] continuing after update log failure")
                 _offset = update_id + 1
