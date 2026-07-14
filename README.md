@@ -64,6 +64,11 @@ stays off until you set `embed_model` to a local Qwen3-Embedding-8B path. To use
 your own agent identity, edit `identity/default-prompt.txt` before the first
 `initialize.sh` (the seed), or `memory/prompt.txt` directly (the live copy).
 
+Successful remembered-memory writes are journaled as dated JSONL records under
+the ignored live `memory/` tree. Chroma is the derived similarity-search index.
+The journal/index distinction is explicit, but automated index replay is not
+implemented yet.
+
 **Running**
 
 Both methods launch from the repository root.
@@ -109,6 +114,5 @@ Shell output of the actual invocation of the generated MeTTa code:
 System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
-
 
 
