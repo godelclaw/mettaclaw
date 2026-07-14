@@ -52,6 +52,13 @@ export METTACLAW_EMBED_MAX_TOKENS="${METTACLAW_EMBED_MAX_TOKENS:-4096}"
 # One shared embedding daemon for the whole machine; never load Qwen in-process.
 export METTACLAW_EMBED_ENDPOINT="${METTACLAW_EMBED_ENDPOINT:-http://127.0.0.1:8876}"
 
+# Cooperative heap recycling. A requester creates the flag; the running loop
+# exits after its current turn; this new process removes the acknowledged flag.
+STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
+INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
+export METTACLAW_RECYCLE_REQUEST_PATH="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/recycle.requested}"
+mkdir -p "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")"
+
 mkdir -p "$METTACLAW_CHROMA_DIR" "$METTACLAW_MEMORY_LOG_DIR" "$ROOT/chat" "$ROOT/episodes"
 
 # Local imports (./src, ./memory, ./lib_mettaclaw) and git-import's default
@@ -64,5 +71,11 @@ cd "$ROOT"
 #   ./run.sh smoketest.metta   # import-only check; does NOT start the loop
 TARGET="${1:-run.metta}"
 case "$TARGET" in /*) ;; *) TARGET="$ROOT/$TARGET" ;; esac
+
+# Only the real agent process acknowledges a request. Test and utility targets
+# must not clear a flag intended for a concurrently running service.
+if [ "$TARGET" = "$ROOT/run.metta" ]; then
+    rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
+fi
 
 exec "$PETTA_ROOT/run.sh" "$TARGET" default
