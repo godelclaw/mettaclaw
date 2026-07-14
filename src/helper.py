@@ -39,3 +39,9 @@ def normalize_string(value):
 
 def path_from_env(name, default):
     return os.environ.get(str(name), str(default))
+
+
+def recycle_requested():
+    """Return true only when the runner's explicit boundary flag exists."""
+    path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
+    return bool(path) and os.path.isfile(path)

@@ -65,5 +65,11 @@
                                        ($_ (println! $results)))
                                       (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                              (change-state! &lastresults (string-safe (repr $results))))) _))
-                      (sleep (get-state &sleepInterval))
-                      (mettaclaw (+ 1 $k))))))
+                      ;; Recycling is cooperative: finish the current turn and
+                      ;; its bookkeeping, then let the service manager start a
+                      ;; fresh heap. The new process clears the request flag.
+                      (if (py-call (helper.recycle_requested))
+                          (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
+                          (progn
+                            (sleep (get-state &sleepInterval))
+                            (mettaclaw (+ 1 $k))))))))
