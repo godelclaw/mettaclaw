@@ -27,5 +27,15 @@ def balance_parentheses(s):
     return f"(({core}))"
 
 
+def normalize_string(value):
+    """Return Janus/tool output as valid UTF-8 text without raising."""
+    try:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value).encode("utf-8", errors="replace").decode("utf-8")
+    except Exception:
+        return str(value)
+
+
 def path_from_env(name, default):
     return os.environ.get(str(name), str(default))

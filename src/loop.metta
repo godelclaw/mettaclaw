@@ -61,7 +61,7 @@
                                        ($_ (change-state! &error ()))
                                        ($_ (HandleError MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_RETRY $response $sexpr))
                                        ($_ (println! (RESPONSE: $sexpr)))
-                                       ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (eval $s)))))))))
+                                       ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
                                        ($_ (println! $results)))
                                       (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                              (change-state! &lastresults (string-safe (repr $results))))) _))
