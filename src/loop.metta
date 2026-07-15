@@ -19,7 +19,7 @@
    (string-safe (py-str ("PROMPT: " (getPrompt) " SKILLS: " (getSkills)
                          " LOOPS_LEFT: " (get-state &loops)
                          " SLEEP_INTERVAL_SECONDS: " (get-state &sleepInterval)
-                         " OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must me (cmd1 ... cmdn)!"
+                         " OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence; after it, output only the required final affect-trace line."
                          " each arg is an explicit string hence needs quotes, and variables are forbidden!"
                          " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " HISTORY: " (getHistory) " TIME: " (get_time_as_string)))))
 
