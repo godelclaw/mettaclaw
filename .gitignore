@@ -24,5 +24,8 @@ telegram_updates.jsonl
 archive/
 to-claws/
 
+# Runtime-generated session distillations occasionally land at repository root.
+/[0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9]_distillation.md
+
 # Vendored deps git-cloned on first run (e.g. petta_lib_chromadb).
 repos/
