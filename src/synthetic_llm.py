@@ -58,10 +58,11 @@ def chat(model, max_tokens, effort, prompt):
         },
     )
     timeout = _float_env("SYNTHETIC_TIMEOUT", 120.0, 1.0)
-    retries = _int_env("SYNTHETIC_RETRIES", 0, 0)
+    retries = _int_env("SYNTHETIC_RETRIES", 6, 0)
     delay = _float_env("SYNTHETIC_RETRY_DELAY", 2.0, 0.0)
     last_error = None
     for attempt in range(retries + 1):
+        retry_after = None
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 payload = json.loads(response.read())
@@ -73,6 +74,8 @@ def chat(model, max_tokens, effort, prompt):
             if exc.code not in _RETRIABLE_HTTP_STATUS:
                 raise
             last_error = exc
+            if exc.headers is not None:
+                retry_after = exc.headers.get("Retry-After")
         except (
             TimeoutError,
             socket.timeout,
@@ -83,8 +86,18 @@ def chat(model, max_tokens, effort, prompt):
             last_error = exc
         except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
             last_error = exc
-        if attempt < retries and delay:
-            time.sleep(delay)
+        if attempt < retries:
+            # Exponential backoff (delay * 2^attempt, capped at 64s): quick
+            # retries absorb transient rate limits; the long tail idles politely
+            # through credit outages instead of hammering the API. A server
+            # Retry-After wins when it asks for longer.
+            wait = delay * (2 ** attempt)
+            if retry_after is not None:
+                try:
+                    wait = max(wait, float(retry_after))
+                except (TypeError, ValueError):
+                    pass
+            time.sleep(min(64.0, wait))
     return _empty_action(last_error)
 
 
