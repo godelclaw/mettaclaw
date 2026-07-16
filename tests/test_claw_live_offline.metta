@@ -59,11 +59,14 @@
 !(claw:live-init)
 
 ;; The contained command child must receive the explicit env allowlist. A wiped
-;; env regressed live sends into preview-only responses.
+;; env regressed live sends into preview-only responses. The property under
+;; test is that the child sees the approval env (prints "present", not
+;; "missing"); the exact feedback shape is golden-tested in test_claw_turn.
 !(assertEqual
-  (claw:live-run-response-child
-    "((shell \"if [ \\\"${CETTACLAW_LIVE_SEND_APPROVED+x}\\\" = x ]; then printf present; else printf missing; fi\"))")
-  ((ShellOk 0 "present")))
+  (let $r (claw:live-run-response-child
+            "((shell \"if [ \\\"${CETTACLAW_LIVE_SEND_APPROVED+x}\\\" = x ]; then printf present; else printf missing; fi\"))")
+       (claw:test-contains (repr $r) "(ShellOk 0 \"present\")"))
+  True)
 
 !(assertEqual (claw:live-tick) ClawFirst)
 !(assertEqual (get-state &loops) (claw:max-loops))
@@ -369,9 +372,8 @@
     True
     True
     (LiveActed
-      (ParseFailed "((\"unterminated))")
-      ((CommandParseFailed
-        "[(Error (parse \"((\\\"unterminated))\") ParseFailed)]\n")))
+      (ProseResponse)
+      ((REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) (skill arg)))))
     (LivePreviewOnly "" "")))
 
 ;; Built-in-looking non-skill commands are data, not executable surprises.
@@ -644,7 +646,7 @@
        (and
          (claw:test-contains (repr $turn) "saw ping")
          (and
-           (claw:test-contains (repr $turn) "Resting loops-left 0")
+           (claw:test-contains (repr $turn) "RESTING loops-left 0")
            (claw:test-contains (repr $turn) "LivePreviewOnly"))))
   True)
 

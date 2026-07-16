@@ -24,7 +24,9 @@
 
 ;; History accumulated both turns, newest first, with the real shell output.
 !(assertEqual (let $h (get-state &history) (car-atom $h))
-              (Entry "let's WORK" (repr ((ShellOk 0 "worked") (Pinned "did work")))))
+              (Entry "let's WORK"
+                     (repr (RESULTS: ((COMMAND_RETURN: ("(shell \"printf worked\")" (ShellOk 0 "worked")))
+                                      (COMMAND_RETURN: ("(pin \"did work\")" (Pinned "did work"))))))))
 
 ;; The WORK turn's pin is now on top of working memory.
 !(assertEqual (let $p (get-state &pins) (car-atom $p)) "did work")

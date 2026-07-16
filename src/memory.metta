@@ -62,7 +62,7 @@
    (let $time (claw:json-string-or (claw:json-get-or-null $object "time") "")
    (let $content (claw:json-string-or (claw:json-get-or-null $object "content") "")
    (let $score (claw:json-string-or (claw:json-get-or-null $object "score") "")
-        (MemoryHit $score $id $time $content))))))
+        ($time $content))))))
 
 (= (claw:memory-hit-from-json $value)
    (case $value

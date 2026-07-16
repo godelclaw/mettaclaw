@@ -56,7 +56,7 @@
 ;; Rest ends the current burst (loops budget -> 0). Optional slower poll.
 (= (claw:rest)
    (let $_ (change-state! &loops 0)
-        (Resting loops-left 0)))
+        (RESTING loops-left 0 sleep-interval-seconds (/ (get-state &sleep-ms) 1000))))
 
 (= (claw:rest $seconds)
    (let $parsed (claw:parse-nat-arg $seconds)

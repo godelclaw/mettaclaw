@@ -171,11 +171,31 @@
        ((CommandLimitExceeded (claw:max-commands-per-turn)))
        (let ($head $tail) (decons-atom $cmds)
        (let $r (once (claw:run-quoted (quote $head)))
+       (let $wrapped (once (claw:command-return (quote $head) $r))
        (let $rest (once (claw:run-all-quoted-limit (quote $tail) (- $remaining 1)))
-            (cons-atom $r $rest))))))
+            (cons-atom $wrapped $rest)))))))
+
+;; pettaclaw feedback parity: each command is paired with its result as
+;; (COMMAND_RETURN: (cmd result)); an Error result carries pettaclaw's
+;; self-explanatory retry idiom so the model's learned repair reflexes fire.
+(= (claw:cr-tag-error $r)
+   (let $inner (cons-atom $r ())
+        (cons-atom SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $inner)))
+
+;; Build (COMMAND_RETURN: (cmd result)) with cons-atom so the command stays
+;; DATA: a template position would evaluate an evaluable head like (+ 1 "x").
+;; cons-atom here does NOT reduce its arguments, so each intermediate is
+;; let-bound to force it (nesting in arg position stays literal otherwise).
+(= (claw:command-return (quote $cmd) $r)
+   (let $c (repr $cmd)
+   (let $r2 (case $r (((Error $a $b) (claw:cr-tag-error $r)) ($other $other)))
+   (let $r2l (cons-atom $r2 ())
+   (let $pair (cons-atom $c $r2l)
+   (let $pl (cons-atom $pair ())
+        (cons-atom COMMAND_RETURN: $pl)))))))
 
 (= (claw:run-all-quoted (quote $cmds))
-   (claw:run-all-quoted-limit (quote $cmds) (claw:max-commands-per-turn)))
+   (RESULTS: (claw:run-all-quoted-limit (quote $cmds) (claw:max-commands-per-turn))))
 
 (= (claw:run-all-parsed $cmds)
    (claw:run-all-quoted (quote $cmds)))
@@ -185,20 +205,30 @@
 ;; lastresults. The provider is called with the agent's resolved model + policy
 ;; (matching pettaclaw's (synthetic_llm.chat (LLM) (maxOutputToken) (reasoningMode)
 ;; $send)); offline the fixture ignores them and keys on the context.
+;; pettaclaw parity: a response that is not a command S-expression is not
+;; parsed or executed; the model gets the original self-correcting feedback.
+(= (claw:prose-response? $raw)
+   (not (str:starts-with (str:trim (claw:strip-trailing-affect $raw)) "(")))
+
 (= (claw:act $msg $msgnew)
    (let $ctx (claw:context $msg)
    (let $raw (claw:llm-chat (claw:session-model)
                             (claw:max-output-tokens)
                             (claw:reasoning-effort)
                             $ctx)
-   (let $balanced (claw:balance-parens $raw)
-   (let $cmds (once (parse $balanced))
-   (let $results (claw:run-all-parsed $cmds)
+   (let $results
+        (if (claw:prose-response? $raw)
+            ((REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) (skill arg))))
+            (claw:run-all-parsed (once (parse (claw:balance-parens $raw)))))
    (let $rtext (repr $results)
    (let $mtext (claw:msg-text $msg)
-   (let $h (claw:add-to-history $mtext $rtext)
+   ;; pettaclaw parity: skip history when the message is stale AND the model
+   ;; produced no commands — idle/outage turns must not bloat the record.
+   (let $h (if (or $msgnew (not (== $results (RESULTS: ()))))
+               (claw:add-to-history $mtext $rtext)
+               HistorySkipped)
    (let $l (change-state! &last $rtext)
-        (Acted (ParsedCommands $balanced) $results)))))))))))
+        (Acted Ran $results)))))))))
 
 ;; ---- one iteration (mirrors one pass of mettaclaw) ------------------------
 ;; Reports a snapshot (Snap $k $loops-after $armed $acted) for observability.

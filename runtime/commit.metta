@@ -81,9 +81,19 @@
    (claw:live-commit-pending-offset-to-path (claw:tg-offset-path)))
 
 (= (claw:live-results-committable? $results)
+   ;; Unwrap pettaclaw-parity feedback shapes before scanning: the batch is
+   ;; (RESULTS: (...)) and each item (COMMAND_RETURN: (cmd result)).
+   (case $results
+     (((RESULTS: $inner) (claw:live-results-committable-list? $inner))
+      ($other (claw:live-results-committable-list? $other)))))
+
+(= (claw:live-results-committable-list? $results)
    (if (== $results ())
        True
-       (let ($head $tail) (decons-atom $results)
+       (let ($head0 $tail) (decons-atom $results)
+       (let $head (case $head0
+                    (((COMMAND_RETURN: ($cmd $result)) $result)
+                     ($o $o)))
             (case $head
               (((SendPreview $chat $text) False)
                ((SendFailed $chat $text $err) False)
@@ -94,8 +104,8 @@
                 (if (or (claw:live-text-contains? $text "SendPreview")
                         (claw:live-text-contains? $text "SendFailed"))
                     False
-                    (claw:live-results-committable? $tail)))
-               ($other (claw:live-results-committable? $tail)))))))
+                    (claw:live-results-committable-list? $tail)))
+               ($other (claw:live-results-committable-list? $tail))))))))
 
 (= (claw:live-finalize-after-offset (OffsetCommitted $offset))
    (LiveCommitted HistoryAppended (OffsetCommitted $offset)))
@@ -138,10 +148,16 @@
 (= (claw:live-finalize $msg $raw $results $commit)
    (claw:live-finalize-new $msg $raw $results True $commit))
 
+(= (claw:live-history-worthy? $results $msgnew)
+   ;; pettaclaw parity: append unless the message is stale AND no commands ran.
+   (or $msgnew (not (or (== $results ()) (== $results (RESULTS: ()))))))
+
 (= (claw:live-finalize-new $msg $raw $results $msgnew $commit)
    (if $commit
        (if (claw:live-results-committable? $results)
            (claw:live-finalize-after-history
-             (claw:live-append-history-new $msg $raw $msgnew))
+             (if (claw:live-history-worthy? $results $msgnew)
+                 (claw:live-append-history-new $msg $raw $msgnew)
+                 HistorySkipped))
            (LiveNotCommitted SendNotDelivered))
        (LivePreviewOnly (get-state &reply-chat) (get-state &pending-offset))))

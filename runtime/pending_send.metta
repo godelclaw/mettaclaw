@@ -19,12 +19,22 @@
             $p)))
 
 (= (claw:live-first-send-preview $results)
+   ;; Unwrap pettaclaw-parity feedback shapes: batch (RESULTS: (...)) and
+   ;; per-item (COMMAND_RETURN: (cmd result)) — then scan for the preview.
+   (case $results
+     (((RESULTS: $inner) (claw:live-first-send-preview-list $inner))
+      ($other (claw:live-first-send-preview-list $other)))))
+
+(= (claw:live-first-send-preview-list $results)
    (if (== $results ())
        NoPendingSend
-       (let ($head $tail) (decons-atom $results)
+       (let ($head0 $tail) (decons-atom $results)
+       (let $head (case $head0
+                    (((COMMAND_RETURN: ($cmd $result)) $result)
+                     ($o $o)))
             (case $head
               (((SendPreview $chat $text) (PendingSendCandidate $chat $text))
-               ($other (claw:live-first-send-preview $tail)))))))
+               ($other (claw:live-first-send-preview-list $tail))))))))
 
 (= (claw:live-pending-send-record $chat $offset $text $msg-text $raw)
    (PendingSend $chat $offset $text $msg-text $raw))

@@ -231,6 +231,13 @@
                  $path $state-path $r)))))))))
 
 (= (claw:live-run-response $msg $raw)
+   (if (claw:prose-response? $raw)
+       (claw:live-record-response
+         $msg (ProseResponse)
+         ((REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) (skill arg)))))
+       (claw:live-run-response-parse $msg $raw)))
+
+(= (claw:live-run-response-parse $msg $raw)
    (let $balanced (claw:balance-parens $raw)
    (let $preflight (claw:live-parse-preflight $balanced)
         (if (claw:live-parse-preflight-ok? $preflight)
@@ -241,5 +248,5 @@
             (claw:live-record-response
               $msg
               (ParseFailed $balanced)
-              ((CommandParseFailed
+              ((MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_RETRY
                  (process-result-aggregated-output $preflight))))))))
