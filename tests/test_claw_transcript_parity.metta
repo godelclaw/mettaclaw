@@ -145,14 +145,16 @@
   (claw:test-contains (fs:read-text (claw:test-history)) "second committed")
   True)
 
-;; Empty batches replay the last visible message without a pending Telegram
-;; offset, matching PeTTa's persistent last-message channel behavior.
+;; PeTTa consumes a queued message once. An empty batch retains the reply route
+;; and continuation key, but must not present the old human text again.
 !(assertEqual
   (let $msg (claw:live-receive-from-body-explicit
               (claw:test-empty-body) False "1002003")
        (and
          (== (claw:test-msg-key $msg) "102")
-         (claw:test-contains (claw:test-msg-text $msg) "]\nSecond allowed")))
+         (and
+           (== (claw:test-msg-text $msg) "")
+           (not (claw:is-human $msg)))))
   True)
 
 !(assertEqual (get-state &pending-offset) "")
@@ -160,7 +162,7 @@
 !(assertEqual
   (claw:test-finish
     (claw:test-turn-to-paths
-      (Msg human "102" "Second allowed")
+      (Msg bot "102" "")
       "((pin \"followup no offset\"))"
       (claw:test-history)
       (claw:test-offset)))

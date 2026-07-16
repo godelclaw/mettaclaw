@@ -56,7 +56,7 @@
 
 !(assertEqual
   (fs:read-text "runtime/test_claw_append_existing.txt")
-  "alphabeta")
+  "alphabeta\n")
 
 !(assertEqual
   (claw:run (read-file "runtime/test_claw_missing_read.txt"))

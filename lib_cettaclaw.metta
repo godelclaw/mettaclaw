@@ -10,6 +10,11 @@
 ;; with the identical (claw:llm-chat ...) seam.
 
 ;; ---- agent core ------------------------------------------------------------
+;; PeTTaClaw loads these reasoning modules before the agent loop. Their CeTTa
+;; ports live with the interpreter's general libraries, not in the agent core.
+!(import! &self nal)
+!(import! &self nal7)
+
 !(import! &self ./src/config.metta)
 !(import! &self ./src/value.metta)
 !(import! &self ./src/text.metta)

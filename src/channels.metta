@@ -4,7 +4,7 @@
 ;; send to a specific chat, and web search. Focused adapters live beside the
 ;; core: sending uses src/telegram (claw:tg-send); search skills resolve
 ;; directly to src/search (claw:search / -tavily / -ddg), so they need no
-;; wrapper here. The REAL Telegram receive (getUpdates -> queue -> replay) lives
+;; wrapper here. The REAL Telegram receive (getUpdates -> consume -> continue) lives
 ;; in runtime/telegram_receive.metta; it feeds this core through normal Msg
 ;; values, while offline goldens script &inbox-schedule directly.
 
