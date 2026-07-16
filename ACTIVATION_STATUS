@@ -1,0 +1,20 @@
+DORMANT — OFFLINE READY, NOT A LIVE AGENT
+
+This branch contains the Cettaclaw runtime and Lila's public default personality
+document. The prepared local checkout also has her byte-identical live prompt
+in ignored runtime state. A fresh clone must provision that live prompt locally;
+it must never be committed. The branch deliberately contains no copied tokens,
+Telegram offsets, histories, memory indexes, or service units.
+
+Before activation:
+
+1. review the ignored local configuration for Lila's provider, memory endpoint,
+   collection, and Telegram allowlist;
+2. install credentials deliberately rather than copying Gödel's;
+3. choose a single Telegram consumer and stop Pettaclaw before any cutover;
+4. provision the ignored live prompt and verify personality parity against the
+   Pettaclaw-Lila tree;
+5. run the offline suite and a no-send preview turn;
+6. create and review a distinct service unit only after those checks pass.
+
+Do not start run.sh or install a service merely because this checkout exists.
