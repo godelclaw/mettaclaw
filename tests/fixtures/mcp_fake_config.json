@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "fake": {
+      "type": "stdio",
+      "command": "/usr/bin/python3",
+      "args": ["tests/fixtures/fake_mcp_stdio.py"]
+    }
+  }
+}

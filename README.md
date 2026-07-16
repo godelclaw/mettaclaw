@@ -1,80 +1,65 @@
-## MeTTaClaw
+## CeTTaClaw
 
-<img width="362" alt="image" src="https://github.com/user-attachments/assets/197d745f-1562-4d31-88c2-b813a56ccbf1" />
+CeTTaClaw is a CeTTa-native port of the PeTTaClaw agent loop. The agent core
+stays small and familiar; interpreter-level interfaces remain in CeTTa, while
+agent-specific adapters remain here.
 
-An agentic AI system implemented in MeTTa, guided by the MeTTaClaw proposal and an agent core inspired by Nanobot.
-Beyond basic tool use, it features embedding-based long-term memory represented entirely in MeTTa AtomSpace format.
+### Layout
 
-Long-term memory is deliberately maintained by the agent via `(remember string)` for adding memory items and `(query string)` for querying related memories.
-The agent can learn and apply new skills and declarative knowledge through the use of memory items.
+- `src/` is the PeTTaClaw-shaped agent core plus focused configuration,
+  Telegram, LLM, memory, search, and MCP adapters.
+- `src/value.metta`, `src/text.metta`, and `src/wire.metta` keep compatibility
+  helpers separated by responsibility rather than hiding them in a prelude.
+- `runtime/` is the live daemon driver: run lock, bounded child command
+  execution, turn commit, pending-send handling, and loop streaming.
+- `scripts/` contains offline checks and the out-of-process MCP bridge.
+- `CETTA_ROOT` points at a CeTTa checkout that provides the native interfaces
+  used by the agent.
 
-In addition, an initial set of OpenClaw-like tools is implemented, including web search, file modification, communication channels, and access to the operating system shell and its associated tools.
+### Runtime Model
 
-Simplicity of design, ease of prototyping, ease of extension, and transparent implementation in MeTTa were the primary design criteria.
-The agent core comprises approximately 200 lines of code.
+The live loop runs on a `BUILD=core` CeTTa binary.  Python stays outside the
+agent loop behind explicit process or HTTP boundaries:
 
-**Special Features**
+- ChromaDB memory is served by the localhost memory shim.
+- Embeddings are served by the shared embedding daemon.
+- MCP uses the bridge CLI in `scripts/` as a subprocess.
 
-- MeTTaClaw uses a token-efficient agentic loop, enabling low-cost long-term operation and embodiment in domains that require real-time learning and decision-making.
+The live prompt, history, offset, secrets, and other mutable state are configured
+through env files and are not committed to this repo.
 
-- The agent can learn to represent its memories in different ways, including such that allow other Hyperon components to operate on the same memories within the same Atomspace. Each memory item is stored as a triplet `(timestamp, atom, embedding)`, while the agent remains flexible in choosing the representation for the atom itself. Consequently, the agent is not hardcoded to any particular memory representation, and different formats can co-exist in the same atom space.
+### Setup
 
-The following example demonstrates learning and decision-making in a textually represented grid-world environment adapted from [NACE](https://github.com/patham9/NACE):
-
-![mettaclaw_in_nace_world](https://github.com/user-attachments/assets/c6c01839-234d-4505-baf6-4f2f3787c7b9)
-
-
-This project also aims to explore the potential of Agentic Physical AI, a ROS2 package for mobile robots with manipulators is underway.
-
-**Installation**
-
-First, get [SWI-Prolog](https://www.swi-prolog.org/). Then:
-
-```
-git clone https://github.com/trueagi-io/PeTTa
-cd PeTTa
-mkdir -p repos && git clone https://github.com/patham9/mettaclaw repos/mettaclaw
+```bash
+./initialize.sh
 ```
 
-**Usage**
+Then edit `config/local.toml` and `config/secrets.env`, or point
+`CETTACLAW_SETTINGS` / `CETTACLAW_SECRETS` at existing managed env files.
 
-Run the system via the following command which ensures the system is started from the root folder of PeTTa:
+### Tests
 
-```
-cp repos/mettaclaw/run.metta ./
-OPENAI_API_KEY=... sh run.sh run.metta
-```
-
-**Auto-install/run**
-
-Alternatively, if PeTTa is already installed and the latest version pulled (v1.0.2 or latest commit), then, running the following MeTTa file from the root folder, installs and runs MeTTaClaw (assuming OPENAI_API_KEY is set):
-
-```
-!(import! &self (library lib_import))
-!(git-import! "https://github.com/patham9/mettaclaw.git")
-!(import! &self (library mettaclaw lib_mettaclaw))
-
-!(mettaclaw)
+```bash
+./run_tests.sh "$CETTA_ROOT/cetta"
 ```
 
-**Illustrations**
+The suite is offline: no Telegram send, no live offset commit, and no secrets
+are printed.
 
-Long-Term Memory Recall:
+### Running
 
-<img width="638" height="125" alt="image" src="https://github.com/user-attachments/assets/0d4817ed-e743-4e44-8bd4-a10e27ea6380" />
+Import smoke test:
 
-Tool use:
+```bash
+./run.sh smoketest.metta
+```
 
-<img width="1323" height="188" alt="image" src="https://github.com/user-attachments/assets/18ef19c4-010a-4c94-84ce-bb49277dccfc" />
+Live bounded daemon entrypoint:
 
-Shell output of the actual invocation of the generated MeTTa code:
+```bash
+./run_live_bounded.sh run_live_session_stream.metta
+```
 
-<img width="416" height="486" alt="image" src="https://github.com/user-attachments/assets/f5b27205-cdb2-47e7-821a-ffd93b3dd7c6" />
-
-System also added it into its Atom Space storage (embedding vector omitted):
-
-<img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
-
-
-
-
+The launcher refuses to run when the configured legacy PeTTaClaw service or a
+live CeTTaClaw run lock is active. Live Telegram sends require the launcher-provided
+`CETTACLAW_LIVE_SEND_APPROVED=YES_SEND_LIVE_TELEGRAM` gate.

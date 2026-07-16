@@ -1,0 +1,43 @@
+.env
+.env.*
+config/local.toml
+config/secrets.env
+config/channel.metta
+.mcp.json
+*.log
+*.pid
+*.ps
+__pycache__/
+*/__pycache__/
+
+# Live agent state: private, mutable, and not source.
+/memory/
+memory/prompt.txt
+memory/MANIFEST.toml
+memory/history.metta
+memory/LTM.metta
+memory/persistent.metta
+memory/promoted_memories.metta
+memory/promotions.db*
+memory/*.sqlite*
+promotions.db*
+*.sqlite*
+chroma_db/
+episodes/
+chat/
+telegram_offset.txt
+telegram_offset.txt.*
+telegram_updates.jsonl
+archive/
+
+# Vendored deps git-cloned on first run (e.g. petta_lib_chromadb).
+repos/
+
+# CeTTaClaw test + live scratch (the runtime/ CODE modules ARE tracked)
+runtime/test_claw_*
+runtime/*.jsonl
+runtime/*.txt
+runtime/*.state
+.cettaclaw-live-child-*
+probe*.metta
+cetta

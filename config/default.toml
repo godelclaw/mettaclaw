@@ -1,0 +1,62 @@
+# Copy to config/local.toml and edit there. config/local.toml is ignored.
+
+[paths]
+# These are expanded by initialize.sh when it generates .env.
+cetta_root = "$HOME/repos/cetta-interfaces"
+
+# Out-of-process helpers. The live agent stays BUILD=core and reaches these
+# through native process/http interfaces.
+memory_endpoint = "http://127.0.0.1:8877"
+# A deployment can pin a dedicated interpreter in config/local.toml.
+mcp_python = "python3"
+mcp_bridge_cli = "$ROOT/scripts/mcp_bridge_cli.py"
+
+# Live state defaults stay under this checkout.
+chroma_dir = "$ROOT/chroma_db"
+telegram_offset_path = "$ROOT/telegram_offset.txt"
+telegram_log_path = "$ROOT/telegram_updates.jsonl"
+prompt_path = "$ROOT/memory/prompt.txt"
+history_path = "$ROOT/memory/history.metta"
+memory_log_dir = "$ROOT/memory/remembered"
+repos_dir = "$ROOT/repos"
+
+# Local Qwen3-Embedding-8B path. Fill this before using remember/query.
+embed_model = ""
+
+[agent]
+owner = "$USER"
+# Seconds of quiet before the agent starts a fresh attention burst. Zero keeps
+# the agent fully message-driven. Set this only in an agent's private profile.
+heartbeat_interval_seconds = 0
+# Any OpenAI-compatible provider. Put the key in config/secrets.env.
+synthetic_base_url = "https://api.synthetic.new/openai/v1"
+synthetic_model = "syn:large:text"
+
+[channel]
+# Communication channel: "telegram" (needs a bot token), "irc", or "mattermost".
+kind = "telegram"
+
+[telegram]
+allow_private = true
+allowed_chat_ids = []
+
+[search]
+# "auto" tries Tavily first when TAVILY_API_KEY is set, then DuckDuckGo HTML.
+# Use "tavily" or "ddg" to force one provider for the default (search "...").
+provider = "auto"
+
+[memory]
+collection = "memories"
+metric = "cosine"
+embed_backend = "sentence-transformers"
+embed_protocol = "qwen3-embedding-8b-1024-v1"
+embed_dim = 1024
+embed_device = "auto"
+embed_query_prompt_name = "query"
+embed_normalize = true
+embed_max_tokens = 4096
+
+# Dated remembered/*.jsonl rows are the textual truth. Chroma is the vector
+# index maintained by the memory shim and should be rebuildable from truth rows.
+source_of_truth = "history.metta"
+index_is_rebuildable = true

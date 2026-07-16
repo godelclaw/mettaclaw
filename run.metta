@@ -1,5 +1,5 @@
-!(import! &self (library lib_import))
-!(git-import! "https://github.com/patham9/mettaclaw.git")
-!(import! &self (library mettaclaw lib_mettaclaw))
-
-!(mettaclaw)
+;; Ordinary local entrypoint. The live service uses the bounded, transactional
+;; entrypoint; this one still initializes every state cell before one turn.
+!(import! &self ./lib_cettaclaw.metta)
+!(claw:init 22 ())
+!(claw:mettaclaw 1)

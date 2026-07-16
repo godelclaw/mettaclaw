@@ -1,0 +1,14 @@
+# Python dependencies for cettaclaw-godel.
+#
+# The agent loop itself is pure CeTTa (no Python in the loop): all I/O goes
+# through CeTTa's native interfaces (http, json, fs, process, time, ...) and
+# focused adapters in src/. Python is only needed for two out-of-loop helpers:
+#
+# 1. The MCP bridge (scripts/mcp_bridge_cli.py), spawned per mcp-* skill:
+mcp                # Model Context Protocol SDK
+anyio              # async runtime used by the MCP client
+#
+# 2. The Chroma memory shim — a separate localhost HTTP service the agent talks
+#    to over http+json (NOT started by this repo; run as its own service). When
+#    you host the shim, it additionally needs:
+# chromadb

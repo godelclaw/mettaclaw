@@ -1,53 +1,44 @@
-!(import_prolog_function atomic_list_concat)
-!(import_prolog_function split_string)
-!(import_prolog_function read_line_to_string)
-!(import_prolog_function get_time)
-!(import_prolog_function string_length)
-!(import_prolog_function sub_string)
-!(import_prolog_function swrite)
-!(import_prolog_function sread)
-!(import_prolog_function string_concat)
+;; src/utils.metta — shared helpers for the CeTTaClaw agent core.
+;;
+;; Mirrors the ROLE of pettaclaw-godel/src/utils.metta (small cross-cutting
+;; helpers). The string / number / time primitives it wrapped in Prolog are
+;; CeTTa interfaces (str, time) or focused src helpers, so this file keeps only
+;; the message algebra the loop and channels share, plus the pre-LLM sleep seam.
 
-(= (sleep $t)
-   (progn (translatePredicate (sleep $t))
-          True))
 
-(= (exists-file $file)
-   (progn (translatePredicate (exists_file $file))
-          True))
+;; ---- message algebra ------------------------------------------------------
+;; A message is legacy (Msg $sender $text) or keyed (Msg $sender $key $text),
+;; with $sender in {human, bot}. Real Telegram messages carry update_id as the
+;; key so repeated identical texts still count as new (this drives the &prevmsg
+;; dedup, exactly as pettaclaw's (repr (receive)) != &prevmsg comparison did).
+(= (claw:is-human $msg)
+   (case $msg
+     (((Msg human $t) True)
+      ((Msg human $key $t) True)
+      ((Msg (human $id) $t) True)
+      ((Msg (human $id) $key $t) True)
+      ($other False))))
 
-(= (string-replace $str $a $b)
-   (atomic_list_concat (split_string $str $a "") $b))
+;; Sender user id for rich live messages; "" for legacy/offline fixtures.
+(= (claw:msg-from-id $msg)
+   (case $msg
+     (((Msg (human $id) $t) $id)
+      ((Msg (human $id) $key $t) $id)
+      ($other ""))))
+(= (claw:msg-key $msg)
+   (case $msg
+     (((Msg $s $key $t) $key)
+      ((Msg $s $t) $t)
+      ($other ""))))
+(= (claw:msg-text $msg)
+   (case $msg
+     (((Msg $s $key $t) $t)
+      ((Msg $s $t) $t)
+      ($other ""))))
 
-(= (string-safe $str)
-   (string-replace (string-replace (string-replace $str "\"\"" "_quote_") "\n" "_newline_") "'" "_apostrophe_"))
-
-(= (get_time_as_string)
-   (progn (translatePredicate (format_time (Predicate (string $String)) "%Y-%m-%d %H:%M:%S" (get_time)))
-          $String))
-
-(= (last_chars $String $N)
-   (let $Len (string_length $String)
-        (sub_string $String (max 0 (- $Len $N)) $_ 0)))
-
-(= (configure $name $default)
-   (let $value (progn (println! (Input value for $name or press enter for default $default))
-                      (if (!= (argv 1) default)
-                          (read_line_to_string user_input) ""))
-        (if (== $value "")
-            (add-atom &self (= ($name) $default))
-            (let $k (collapse (translatePredicate (number_string $v1 $value)))
-                 (if (== $k ())
-                     (add-atom &self (= ($name) $value))
-                     (progn (translatePredicate (number_string $v2 $value))
-                            (add-atom &self (= ($name) $v2))))))))
-
-(= (take $k ()) ())
-(= (take $k (cons $h $t))
-   (if (== $k 0)
-       ()
-       (cons $h (take (- $k 1) $t))))
-
-(= (newline)
-   (progn (translatePredicate (atom_codes $NL (10)))
-          $NL))
+;; ---- sleep seam -----------------------------------------------------------
+;; Pre-LLM: count instead of blocking so offline goldens are instant. The live
+;; driver (runtime/) swaps this for (time:sleep-ms $ms).
+(= (claw:sleep $ms)
+   (let $_ (change-state! &sleep-count (+ 1 (get-state &sleep-count)))
+        (Slept $ms)))
