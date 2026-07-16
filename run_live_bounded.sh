@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# run_live_bounded.sh — guarded bounded LIVE Telegram run for cettaclaw-godel.
+# run_live_bounded.sh — guarded bounded LIVE Telegram run for Cettaclaw-Lila.
 #
 # Runs a bounded live entrypoint (default run_live_bounded.metta) on the CeTTa
 # interfaces binary at CETTA_ROOT, from this repo root, with live-send approval
-# set, after confirming no legacy Godel agent is active against the same bot and
+# set, after confirming no Pettaclaw-Lila agent is active against the same bot and
 # that the run lock is free. Stdout/stderr go to a timestamped log under ~/archive.
 #
 # Usage: ./run_live_bounded.sh [entrypoint.metta]
@@ -21,8 +21,8 @@ fi
 
 # The live state: the canonical cettaclaw config (offset/history/prompt are its
 # real files). Callers may override these for scratch dry-runs.
-export CETTACLAW_SETTINGS="${CETTACLAW_SETTINGS:-$HOME/.config/cettaclaw/settings.env}"
-export CETTACLAW_SECRETS="${CETTACLAW_SECRETS:-$HOME/.config/cettaclaw/secrets.env}"
+export CETTACLAW_SETTINGS="${CETTACLAW_SETTINGS:-$ROOT/.env}"
+export CETTACLAW_SECRETS="${CETTACLAW_SECRETS:-$ROOT/config/secrets.env}"
 for f in "$CETTACLAW_SETTINGS" "$CETTACLAW_SECRETS"; do
     [ -f "$f" ] || { echo "REFUSING: missing config file $f" >&2; exit 1; }
 done
@@ -43,16 +43,16 @@ if ! "$CETTA" -v 2>/dev/null | grep -q '(core)'; then
     echo "REFUSING: $CETTA is not a BUILD=core binary" >&2; exit 1
 fi
 
-# Never run two agents against Godel's same bot/offset.
-for svc in pettaclaw-godel; do
+# Never run both Lila implementations against the same bot or offset.
+for svc in pettaclaw-lila; do
     state="$(systemctl --user is-active "$svc" 2>/dev/null || true)"
     case "$state" in
         active|activating|reloading)
             echo "REFUSING: user service '$svc' is $state — stop it first." >&2; exit 1 ;;
     esac
 done
-if legacy="$(pgrep -af 'pettaclaw-godel/run')"; then
-    echo "REFUSING: a legacy Godel process is running:" >&2; echo "$legacy" >&2; exit 1
+if legacy="$(pgrep -af 'pettaclaw-lila/run')"; then
+    echo "REFUSING: a Pettaclaw-Lila process is running:" >&2; echo "$legacy" >&2; exit 1
 fi
 
 # Address-space cap: large embedding JSON must be handled by the runtime/json

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — launch a cettaclaw-godel entrypoint on the CeTTa interfaces binary.
+# run.sh — launch a Cettaclaw-Lila entrypoint on the CeTTa interfaces binary.
 #
 # The interpreter and its native interfaces live OUTSIDE this repo, in CeTTa
 # proper: point CETTA_ROOT at a BUILD=core CeTTa checkout (its dir supplies the
@@ -15,8 +15,10 @@ CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/cetta-interfaces}"
 CETTA="$CETTA_ROOT/cetta"
 
 # Settings + secrets (KEY=VALUE .env files) — outside the repo, never committed.
-export CETTACLAW_SETTINGS="${CETTACLAW_SETTINGS:-$HOME/.config/cettaclaw/settings.env}"
-export CETTACLAW_SECRETS="${CETTACLAW_SECRETS:-$HOME/.config/cettaclaw/secrets.env}"
+# This profile must never inherit another agent's managed global settings.
+# initialize.sh creates both local ignored files before any activation review.
+export CETTACLAW_SETTINGS="${CETTACLAW_SETTINGS:-$ROOT/.env}"
+export CETTACLAW_SECRETS="${CETTACLAW_SECRETS:-$ROOT/config/secrets.env}"
 for f in "$CETTACLAW_SETTINGS" "$CETTACLAW_SECRETS"; do
     [ -f "$f" ] || echo "warning: config file not found: $f" >&2
 done

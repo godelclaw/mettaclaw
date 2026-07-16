@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Persistent service wrapper for Godel-on-CeTTa (cettaclaw-godel).
+# Persistent service wrapper for Lila-on-CeTTa (cettaclaw-lila).
 #
 # Delegates to the guarded bounded launcher, using the streaming bounded session
 # as the service chunk: systemd restarts this process after a clean exit, giving

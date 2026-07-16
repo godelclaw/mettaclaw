@@ -9,7 +9,8 @@ Telegram offsets, histories, memory indexes, or service units.
 Before activation:
 
 1. review the ignored local configuration for Lila's provider, memory endpoint,
-   collection, and Telegram allowlist;
+   collection, and Telegram allowlist; keep the launcher pointed at the local
+   `.env` and `config/secrets.env`, never another agent's managed profile;
 2. install credentials deliberately rather than copying Gödel's;
 3. choose a single Telegram consumer and stop Pettaclaw before any cutover;
 4. provision the ignored live prompt and verify personality parity against the
