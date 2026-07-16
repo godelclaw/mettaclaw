@@ -16,14 +16,19 @@
 
 (= (claw:strip-trailing-affect $text)
    (let $trimmed (str:trim $text)
-     (if (str:ends-with $trimmed "⟩")
-         (case (str:find $trimmed "\n⋄⟨")
-           ((Empty $text)
-            ($i (let $trace (str:slice $trimmed (+ $i 1) (str:length $trimmed))
-                  (case (str:find $trace "\n")
-                    ((Empty (str:slice $trimmed 0 $i))
-                     ($later $text)))))))
-         $text)))
+     (if (and (str:starts-with $trimmed "⋄⟨")
+              (str:ends-with $trimmed "⟩"))
+         (case (str:find $trimmed "\n")
+           ((Empty "")
+            ($later $text)))
+         (if (str:ends-with $trimmed "⟩")
+             (case (str:find $trimmed "\n⋄⟨")
+               ((Empty $text)
+                ($i (let $trace (str:slice $trimmed (+ $i 1) (str:length $trimmed))
+                      (case (str:find $trace "\n")
+                        ((Empty (str:slice $trimmed 0 $i))
+                         ($later $text)))))))
+             $text))))
 
 ;; Migration normalizer: unwrap the legacy command batch, normalize repr-style
 ;; quotes, and return exactly one outer command-list expression.

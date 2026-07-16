@@ -302,16 +302,23 @@
 
 !(assertEqual (get-state &pending-offset) "41")
 
-;; PeTTa's channel returns the latest visible message until a newer one arrives.
-;; CeTTa must replay the last message for autonomous follow-up turns, but with
-;; no pending offset because there is no new Telegram update to commit.
+;; PeTTa consumes the latest queued message once. CeTTa retains its key and
+;; reply route for autonomous follow-up work, but the old human payload is gone.
 !(assertEqual
   (claw:test-loop-envelope
     (claw:live-receive-from-body-explicit
       "{\"ok\":true,\"result\":[]}"
       False
       "1002003"))
-  (LoopEnvelope human "40"))
+  (LoopEnvelope bot "40"))
+
+!(assertEqual
+  (claw:test-loop-text
+    (claw:live-receive-from-body-explicit
+      "{\"ok\":true,\"result\":[]}"
+      False
+      "1002003"))
+  "")
 
 !(assertEqual (get-state &pending-offset) "")
 
@@ -616,8 +623,8 @@
   True)
 
 ;; Empty update batches with no previous visible message do not spend a model
-;; call or commit anything. Once a previous message exists, empty batches replay
-;; it, matching PeTTa's getLastMessage behavior.
+;; call or commit anything. Once a message has been consumed, follow-up turns
+;; carry only its continuation key and reply route, never its human payload.
 !(change-state! &live-last-msg NoLiveMessage)
 !(change-state! &prevmsg "")
 !(change-state! &reply-chat "")
@@ -639,4 +646,16 @@
          (and
            (claw:test-contains (repr $turn) "Resting loops-left 0")
            (claw:test-contains (repr $turn) "LivePreviewOnly"))))
+  True)
+
+;; PeTTa's append-file skill appends one complete line, including its newline.
+!(assertEqual
+  (let $path "runtime/test_claw_append_line.txt"
+  (let $_write (fs:write-text $path "first\n")
+  (let $result (claw:append-file $path "second")
+  (let $content (fs:read-text $path)
+  (let $_remove (fs:remove $path)
+       (and (== (claw:live-command-batch-timeout-ms) 900000)
+            (and (== $result (Appended $path))
+                 (== $content "first\nsecond\n"))))))))
   True)

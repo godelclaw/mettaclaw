@@ -33,6 +33,8 @@
 !(assertEqual
   (claw:strip-trailing-affect "⋄⟨Cn:.7⟩\n((pin \"x\"))")
   "⋄⟨Cn:.7⟩\n((pin \"x\"))")
+!(assertEqual (claw:strip-trailing-affect "⋄⟨Cn:.7⟩") "")
+!(assertEqual (claw:balance-parens "⋄⟨Cn:.7⟩") "(())")
 !(assertEqual (claw:balance-parens "((send \\\"hi\\\"))")
               "((send \"hi\"))")
 

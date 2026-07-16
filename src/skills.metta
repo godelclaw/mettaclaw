@@ -95,7 +95,9 @@
 
 (= (claw:append-file $path $text)
    (if (fs:exists $path)
-       (case (fs:append-text $path (claw:decode-safe $text))
+       (case (fs:append-text
+               $path
+               (str:concat (claw:decode-safe $text) "\n"))
          ((() (Appended $path))
           ($err (AppendFailed $path $err))))
        (AppendMissingFile $path)))
@@ -106,7 +108,9 @@
 ;; copy of the same binary instead. The agent gets real output as data, and
 ;; malformed MeTTa cannot kill its own loop.
 (= (claw:metta-program $text)
-   (str:concat "!" (str:concat (claw:decode-safe $text) "\n")))
+   (str:concat
+     "!(let $_ (import! &self ./lib_cettaclaw.metta)\n  "
+     (str:concat (claw:decode-safe $text) ")\n")))
 
 (= (claw:metta $text)
    (let $r (process-run-cmd-cwd-env-stdin-timeout-cap-bytes

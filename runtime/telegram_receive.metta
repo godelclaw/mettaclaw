@@ -2,8 +2,9 @@
 ;;
 ;; This is runtime/daemon machinery, not part of the thin agent core.  It turns
 ;; getUpdates batches into keyed Msg values, tracks reply chat and pending offset,
-;; drains queued updates FIFO, and replays the last visible message for follow-up
-;; turns, matching the PeTTaClaw channel behavior.
+;; drains queued updates FIFO, and keeps the last reply route for follow-up
+;; turns. PeTTaClaw consumes each queued message once: after that, the model may
+;; keep working, but HUMAN-LAST-MSG is empty until another update arrives.
 
 !(import! &self ../src/telegram.metta)
 !(import! &self ../src/channels.metta)
@@ -15,12 +16,12 @@
    (let $_ (change-state! &live-last-msg (LiveLastMessage $chat $msg))
         $msg))
 
-(= (claw:live-replay-last-message)
+(= (claw:live-continue-after-last-message)
    (case (get-state &live-last-msg)
      (((LiveLastMessage $chat $msg)
        (let $_ (change-state! &reply-chat $chat)
        (let $__ (change-state! &pending-offset "")
-            $msg)))
+            (Msg bot (claw:msg-key $msg) ""))))
       ($other
        (let $_ (change-state! &reply-chat "")
        (let $__ (change-state! &pending-offset "")
@@ -35,7 +36,7 @@
             (claw:live-store-last-message $chat-id $msg)))))
       ($other
        (if (== $offset "")
-           (claw:live-replay-last-message)
+           (claw:live-continue-after-last-message)
            (let $_ (change-state! &reply-chat "")
            (let $__ (change-state! &pending-offset $offset)
                 (Msg bot "" ""))))))))

@@ -1,6 +1,6 @@
 ;; runtime/bounded_eval.metta — child-bounded evaluation of an LLM turn.
 ;; The balanced command list is parse-preflighted, then run in a bounded child
-;; copy of this binary (15s, 1 MiB cap) with the agent state serialized in and
+;; copy of this binary (15m, 1 MiB cap) with the agent state serialized in and
 ;; the mutated state read back. Malformed MeTTa or a runaway turn cannot kill the
 ;; parent daemon. The child imports the agent library (lib_cettaclaw.metta) with
 ;; CWD = repo root, and runs under a passthrough env (send-approval etc.).
@@ -12,6 +12,12 @@
 !(import! &self ../src/wire.metta)
 !(import! &self ../src/utils.metta)
 !(import! &self ../src/context.metta)
+
+;; PeTTaClaw lets each skill enforce its own bound. The slowest compatible
+;; skills (memory and MCP) allow 180s and 120s respectively, and the prompt
+;; permits five commands. Keep a final runaway guard without pre-empting those
+;; ordinary per-skill limits.
+(= (claw:live-command-batch-timeout-ms) 900000)
 
 (= (claw:live-text-contains? $haystack $needle)
    (if (== (collapse (str:find $haystack $needle)) ()) False True))
@@ -219,7 +225,7 @@
               (claw:live-child-repo-root)
               (claw:live-child-env)
               $program
-              15000
+              (claw:live-command-batch-timeout-ms)
               1048576))
           (($r (claw:live-run-response-child-finish
                  $path $state-path $r)))))))))
