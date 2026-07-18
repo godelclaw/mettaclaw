@@ -70,6 +70,7 @@ def main():
     emit("METTACLAW_PROMPT_PATH", expand(paths.get("prompt_path"), root))
     emit("METTACLAW_HISTORY_PATH", expand(paths.get("history_path"), root))
     emit("METTACLAW_MEMORY_LOG_DIR", expand(paths.get("memory_log_dir"), root))
+    emit("METTACLAW_TELEGRAM_ATTACHMENTS_DIR", expand(paths.get("attachments_dir"), root))
     emit("METTACLAW_REPOS_DIR", expand(paths.get("repos_dir"), root))
     emit("METTACLAW_EMBED_MODEL", expand(paths.get("embed_model"), root))
 
@@ -80,6 +81,7 @@ def main():
     emit("METTACLAW_CHANNEL", channel.get("kind"))
 
     emit("METTACLAW_TELEGRAM_ALLOW_PRIVATE", telegram.get("allow_private"))
+    emit("METTACLAW_TELEGRAM_OPERATOR_IDS", telegram.get("operator_ids"))
     emit("METTACLAW_TELEGRAM_ALLOWED_CHAT_IDS", telegram.get("allowed_chat_ids"))
 
     emit("METTACLAW_SEARCH_PROVIDER", search.get("provider"))

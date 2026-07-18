@@ -78,6 +78,8 @@ def test_poll_logs_before_advancing_offset_and_queues_allowed_message():
         tg._pending_messages = []
         tg._reply_chat_id = ""
         tg._last_chat_id = ""
+        tg._last_message_is_human = False
+        tg._last_from_bot = False
         tg._running = True
 
         tg._poll_loop()
@@ -113,6 +115,11 @@ def test_poll_logs_before_advancing_offset_and_queues_allowed_message():
         assert 'from_id="42"' in queued
         assert "hello from allowed" in queued
         assert "private to other group" not in queued
+        assert tg.lastMessageIsHuman() == 1
+        assert tg.lastMessageFromBot() is False
+
+        assert tg.getLastMessage() == ""
+        assert tg.lastMessageIsHuman() == 0
 
 
 def test_channel_posts_are_logged_with_kind():
@@ -163,6 +170,8 @@ def test_log_failure_does_not_block_message_delivery_or_offset():
         tg._pending_messages = []
         tg._reply_chat_id = ""
         tg._last_chat_id = ""
+        tg._last_message_is_human = False
+        tg._last_from_bot = False
         tg._running = True
 
         tg._poll_loop()
@@ -171,6 +180,47 @@ def test_log_failure_does_not_block_message_delivery_or_offset():
         queued = tg.getLastMessage()
         assert 'update_id="300"' in queued
         assert "deliver even if logging fails" in queued
+        assert tg.lastMessageIsHuman() == 1
+
+
+def test_bot_messages_are_delivered_but_do_not_arm_loop():
+    tg = load_telegram()
+    update = {
+        "update_id": 400,
+        "message": {
+            "message_id": 40,
+            "chat": {"id": -1, "type": "group", "title": "Allowed Group"},
+            "from": {"id": 99, "username": "SiblingBot", "is_bot": True},
+            "text": "bot-to-bot hello",
+        },
+    }
+
+    def fake_get(url, params=None, timeout=None):
+        tg._running = False
+        return FakeResponse({"ok": True, "result": [update]})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tg.requests.get = fake_get
+        tg._token = "fake-token"
+        tg._allowed_chat_ids = {"-1"}
+        tg._allow_private_chats = False
+        tg._offset = None
+        tg._offset_path = str(pathlib.Path(tmp) / "offset.txt")
+        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+        tg._pending_messages = []
+        tg._reply_chat_id = ""
+        tg._last_chat_id = ""
+        tg._last_message_is_human = False
+        tg._last_from_bot = False
+        tg._running = True
+
+        tg._poll_loop()
+
+        queued = tg.getLastMessage()
+        assert 'from_is_bot=true' in queued
+        assert "bot-to-bot hello" in queued
+        assert tg.lastMessageIsHuman() == 0
+        assert tg.lastMessageFromBot() is True
 
 
 def test_attachment_download_is_atomic_and_sanitized():
@@ -246,5 +296,6 @@ if __name__ == "__main__":
     test_poll_logs_before_advancing_offset_and_queues_allowed_message()
     test_channel_posts_are_logged_with_kind()
     test_log_failure_does_not_block_message_delivery_or_offset()
+    test_bot_messages_are_delivered_but_do_not_arm_loop()
     test_attachment_download_is_atomic_and_sanitized()
     test_oversized_attachment_leaves_no_partial_file()

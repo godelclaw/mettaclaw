@@ -21,10 +21,16 @@ _offset_path = ""
 _log_path = ""
 _msg_lock = threading.Lock()
 _log_lock = threading.Lock()
+_chat_titles = {}  # chat_id -> last-seen display title (for outbound records)
+
+
+def _api_base():
+    return os.environ.get("METTACLAW_TELEGRAM_BASE_URL",
+                          "https://api.telegram.org")
 
 
 def _api(method):
-    return f"https://api.telegram.org/bot{_token}/{method}"
+    return f"{_api_base()}/bot{_token}/{method}"
 
 
 def _split_chat_ids(raw):
@@ -250,7 +256,7 @@ def _download_attachment(message):
         base = _safe_filename(file_name or os.path.basename(remote_path), (file_id or "file")[:16])
         dest = os.path.join(dest_dir, f"{(message or {}).get('message_id', 'x')}-{base}")
         partial = dest + ".part"
-        url = f"https://api.telegram.org/file/bot{_token}/{remote_path}"
+        url = f"{_api_base()}/file/bot{_token}/{remote_path}"
         try:
             with requests.get(url, stream=True, timeout=120) as r:
                 r.raise_for_status()
@@ -376,6 +382,156 @@ def _save_offset():
         print("[telegram] offset save error:", exc)
 
 
+def recent_activity(n=10, chat=None, snippet_chars=110):
+    """Short-term memory: the last n allowed messages from the local update
+    log as '[hh:mm chat sender: text…]', oldest→newest. Always in context, so
+    the agent keeps group-dynamics awareness (who spoke, when, was I last?)
+    across turns — the vericlaw/godelclaw last-k-messages continuity, kept
+    sweetly simple. Never raises (janus boundary)."""
+    try:
+        n = max(1, int(n))
+        if not _log_path or not os.path.exists(_log_path):
+            return ""
+        if chat is None:
+            # ambient per-turn STM: cheap tail read
+            with open(_log_path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - 65536))
+                lines = f.read().decode("utf-8", "replace").splitlines()
+        else:
+            # explicit per-chat recall: stream the whole log (reaches back to
+            # the beginning of local logging)
+            with open(_log_path, encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        entries = []
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if not rec.get("allowed") or not rec.get("text"):
+                continue
+            if chat is not None:
+                needle = str(chat).lower()
+                if (needle not in str(rec.get("chat_title", "")).lower()
+                        and needle != str(rec.get("chat_id", ""))):
+                    continue
+            ts = str(rec.get("received_at", ""))[11:16]  # ISO -> hh:mm
+            snippet = " ".join(str(rec.get("text", "")).split())
+            if len(snippet) > snippet_chars:
+                snippet = snippet[:snippet_chars] + "…"
+            entries.append(f"[{ts} {rec.get('chat_title', '?')} "
+                           f"{rec.get('from', '?')}: {snippet}]")
+        return " ".join(entries[-n:])
+    except Exception as exc:
+        print("[telegram] recent_activity error:", exc)
+        return ""
+
+
+def _operator_ids():
+    """Sender ids allowed to use the model/quota controls (spending levers)."""
+    raw = os.environ.get("METTACLAW_TELEGRAM_OPERATOR_IDS", "")
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _is_operator(sender):
+    return str((sender or {}).get("id", "")) in _operator_ids()
+
+
+def _models_keyboard():
+    """Inline keyboard of switchable models: tap a button to switch (handled
+    by _handle_callback_query, zero LLM involvement)."""
+    import synthetic_llm
+    current = synthetic_llm.current_model()
+    rows = []
+    for m in synthetic_llm.model_ids():
+        if len(("model:" + m).encode("utf-8")) > 64:  # telegram limit
+            continue
+        label = ("● " if m == current else "") + m
+        rows.append([{"text": label, "callback_data": "model:" + m}])
+    return {"inline_keyboard": rows}
+
+
+def _handle_callback_query(cq):
+    """A tapped, namespaced model button (callback_data 'model:<id>') from an
+    operator: switch, acknowledge, update the menu message."""
+    import synthetic_llm
+    data = str(cq.get("data") or "")
+    message = cq.get("message") or {}
+    chat = message.get("chat") or {}
+    try:
+        if not data.startswith("model:"):
+            return "callback_ignored"
+        if not _chat_is_allowed(chat):
+            return "callback_disallowed_chat"
+        if not _is_operator(cq.get("from")):
+            requests.post(_api("answerCallbackQuery"), json={
+                "callback_query_id": cq.get("id"),
+                "text": "model switching is operator-only",
+            }, timeout=15)
+            return "callback_not_operator"
+        reply = synthetic_llm.set_model(data[len("model:"):])
+        requests.post(_api("answerCallbackQuery"), json={
+            "callback_query_id": cq.get("id"),
+            "text": str(reply)[:190],
+        }, timeout=15)
+        requests.post(_api("editMessageText"), json={
+            "chat_id": chat.get("id"),
+            "message_id": message.get("message_id"),
+            "text": str(reply)[:3800],
+            "reply_markup": _models_keyboard(),
+        }, timeout=15)
+        return "callback_model_switch"
+    except Exception as exc:
+        print("[telegram] callback error:", exc)
+        return "callback_error"
+
+
+def _handle_slash_command(chat, sender, text):
+    """Deterministic /model, /models, /quota handling inside the poll thread.
+
+    Zero LLM involvement: the reply is sent directly and the message is NOT
+    queued for the agent, so a command costs no tokens and works even while
+    the agent rests. A model switch takes effect on the agent's next turn
+    (chat() reads SYNTHETIC_MODEL per call). Returns a log note when handled,
+    None otherwise."""
+    stripped = (text or "").strip()
+    if not stripped.startswith("/"):
+        return None
+    parts = stripped.split(None, 1)
+    cmd = parts[0].split("@", 1)[0].lower()  # '/model@SomeBot' -> '/model'
+    arg = parts[1].strip() if len(parts) > 1 else ""
+    if cmd not in ("/model", "/models", "/quota"):
+        return None
+    if not _is_operator(sender):
+        # Spending levers are operator-only. For anyone else the message just
+        # flows to the agent as ordinary conversation.
+        return None
+    try:
+        import synthetic_llm
+        if cmd == "/models":
+            requests.post(_api("sendMessage"), json={
+                "chat_id": chat.get("id"),
+                "text": "tap to switch:",
+                "reply_markup": _models_keyboard(),
+            }, timeout=15)
+            return "slash_command:/models"
+        elif cmd == "/quota":
+            reply = synthetic_llm.quota()
+        elif arg:
+            reply = synthetic_llm.set_model(arg)
+        else:
+            reply = (
+                f"active model: {synthetic_llm.current_model()} — "
+                "/model <name> to switch, /models to list, /quota for budget"
+            )
+        send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
+        return "slash_command:" + cmd
+    except Exception as exc:
+        print("[telegram] slash command error:", exc)
+        return "slash_command_error:" + cmd
+
+
 def _poll_loop():
     global _offset
     while _running:
@@ -388,6 +544,14 @@ def _poll_loop():
             data = resp.json()
             for update in data.get("result", []):
                 update_id = int(update["update_id"])
+                if "callback_query" in update:
+                    cb_note = _handle_callback_query(update["callback_query"])
+                    _append_update_log(update, "callback_query",
+                                       (update["callback_query"] or {}).get("message"),
+                                       False, False, cb_note)
+                    _offset = update_id + 1
+                    _save_offset()
+                    continue
                 kind, message = _extract_message(update)
                 note = ""
                 allowed = False
@@ -398,6 +562,9 @@ def _poll_loop():
                 else:
                     chat = message.get("chat") or {}
                     allowed = _chat_is_allowed(chat)
+                    if allowed:
+                        _chat_titles[str(chat.get("id", ""))] = \
+                            _display_chat(chat)
                     text = message.get("text") or message.get("caption")
                     if not allowed:
                         note = "disallowed_chat"
@@ -408,7 +575,12 @@ def _poll_loop():
                         if not text:
                             note = "no_text_or_caption"
                         else:
-                            queued = True
+                            command_note = _handle_slash_command(
+                                chat, message.get("from"), text)
+                            if command_note:
+                                note = command_note
+                            else:
+                                queued = True
                 if not _append_update_log(update, kind, message, allowed, queued, note):
                     print("[telegram] continuing after update log failure")
                 _offset = update_id + 1
@@ -475,17 +647,55 @@ def _reply_target(chat_id=""):
         return _reply_chat_id or _last_chat_id
 
 
+def _log_outbound(chat_id, text):
+    """Record the agent's own send in the local update log so the short-term
+    memory (recent_activity) shows both sides of the conversation."""
+    if not _log_path:
+        return
+    try:
+        record = {
+            "received_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "kind": "outbound",
+            "allowed": True,
+            "queued": False,
+            "note": "own_send",
+            "chat_id": str(chat_id),
+            "chat_title": _chat_titles.get(str(chat_id), str(chat_id)),
+            "from": "me",
+            "from_is_bot": True,
+            "text": str(text),
+        }
+        line = json.dumps(record, ensure_ascii=False,
+                          separators=(",", ":")) + "\n"
+        with _log_lock:
+            with open(_log_path, "a", encoding="utf-8") as f:
+                f.write(line)
+    except Exception as exc:
+        print("[telegram] outbound log error:", exc)
+
+
 def send_message(text, chat_id=""):
     chat_id = _reply_target(chat_id)
     if not _token or not chat_id:
         print("[telegram] cannot send: missing token or chat id")
         return
     try:
-        requests.post(
+        body = str(text).replace("\\n", "\n")
+        resp = requests.post(
             _api("sendMessage"),
-            json={"chat_id": chat_id, "text": str(text).replace("\\n", "\n")},
+            json={"chat_id": chat_id, "text": body},
             timeout=30,
         )
+        delivered = False
+        try:
+            delivered = bool(resp.ok and resp.json().get("ok"))
+        except ValueError:
+            pass
+        if delivered:
+            # STM records only what Telegram actually accepted.
+            _log_outbound(chat_id, body)
+        else:
+            print(f"[telegram] send rejected (HTTP {resp.status_code})")
     except requests.exceptions.RequestException as exc:
         # A transient network failure on send must never cross Janus and kill the
         # loop (the same failure class that crashed Lila via synthetic_llm).

@@ -36,27 +36,194 @@ def _empty_action(reason):
     return "()"
 
 
-def chat(model, max_tokens, effort, prompt):
-    key = os.environ.get("SYNTHETIC_API_KEY", "")
-    if not key:
-        raise RuntimeError("SYNTHETIC_API_KEY is not set")
-    data = json.dumps(
-        {
-            "model": os.environ.get("SYNTHETIC_MODEL", str(model)),
-            "messages": [{"role": "user", "content": str(prompt)}],
-            "max_tokens": int(max_tokens),
-            "reasoning": {"effort": str(effort)},
+# --- provider routing --------------------------------------------------------
+# Optional second provider: model names starting with "claude-" are served by
+# Anthropic's OpenAI-compatible endpoint using ANTHROPIC_API_KEY. Every other
+# model takes the synthetic path exactly as before. Switching is session-level
+# via set_model(), so the configured default provider is untouched.
+
+_ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com/v1"
+_ANTHROPIC_DEFAULT_MODELS = (
+    "claude-fable-5,claude-opus-4-8,claude-sonnet-5,claude-haiku-4-5-20251001"
+)
+
+
+def _is_anthropic_model(name):
+    return str(name).strip().startswith("claude-")
+
+
+# --- model persistence --------------------------------------------------------
+# The active model is durable state: a switch (set_model / the /model command)
+# writes it here, and process start restores it. Restarts therefore NEVER
+# change the model; the config default applies only when no choice was ever
+# made. This is a cost-safety property: an expensive model can only ever be
+# active by explicit choice.
+
+def _model_state_path():
+    default = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "memory", "persistent.metta")
+    return os.environ.get("METTACLAW_MODEL_STATE_PATH", default)
+
+
+_ACTIVE_MODEL_RE = None
+
+
+import threading
+
+_persist_lock = threading.Lock()
+
+
+def _persist_model(name):
+    """Durably store the choice as an (active-model ...) atom in the agent's
+    standing persistent-state file, preserving any other atoms living there.
+    Returns True only when the write landed; callers must not activate a
+    model whose persistence failed."""
+    with _persist_lock:
+        return _persist_model_locked(name)
+
+
+def _persist_model_locked(name):
+    try:
+        import re as _re
+        path = _model_state_path()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                lines = [l for l in fh.read().splitlines()
+                         if not _re.match(r"\s*\(active-model\s", l)]
+        except OSError:
+            lines = []
+        lines.append(f"(active-model {str(name).strip()})")
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:
+        print(f"[synthetic_llm] could not persist model choice: {exc}",
+              file=sys.stderr)
+        return False
+
+
+def _restore_persisted_model():
+    try:
+        import re as _re
+        with open(_model_state_path(), encoding="utf-8") as fh:
+            m = _re.search(r"^\s*\(active-model\s+([^\s()]+)\s*\)",
+                           fh.read(), _re.M)
+        if m:
+            os.environ["SYNTHETIC_MODEL"] = m.group(1)
+    except OSError:
+        pass
+
+
+_restore_persisted_model()
+
+
+def _anthropic_models():
+    raw = os.environ.get("ANTHROPIC_MODELS", _ANTHROPIC_DEFAULT_MODELS)
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+def _provider_for(model):
+    if _is_anthropic_model(model):
+        return {
+            "name": "anthropic",
+            "base": os.environ.get(
+                "ANTHROPIC_BASE_URL", _ANTHROPIC_DEFAULT_BASE).rstrip("/"),
+            "key": os.environ.get("ANTHROPIC_API_KEY", ""),
         }
-    ).encode("utf-8")
-    base_url = os.environ.get("SYNTHETIC_BASE_URL", "https://api.synthetic.new/openai/v1")
-    req = urllib.request.Request(
-        base_url.rstrip("/") + "/chat/completions",
-        data,
+    return {
+        "name": "synthetic",
+        "base": os.environ.get(
+            "SYNTHETIC_BASE_URL",
+            "https://api.synthetic.new/openai/v1").rstrip("/"),
+        "key": os.environ.get("SYNTHETIC_API_KEY", ""),
+    }
+
+
+def _anthropic_request(provider, effective_model, max_tokens, prompt):
+    """Native Messages API request with automatic prompt caching.
+
+    The agent context has a stable head (PROMPT/SKILLS/OUTPUT_FORMAT) before
+    the per-turn fields; splitting at ' LOOPS_LEFT: ' puts that head in the
+    system block, so the top-level cache_control gets cache hits on every
+    turn inside a burst (5-minute TTL)."""
+    text = str(prompt)
+    marker = " LOOPS_LEFT: "
+    cut = text.find(marker)
+    if cut > 0:
+        system, user = text[:cut], text[cut:]
+    else:
+        system, user = "", text
+    body = {
+        "model": effective_model,
+        "max_tokens": int(max_tokens),
+        "messages": [{"role": "user", "content": user}],
+    }
+    if system:
+        # Explicit breakpoint on the stable head only: the per-turn user
+        # message is rebuilt every call, so automatic (top-level) caching
+        # would cache system+user and never hit. Verified empirically.
+        body["system"] = [{"type": "text", "text": system,
+                           "cache_control": {"type": "ephemeral"}}]
+    return urllib.request.Request(
+        provider["base"] + "/messages",
+        json.dumps(body).encode("utf-8"),
         {
-            "Authorization": "Bearer " + key,
+            "x-api-key": provider["key"],
+            "anthropic-version": "2023-06-01",
             "Content-Type": "application/json",
         },
     )
+
+
+def _extract_content(payload):
+    """Assistant text from either response dialect (native or openai-compat)."""
+    if isinstance(payload.get("content"), list):  # native Messages API
+        parts = [b.get("text", "") for b in payload["content"]
+                 if isinstance(b, dict) and b.get("type") == "text"]
+        usage = payload.get("usage") or {}
+        if usage:
+            print(
+                "[synthetic_llm] anthropic usage: "
+                f"in={usage.get('input_tokens')} "
+                f"cache_read={usage.get('cache_read_input_tokens')} "
+                f"cache_write={usage.get('cache_creation_input_tokens')} "
+                f"out={usage.get('output_tokens')}",
+                file=sys.stderr,
+            )
+        return "".join(parts)
+    return payload["choices"][0]["message"]["content"]
+
+
+def chat(model, max_tokens, effort, prompt):
+    effective_model = os.environ.get("SYNTHETIC_MODEL", str(model))
+    provider = _provider_for(effective_model)
+    key = provider["key"]
+    if not key:
+        if provider["name"] == "anthropic":
+            # A session-switched provider must never crash the loop.
+            return _empty_action("ANTHROPIC_API_KEY is not set")
+        raise RuntimeError("SYNTHETIC_API_KEY is not set")
+    if provider["name"] == "anthropic":
+        req = _anthropic_request(provider, effective_model, max_tokens, prompt)
+    else:
+        data = json.dumps(
+            {
+                "model": effective_model,
+                "messages": [{"role": "user", "content": str(prompt)}],
+                "max_tokens": int(max_tokens),
+                "reasoning": {"effort": str(effort)},
+            }
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            provider["base"] + "/chat/completions",
+            data,
+            {
+                "Authorization": "Bearer " + key,
+                "Content-Type": "application/json",
+            },
+        )
     timeout = _float_env("SYNTHETIC_TIMEOUT", 120.0, 1.0)
     retries = _int_env("SYNTHETIC_RETRIES", 6, 0)
     delay = _float_env("SYNTHETIC_RETRY_DELAY", 2.0, 0.0)
@@ -66,7 +233,7 @@ def chat(model, max_tokens, effort, prompt):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 payload = json.loads(response.read())
-            content = payload["choices"][0]["message"]["content"]
+            content = _extract_content(payload)
             if isinstance(content, str) and content.strip():
                 return content
             return _empty_action("empty response")
@@ -153,6 +320,8 @@ def quota():
     if "error" in data:
         return f"quota unavailable: {data['error']}"
     parts = [f"model={current_model()}"]
+    if _is_anthropic_model(current_model()):
+        parts.append("provider=anthropic (its usage is tracked in the Anthropic console; credits below are synthetic's)")
     week = data.get("weeklyTokenLimit") or {}
     if week:
         parts.append(
@@ -182,16 +351,47 @@ def models():
             continue
         context = model.get("context_length") or model.get("context_window") or "?"
         items.append(f"({model.get('id', '?')} ctx {context})")
+    if os.environ.get("ANTHROPIC_API_KEY", ""):
+        items.extend(f"({m} provider anthropic)" for m in _anthropic_models())
     return "(" + " ".join(items) + ")" if items else "(no models returned)"
 
 
-def set_model(name):
-    """Switch the model for subsequent chat() calls this session.
+def _synthetic_model_ids():
+    data = _get_json(_openai_base() + "/models")
+    if "error" in data:
+        return []
+    return [m.get("id") for m in data.get("data") or []
+            if isinstance(m, dict) and m.get("id")]
 
-    Validated against the live model list; reverts to the configured default on
-    restart, so it is a safe session-scoped choice, not a permanent config edit.
+
+def model_ids():
+    """Structured list of switchable model ids (synthetic live list plus the
+    anthropic allowlist when configured). Presentation belongs to callers."""
+    ids = list(_synthetic_model_ids())
+    if os.environ.get("ANTHROPIC_API_KEY", ""):
+        ids.extend(_anthropic_models())
+    return ids
+
+
+def set_model(name):
+    """Switch the model for subsequent chat() calls.
+
+    Validated first, then durably persisted, then activated — a switch that
+    cannot be persisted is not applied. The choice survives restarts.
     """
     name = str(name).strip()
+    if _is_anthropic_model(name):
+        if not os.environ.get("ANTHROPIC_API_KEY", ""):
+            return ("anthropic provider not configured "
+                    "(ANTHROPIC_API_KEY missing); model unchanged")
+        if name not in _anthropic_models():
+            return (f"unknown anthropic model '{name}'; available: "
+                    + ", ".join(_anthropic_models()))
+        if not _persist_model(name):
+            return (f"switch to '{name}' NOT applied: could not durably "
+                    "persist the choice")
+        os.environ["SYNTHETIC_MODEL"] = name
+        return f"model set to '{name}' (anthropic); persists across restarts"
     data = _get_json(_openai_base() + "/models")
     if "error" in data:
         return f"cannot validate model list ({data['error']}); model unchanged"
@@ -200,5 +400,8 @@ def set_model(name):
         return "model list empty; model unchanged"
     if name not in valid:
         return f"unknown model '{name}'; available: {', '.join(str(v) for v in valid)}"
+    if not _persist_model(name):
+        return (f"switch to '{name}' NOT applied: could not durably persist "
+                "the choice")
     os.environ["SYNTHETIC_MODEL"] = name
-    return f"model set to '{name}' for this session (reverts to default on restart)"
+    return f"model set to '{name}'; persists across restarts"
