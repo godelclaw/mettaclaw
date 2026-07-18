@@ -681,15 +681,6 @@ def send_message(text, chat_id=""):
         return
     try:
         body = str(text).replace("\\n", "\n")
-        # Re-attach the turn's affect trace (captured at strip time) unless
-        # the message already carries one — the trace ends replies to
-        # humans/agents instead of dying in the parser's strip step.
-        try:
-            import helper
-            if getattr(helper, "LAST_AFFECT", "") and "⋄⟨" not in body:
-                body = body + "\n" + helper.LAST_AFFECT
-        except ImportError:
-            pass
         resp = requests.post(
             _api("sendMessage"),
             json={"chat_id": chat_id, "text": body},
