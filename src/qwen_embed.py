@@ -106,3 +106,42 @@ def embed_document(text):
 
 def embed_query(text):
     return _embed(text, True)
+
+
+# Guarded composites for the agent loop: a dead embedding daemon must yield
+# an instructive RESULT, not a generic command error. "Can't retrieve" and
+# "doesn't exist" are different facts; conflating them has produced false
+# "the work was never done" conclusions.
+DAEMON_DOWN_QUERY = (
+    "EMBED_DAEMON_DOWN: semantic memory is UNAVAILABLE, this query was not "
+    "run. Do NOT infer absence — files, history, and the wiki still hold "
+    "the truth; use shell/grep now and retry query after the daemon returns.")
+DAEMON_DOWN_REMEMBER = (
+    "EMBED_DAEMON_DOWN: this remember was NOT saved. Preserve it another "
+    "way (pin, file, or history) and re-remember after the daemon returns.")
+
+
+def _daemon_down(exc):
+    return "daemon unreachable" in str(exc) or "daemon error" in str(exc)
+
+
+def query_guarded(text, k):
+    try:
+        embedding = embed_query(text)
+    except RuntimeError as exc:
+        if _daemon_down(exc):
+            return DAEMON_DOWN_QUERY
+        raise
+    import lib_chromadb
+    return lib_chromadb.query(embedding, k)
+
+
+def remember_guarded(text, timestamp):
+    try:
+        embedding = embed_document(text)
+    except RuntimeError as exc:
+        if _daemon_down(exc):
+            return DAEMON_DOWN_REMEMBER
+        raise
+    import lib_chromadb
+    return lib_chromadb.remember(text, embedding, timestamp)

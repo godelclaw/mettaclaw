@@ -31,12 +31,12 @@
 (= (appendToHistory $addition)
    (append-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")) (swrite $addition)))
 
+;; Guarded: a dead embed daemon returns an instructive string result
+;; ("do not infer absence") instead of a generic command error.
 (= (remember $str)
    (let $memory (py-call (helper.decode_safe_text $str))
-        (let $embedding (py-call (qwen_embed.embed_document (string-safe $memory)))
-             (py-call (lib_chromadb.remember $memory $embedding (get_time_as_string))))))
+        (py-call (qwen_embed.remember_guarded (string-safe $memory) (get_time_as_string)))))
 
 (= (query $str)
    (let $query (py-call (helper.decode_safe_text $str))
-        (let $embedding (py-call (qwen_embed.embed_query (string-safe $query)))
-             (py-call (lib_chromadb.query $embedding (maxRecallItems))))))
+        (py-call (qwen_embed.query_guarded (string-safe $query) (maxRecallItems)))))
