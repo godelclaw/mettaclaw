@@ -40,7 +40,7 @@
 ;; Keep the wire instruction next to the context that exposes it. Dispatch and
 ;; its model-facing catalog remain together in skills.metta.
 (= (claw:output-format)
-   "OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence; after it, output only the required final affect-trace line. Each arg is an explicit string hence needs quotes, and variables are forbidden!")
+   "OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence. Each arg is an explicit string hence needs quotes, and variables are forbidden!")
 
 (= (claw:full-context $msgtext $loops $interval $isnew $ishuman $last)
    (str:join " "
