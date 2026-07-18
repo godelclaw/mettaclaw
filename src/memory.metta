@@ -12,9 +12,12 @@
 (= (getPrompt)
    (read-file (py-call (helper.path_from_env "METTACLAW_PROMPT_PATH" "./memory/prompt.txt"))))
 
+;; Anchored window (not a sliding tail): byte-stable start so the provider
+;; prompt cache keeps hitting as history appends; re-anchors only when the
+;; window outgrows its cap.
 (= (getHistory)
-   (let $ret (read-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")))
-        (last_chars $ret (maxHistory))))
+   (py-call (helper.history_window
+              (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")))))
 
 (= (addToHistory $lastmessage $response $sexpr $msgnew)
    (if $msgnew

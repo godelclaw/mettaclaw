@@ -19,7 +19,8 @@
 ;; Heartbeat (optional): when the loop wakes and this clock is stale, re-arm a
 ;; fresh (maxLoops)-cycle burst. Human messages reset the clock, so the timer is
 ;; measured from the last human-armed turn. 1800 s = 30 min; 0 disables it.
-(= (heartbeatInterval) 1800)
+;; Overridable via METTACLAW_HEARTBEAT_INTERVAL_SECONDS (tests shrink it).
+(= (heartbeatInterval) (py-call (helper.int_env "METTACLAW_HEARTBEAT_INTERVAL_SECONDS" 1800)))
 
 (= (maybeHeartbeat)
    (if (<= (heartbeatInterval) 0)
@@ -38,9 +39,12 @@
    (string-safe (py-str ("PROMPT: " (getPrompt) " SKILLS: " (getSkills)
                          " OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence; after it, output only the required final affect-trace line."
                          " each arg is an explicit string hence needs quotes, and variables are forbidden!"
+                         " HISTORY: " (getHistory)
                          " LOOPS_LEFT: " (get-state &loops)
                          " SLEEP_INTERVAL_SECONDS: " (get-state &sleepInterval)
-                         " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " HISTORY: " (getHistory) " TIME: " (get_time_as_string)))))
+                         " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
+                         " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
+                         " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " TIME: " (get_time_as_string)))))
 
 (= (HandleError $msg $cmd $sexpr)
    (case $sexpr (((Error $a $b) (let $new (append (get-state &error) (($msg $cmd)))

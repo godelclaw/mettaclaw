@@ -1,4 +1,5 @@
 import os
+import re
 
 
 SAFE_TEXT_REPLACEMENTS = (
@@ -56,7 +57,73 @@ def path_from_env(name, default):
     return os.environ.get(str(name), str(default))
 
 
+def int_env(name, default):
+    try:
+        return int(os.environ.get(str(name)) or default)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def recycle_requested():
     """Return true only when the runner's explicit boundary flag exists."""
     path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
     return bool(path) and os.path.isfile(path)
+
+
+def _persist_atom(persist, name, value):
+    """Set (name value) in the persistent-state file, preserving other atoms."""
+    try:
+        try:
+            with open(persist, encoding="utf-8") as fh:
+                lines = [l for l in fh.read().splitlines()
+                         if not re.match(r"\s*\(" + re.escape(name) + r"\s", l)]
+        except OSError:
+            lines = []
+        lines.append(f"({name} {value})")
+        tmp = persist + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, persist)
+    except OSError as exc:
+        print(f"[helper] persist atom error: {exc}")
+
+
+def history_window(path, max_chars=45000, keep_chars=25000):
+    """Cache-friendly history window: read from a persisted anchor offset so
+    the window START is byte-stable across turns (append-only growth keeps
+    the provider-cache prefix valid). Only when the window outgrows max_chars
+    does the anchor jump forward to keep keep_chars — one cache re-write per
+    ~(max-keep) chars of history growth instead of every turn. The anchor
+    lives as a (history-anchor N) atom in persistent.metta."""
+    try:
+        path = str(path)
+        persist = os.environ.get(
+            "METTACLAW_PERSISTENT_PATH",
+            os.path.join(os.path.dirname(path), "persistent.metta"))
+        anchor = 0
+        try:
+            with open(persist, encoding="utf-8") as fh:
+                m = re.search(r"^\s*\(history-anchor\s+(\d+)\s*\)",
+                              fh.read(), re.M)
+            if m:
+                anchor = int(m.group(1))
+        except OSError:
+            pass
+        size = os.path.getsize(path)
+        if anchor > size:  # history file replaced/truncated
+            anchor = 0
+        if size - anchor > int(max_chars):
+            anchor = max(0, size - int(keep_chars))
+            with open(path, "rb") as fh:  # snap to a turn-block boundary
+                fh.seek(anchor)
+                chunk = fh.read(4096).decode("utf-8", "replace")
+            nl = chunk.find('\n("')
+            if nl >= 0:
+                anchor += len(chunk[:nl + 1].encode("utf-8"))
+            _persist_atom(persist, "history-anchor", str(anchor))
+        with open(path, "rb") as fh:
+            fh.seek(anchor)
+            return fh.read().decode("utf-8", "replace")
+    except OSError as exc:
+        print(f"[helper] history_window error: {exc}")
+        return ""
