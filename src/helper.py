@@ -16,18 +16,28 @@ def decode_safe_text(value):
     return text
 
 
+# The most recent turn's stripped affect trace. The strip below protects the
+# command parser; the send path re-attaches this to outgoing messages so the
+# trace reaches humans/agents instead of being silently deleted every turn.
+LAST_AFFECT = ""
+
+
 def strip_trailing_affect(value):
     # Drop only a complete final affect-trace line. A diamond in prose, string
     # data, or code is ordinary content and must reach the command parser.
+    global LAST_AFFECT
     text = str(value)
     lines = text.splitlines(keepends=True)
     if not lines:
+        LAST_AFFECT = ""
         return text
 
     final = lines[-1]
     final_without_eol = final.rstrip("\r\n")
     if final_without_eol.startswith("⋄⟨") and final_without_eol.endswith("⟩"):
+        LAST_AFFECT = final_without_eol
         return "".join(lines[:-1])
+    LAST_AFFECT = ""
     return text
 
 
