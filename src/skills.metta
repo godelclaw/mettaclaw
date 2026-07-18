@@ -3,6 +3,9 @@
     "- Remember a particular string such as skills and memories: (remember string)"
     "- Query long-term embedding memory for skills and memories with short phrases only: (query string)"
     "- Pin a certain string as short-term working memory item to keep track of task state: (pin string)"
+    "- Goal stack + mood (kernel decays STI, consolidates LTI, flags stuck/cull-review at each wake): (goals)"
+    "- Add/update one goal — no quotes, hyphenate blocked-by, note is free text: (goal-write string) e.g. (goal-write (goal name Area sti:0.8 lti:0.3 vibes:(a b) blocked-by:none last-verified:never note:why it matters))"
+    "- Compost a goal (needs cull-review flag, or reason solved with last-verified set): (goal-drop name reason)"
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     ;SHELL AND FILE I/O:
@@ -65,6 +68,13 @@
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)))))
+
+;; Autonomic goal-stack (to-mama spec v0.2): kernel math runs at wake events;
+;; these skills are the semantic interface (appraisal, birth, death-review).
+(= (goals) (py-call (goals.goals_view)))
+(= (goal-write $atom)
+   (py-call (goals.goal_write (py-call (helper.decode_safe_text $atom)))))
+(= (goal-drop $name $reason) (py-call (goals.goal_drop $name $reason)))
 
 ;; LLM API introspection (synthetic.new): budget, model list, session model switch.
 (= (llm-quota) (py-call (synthetic_llm.quota)))
