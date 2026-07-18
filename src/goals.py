@@ -32,13 +32,15 @@ CULL_LTI = 0.1
 DEFAULT_BUDGET = 3.0
 MOOD_DIMS = ("Cn", "C", "Ct", "I", "J", "A", "S", "Co")
 
+# \s* after each field colon: a stray space must not reject the goal
+# (cost the agent six live turns of misdiagnosis on 2026-07-18).
 _GOAL_RE = re.compile(
     r'^\(goal\s+(?P<name>[^\s()"]+)\s+(?P<area>[^\s()"]+)'
-    r'\s+sti:(?P<sti>-?[\d.]+)\s+lti:(?P<lti>-?[\d.]+)'
-    r'\s+vibes:\((?P<vibes>[^()]*)\)'
-    r'\s+blocked-by:(?P<blocked>none|"[^"]*"|[^\s()"]+)'
-    r'\s+last-verified:(?P<verified>[^\s()"]+)'
-    r'\s+note:(?:"(?P<noteq>[^"]*)"|(?P<note>[^()"]*))\)\s*$')
+    r'\s+sti:\s*(?P<sti>-?[\d.]+)\s+lti:\s*(?P<lti>-?[\d.]+)'
+    r'\s+vibes:\s*\((?P<vibes>[^()]*)\)'
+    r'\s+blocked-by:\s*(?P<blocked>none|"[^"]*"|[^\s()"]+)'
+    r'\s+last-verified:\s*(?P<verified>[^\s()"]+)'
+    r'\s+note:\s*(?:"(?P<noteq>[^"]*)"|(?P<note>[^()"]*))\)\s*$')
 _FLAG_RE = re.compile(r'^\(goal-flag\s+(\S+)\s+(stuck|saturated|cull-review)\)\s*$')
 _BUDGET_RE = re.compile(r'^\(goal-budget\s+([\d.]+)\)\s*$')
 _MOOD_RE = re.compile(r'^\(mood\s.*\)\s*$')
