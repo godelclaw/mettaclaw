@@ -545,10 +545,14 @@ def _poll_loop():
             for update in data.get("result", []):
                 update_id = int(update["update_id"])
                 if "callback_query" in update:
-                    cb_note = _handle_callback_query(update["callback_query"])
-                    _append_update_log(update, "callback_query",
-                                       (update["callback_query"] or {}).get("message"),
-                                       False, False, cb_note)
+                    cq = update["callback_query"] or {}
+                    cb_note = _handle_callback_query(cq)
+                    cb_msg = cq.get("message") or {}
+                    # log the real allowlist verdict; the outcome is cb_note
+                    # (a False here on a successful switch is a lying record)
+                    _append_update_log(update, "callback_query", cb_msg,
+                                       _chat_is_allowed(cb_msg.get("chat") or {}),
+                                       False, cb_note)
                     _offset = update_id + 1
                     _save_offset()
                     continue
