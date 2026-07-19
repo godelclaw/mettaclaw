@@ -65,9 +65,9 @@ def int_env(name, default):
 
 
 def recycle_requested():
-    """Return true only when the runner's explicit boundary flag exists."""
+    """Return PeTTa's integer truth value for the boundary flag."""
     path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
-    return bool(path) and os.path.isfile(path)
+    return 1 if path and os.path.isfile(path) else 0
 
 
 def _persist_atom(persist, name, value):

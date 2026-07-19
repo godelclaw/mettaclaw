@@ -12,7 +12,9 @@ class RecycleRequestTests(unittest.TestCase):
         with mock.patch.dict(
             os.environ, {"METTACLAW_RECYCLE_REQUEST_PATH": ""}, clear=False
         ):
-            self.assertFalse(recycle_requested())
+            result = recycle_requested()
+            self.assertIs(type(result), int)
+            self.assertEqual(result, 0)
 
     def test_flag_is_observed_without_consuming_it(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -23,7 +25,9 @@ class RecycleRequestTests(unittest.TestCase):
                 {"METTACLAW_RECYCLE_REQUEST_PATH": str(flag)},
                 clear=False,
             ):
-                self.assertTrue(recycle_requested())
+                result = recycle_requested()
+                self.assertIs(type(result), int)
+                self.assertEqual(result, 1)
                 self.assertTrue(flag.exists())
 
     def test_directory_at_flag_path_is_not_a_request(self):
@@ -33,7 +37,9 @@ class RecycleRequestTests(unittest.TestCase):
                 {"METTACLAW_RECYCLE_REQUEST_PATH": tmp},
                 clear=False,
             ):
-                self.assertFalse(recycle_requested())
+                result = recycle_requested()
+                self.assertIs(type(result), int)
+                self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":

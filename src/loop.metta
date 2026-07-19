@@ -93,8 +93,10 @@
                 ;; Recycling is cooperative: finish the current turn and its
                 ;; bookkeeping, then let the service manager start a fresh
                 ;; heap. The request flag is cleared only by the new process.
-                (if (py-call (helper.recycle_requested))
-                    (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
+                (if (== (py-call (helper.recycle_requested)) 1)
+                    (progn
+                      (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
+                      (cut))
                     (progn
                       (sleep (get-state &sleepInterval))
                       (mettaclaw (+ 1 $k)))))))

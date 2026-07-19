@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "$0")" && pwd)"
 PETTA_ROOT="${PETTA_ROOT:-${HOME:-}/repos/PeTTa}"
 PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
+METTACLAW_ENGINE="${METTACLAW_ENGINE:-petta}"
+PLEATTA_ROOT="${PLEATTA_ROOT:-${HOME:-}/repos/LeaTTa-petta}"
 
 if [ -x "$ROOT/initialize.sh" ]; then
     "$ROOT/initialize.sh" >/dev/null
@@ -78,4 +80,42 @@ if [ "$TARGET" = "$ROOT/run.metta" ]; then
     rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
 fi
 
-exec "$PETTA_ROOT/run.sh" "$TARGET" default
+case "$METTACLAW_ENGINE" in
+    petta)
+        exec "$PETTA_ROOT/run.sh" "$TARGET" default
+        ;;
+    pleatta)
+        PLEATTA_BIN="${PLEATTA_BIN:-$PLEATTA_ROOT/.lake/build/bin/pleatta}"
+        PLEATTA_PY_WORKER="${PLEATTA_PY_WORKER:-$PLEATTA_ROOT/scripts/pleatta-python-worker.py}"
+        if [ ! -x "$PLEATTA_BIN" ]; then
+            echo "PLeaTTa executable is unavailable; build it or set PLEATTA_BIN" >&2
+            exit 2
+        fi
+        if [ ! -f "$PLEATTA_PY_WORKER" ]; then
+            echo "PLeaTTa Python worker is unavailable; set PLEATTA_PY_WORKER" >&2
+            exit 2
+        fi
+        if [ -x "$PETTA_PY_ENV/bin/python3" ]; then
+            export PLEATTA_PYTHON="${PLEATTA_PYTHON:-$PETTA_PY_ENV/bin/python3}"
+        else
+            export PLEATTA_PYTHON="${PLEATTA_PYTHON:-$(command -v python3)}"
+        fi
+        export PLEATTA_PY_WORKER
+        export PLEATTA_HOST_ROOT="${PLEATTA_HOST_ROOT:-$ROOT}"
+        export PETTA_LIB_ROOT="${PETTA_LIB_ROOT:-$PETTA_ROOT/lib}"
+        export PLEATTA_LIBRARY_PATH="${PLEATTA_LIBRARY_PATH:-$ROOT:$ROOT/repos/petta_lib_chromadb}"
+        export PLEATTA_MAX_SLEEP_SECONDS="${PLEATTA_MAX_SLEEP_SECONDS:-120}"
+        unset PLEATTA_CALL_FIXTURE
+
+        TRANSCRIPT_DIR="${METTACLAW_TRANSCRIPT_DIR:-$STATE_HOME/$INSTANCE/pleatta-transcripts}"
+        umask 077
+        mkdir -p "$TRANSCRIPT_DIR"
+        TRANSCRIPT="$TRANSCRIPT_DIR/$(date -u '+%Y%m%dT%H%M%SZ')-$$.json"
+        exec "$PLEATTA_BIN" --host-live "$TARGET" "$TRANSCRIPT" \
+            "${PLEATTA_FUEL:-4000000}" -- default
+        ;;
+    *)
+        echo "unknown METTACLAW_ENGINE: $METTACLAW_ENGINE" >&2
+        exit 2
+        ;;
+esac
