@@ -54,6 +54,34 @@ def test_remote_embedding_rejects_protocol_drift():
         raise AssertionError("protocol drift was accepted")
 
 
+def test_guarded_ops_report_daemon_down_as_result():
+    module = load_module()
+
+    def refuse(_req, timeout):
+        raise OSError("connection refused")
+
+    module.urllib.request.urlopen = refuse
+    q = module.query_guarded("anything", 5)
+    r = module.remember_guarded("anything", "2026-07-18")
+    assert q.startswith("EMBED_DAEMON_DOWN") and "infer absence" in q
+    assert r.startswith("EMBED_DAEMON_DOWN") and "NOT saved" in r
+
+
+def test_guarded_ops_reraise_non_daemon_errors():
+    module = load_module()
+    module.urllib.request.urlopen = lambda _req, timeout: FakeResponse(
+        {"embeddings": [[0.1, 0.2, 0.3]], "dim": 3, "protocol": "other"}
+    )
+    try:
+        module.query_guarded("anything", 5)
+    except RuntimeError as exc:
+        assert "protocol mismatch" in str(exc)
+    else:
+        raise AssertionError("non-daemon error was swallowed")
+
+
 if __name__ == "__main__":
     test_remote_embedding_contract()
     test_remote_embedding_rejects_protocol_drift()
+    test_guarded_ops_report_daemon_down_as_result()
+    test_guarded_ops_reraise_non_daemon_errors()

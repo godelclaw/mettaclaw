@@ -30,7 +30,8 @@
                 (progn (println! (HEARTBEAT_REARM at (get_time_as_string) loops (maxLoops)))
                        (change-state! &loops (maxLoops))
                        (change-state! &sleepInterval (sleepInterval))
-                       (change-state! &last-heartbeat $now))
+                       (change-state! &last-heartbeat $now)
+                       (println! (py-call (goals.kernel_pass))))
                 _))))
 
 ;; Static context (prompt, skills, format) leads and dynamic fields trail so an
@@ -44,6 +45,7 @@
                          " SLEEP_INTERVAL_SECONDS: " (get-state &sleepInterval)
                          " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
                          " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
+                         " GOAL_STACK: " (py-call (goals.goals_view))
                          " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " TIME: " (get_time_as_string)))))
 
 (= (HandleError $msg $cmd $sexpr)
@@ -56,7 +58,8 @@
 (= (mettaclaw $k)
    (progn (if (== $k 1) (progn (initLoop)
                                (initMemory)
-                               (initChannels))
+                               (initChannels)
+                               (println! (py-call (goals.kernel_pass))))
                         (change-state! &loops (max 0 (- (get-state &loops) 1))))
          (progn (println! (---------iteration $k))
                 (let* (($msg (string-safe (repr (receive))))
@@ -67,7 +70,8 @@
                                (if $humanmsg
                                    (progn (change-state! &loops (maxLoops))
                                           (change-state! &sleepInterval (sleepInterval))
-                                          (change-state! &last-heartbeat (get_time)))
+                                          (change-state! &last-heartbeat (get_time))
+                                          (println! (py-call (goals.kernel_pass))))
                                    _)
                                _))
                        ($_hb (maybeHeartbeat)))

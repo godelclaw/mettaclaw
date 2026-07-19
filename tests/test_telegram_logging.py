@@ -143,46 +143,6 @@ def test_channel_posts_are_logged_with_kind():
         assert record["raw"]["channel_post"]["text"] == "channel text"
 
 
-def test_callback_log_records_actual_allowlist_decision():
-    tg = load_telegram()
-    update = {
-        "update_id": 250,
-        "callback_query": {
-            "id": "callback-1",
-            "data": "model:modelB",
-            "from": {"id": 42, "username": "zar"},
-            "message": {
-                "message_id": 25,
-                "chat": {"id": -1, "type": "group", "title": "Allowed Group"},
-            },
-        },
-    }
-
-    def fake_get(url, params=None, timeout=None):
-        assert url.endswith("/getUpdates")
-        tg._running = False
-        return FakeResponse({"ok": True, "result": [update]})
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tg.requests.get = fake_get
-        tg._handle_callback_query = lambda _callback: "callback_model_switch"
-        tg._token = "fake-token"
-        tg._allowed_chat_ids = {"-1"}
-        tg._allow_private_chats = False
-        tg._offset = None
-        tg._offset_path = str(pathlib.Path(tmp) / "offset.txt")
-        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
-        tg._running = True
-
-        tg._poll_loop()
-
-        record = json.loads(pathlib.Path(tg._log_path).read_text(encoding="utf-8"))
-        assert record["kind"] == "callback_query"
-        assert record["allowed"] is True
-        assert record["queued"] is False
-        assert record["note"] == "callback_model_switch"
-
-
 def test_log_failure_does_not_block_message_delivery_or_offset():
     tg = load_telegram()
     update = {
@@ -332,6 +292,47 @@ def test_oversized_attachment_leaves_no_partial_file():
         assert list(pathlib.Path(tmp).iterdir()) == []
 
 
+def test_callback_log_records_actual_allowlist_decision():
+    tg = load_telegram()
+    update = {
+        "update_id": 250,
+        "callback_query": {
+            "id": "callback-1",
+            "data": "model:modelB",
+            "from": {"id": 42, "username": "zar"},
+            "message": {
+                "message_id": 25,
+                "chat": {"id": -1, "type": "group", "title": "Allowed Group"},
+            },
+        },
+    }
+
+    def fake_get(url, params=None, timeout=None):
+        assert url.endswith("/getUpdates")
+        tg._running = False
+        return FakeResponse({"ok": True, "result": [update]})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tg.requests.get = fake_get
+        tg._handle_callback_query = lambda _callback: "callback_model_switch"
+        tg._token = "fake-token"
+        tg._allowed_chat_ids = {"-1"}
+        tg._allow_private_chats = False
+        tg._offset = None
+        tg._offset_path = str(pathlib.Path(tmp) / "offset.txt")
+        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+        tg._running = True
+
+        tg._poll_loop()
+
+        record = json.loads(pathlib.Path(tg._log_path).read_text(encoding="utf-8"))
+        assert record["kind"] == "callback_query"
+        assert record["allowed"] is True
+        assert record["queued"] is False
+        assert record["note"] == "callback_model_switch"
+
+
+
 if __name__ == "__main__":
     test_poll_logs_before_advancing_offset_and_queues_allowed_message()
     test_channel_posts_are_logged_with_kind()
@@ -339,3 +340,4 @@ if __name__ == "__main__":
     test_bot_messages_are_delivered_but_do_not_arm_loop()
     test_attachment_download_is_atomic_and_sanitized()
     test_oversized_attachment_leaves_no_partial_file()
+    test_callback_log_records_actual_allowlist_decision()

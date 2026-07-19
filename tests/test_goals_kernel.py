@@ -1,0 +1,122 @@
+"""Acceptance tests from Lila's to-mama goal-stack spec v0.2 (2026-07-18)."""
+
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import goals  # noqa: E402
+
+
+GOAL = ('(goal probmetta Work sti:0.8 lti:0.3 vibes:(SenseMaking) '
+        'blocked-by:"add-atom space error" last-verified:never '
+        'note:"3-channel STI groundwork")')
+FREE = ('(goal attune Relationship sti:0.9 lti:0.5 vibes:(CuddleBubbling) '
+        'blocked-by:none last-verified:2026-07-18T15:00 note:"track Zar")')
+
+
+class GoalKernelTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def stack(self, atoms):
+        path = os.path.join(self.tmp.name, "goals.metta")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join([";; test stack"] + atoms) + "\n")
+        return path
+
+    def test_1_stuck_flag_after_three_wakes_no_llm(self):
+        path = self.stack([GOAL])
+        for _ in range(2):
+            self.assertNotIn("stuck", goals.kernel_pass(path))
+        self.assertIn("probmetta:stuck", goals.kernel_pass(path))
+        self.assertIn("(goal-flag probmetta stuck)", goals.goals_view(path))
+        # unblocking clears the flag on the next wake
+        text = goals.goals_view(path).replace('"add-atom space error"', "none")
+        line = [l for l in text.splitlines() if l.startswith("(goal probmetta")][0]
+        goals.goal_write(line, path)
+        self.assertNotIn("stuck", goals.kernel_pass(path))
+
+    def test_2_never_verified_cannot_be_solved(self):
+        path = self.stack([GOAL, FREE])
+        self.assertTrue(goals.goal_drop("probmetta", "solved", path)
+                        .startswith("rejected"))
+        self.assertIn("probmetta", goals.goals_view(path))
+        self.assertIn("composted", goals.goal_drop("attune", "solved", path))
+
+    def test_3_sti_normalized_to_budget(self):
+        path = self.stack(["(goal-budget 1.0)", GOAL, FREE])
+        goals.kernel_pass(path)
+        total = sum(float(x.split("sti:")[1].split()[0])
+                    for x in goals.goals_view(path).splitlines()
+                    if x.startswith("(goal "))
+        self.assertLessEqual(total, 1.0 + 1e-9)
+
+    def test_4_cull_flag_never_auto_deletes(self):
+        weak = GOAL.replace("sti:0.8", "sti:0.01").replace("lti:0.3", "lti:0.01")
+        path = self.stack([weak])
+        self.assertIn("cull-review", goals.kernel_pass(path))
+        self.assertIn("(goal probmetta", goals.goals_view(path))  # still present
+        # cull-review flag set -> death-review drop allowed, and composted
+        self.assertIn("composted",
+                      goals.goal_drop("probmetta", "death-review", path))
+        with open(os.path.join(self.tmp.name, "goals_compost.log"),
+                  encoding="utf-8") as fh:
+            self.assertIn("probmetta", fh.read())
+
+    def test_4b_unflagged_drop_rejected(self):
+        path = self.stack([FREE])
+        self.assertTrue(goals.goal_drop("attune", "bored", path)
+                        .startswith("rejected"))
+
+    def test_5_gamma_mood_average(self):
+        path = self.stack([FREE])
+        log = os.path.join(self.tmp.name, "updates.jsonl")
+        t1 = "⋄⟨Cn:.5 C:.5 Ct:.5 I:.5 J:.5 A:.5 S:.5 Co:.5⟩"
+        with open(log, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"kind": "outbound", "text": "hi\n" + t1}) + "\n")
+        goals.kernel_pass(path, log)
+        t2 = "⋄⟨Cn:.8 C:.8 Ct:.8 I:.8 J:.8 A:.8 S:.8 Co:.8⟩"
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"kind": "outbound", "text": "yo\n" + t2}) + "\n")
+        goals.kernel_pass(path, log)
+        # 0.9*0.5 + 0.1*0.8 = 0.53 per dimension
+        self.assertIn("(mood Cn:0.53", goals.goals_view(path))
+
+    def test_decay_and_lti_math(self):
+        path = self.stack([FREE])
+        goals.kernel_pass(path)
+        line = [l for l in goals.goals_view(path).splitlines()
+                if l.startswith("(goal attune")][0]
+        sti = float(line.split("sti:")[1].split()[0])
+        lti = float(line.split("lti:")[1].split()[0])
+        # file stores 4 decimal places
+        self.assertAlmostEqual(sti, 0.9 * 0.95, places=3)
+        self.assertAlmostEqual(lti, 0.5 + 0.05 * (0.855 - 0.5), places=3)
+
+    def test_unknown_lines_preserved_and_writes_validated(self):
+        path = self.stack([";; precious comment", FREE])
+        goals.kernel_pass(path)
+        self.assertIn(";; precious comment", goals.goals_view(path))
+        self.assertTrue(goals.goal_write("(goal broken)", path)
+                        .startswith("rejected"))
+        self.assertIn("added", goals.goal_write(GOAL, path))
+        self.assertIn("updated", goals.goal_write(GOAL, path))
+
+    def test_goal_write_unquoted_note_and_hyphenated_blocked(self):
+        # command-channel form: no embedded quotes anywhere
+        path = self.stack([])
+        atom = ("(goal sti3 Work sti:0.7 lti:0.2 vibes:(SenseMaking) "
+                "blocked-by:add-atom-space-error last-verified:never "
+                "note:3-channel STI for Godel)")
+        self.assertIn("added", goals.goal_write(atom, path))
+        view = goals.goals_view(path)
+        self.assertIn('note:"3-channel STI for Godel"', view)
+        self.assertIn("blocked-by:add-atom-space-error", view)
+
+
+if __name__ == "__main__":
+    unittest.main()

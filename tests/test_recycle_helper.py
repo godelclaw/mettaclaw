@@ -38,8 +38,8 @@ class RecycleRequestTests(unittest.TestCase):
                 clear=False,
             ):
                 result = recycle_requested()
-                self.assertIs(type(result), int)
-                self.assertEqual(result, 0)
+            self.assertIs(type(result), int)
+            self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":

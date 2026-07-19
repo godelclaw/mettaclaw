@@ -18,6 +18,7 @@ telegram_log_path = "$ROOT/telegram_updates.jsonl"
 prompt_path = "$ROOT/memory/prompt.txt"
 history_path = "$ROOT/memory/history.metta"
 memory_log_dir = "$ROOT/memory/remembered"
+attachments_dir = "$ROOT/memory/attachments"
 repos_dir = "$ROOT/repos"
 
 # Local Qwen3-Embedding-8B path. Fill this before using remember/query.

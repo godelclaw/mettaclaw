@@ -3,13 +3,20 @@
     "- Remember a particular string such as skills and memories: (remember string)"
     "- Query long-term embedding memory for skills and memories with short phrases only: (query string)"
     "- Pin a certain string as short-term working memory item to keep track of task state: (pin string)"
+    "- Goal stack + mood (kernel decays STI, consolidates LTI, flags stuck/cull-review at each wake): (goals)"
+    "- Add/update one goal — no quotes, hyphenate blocked-by, note is free text: (goal-write string) e.g. (goal-write (goal name Area sti:0.8 lti:0.3 vibes:(a b) blocked-by:none last-verified:never note:why it matters))"
+    "- Compost a goal (needs cull-review flag, or reason solved with last-verified set): (goal-drop name reason)"
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     ;SHELL AND FILE I/O:
     "- Execute shell command without apostrophe in string, it returns the command output to you: (shell string)"
     "- Read file to string: (read-file filename)"
     "- Write string to file: (write-file filename string)"
-    "- Append line to file: (append-file filename string)",
+    "- Append line to file: (append-file filename string)"
+    "- Read a numbered window of a file: (read-lines filename start count)"
+    "- Edit a file by exact unique string replacement — no full rewrite; the result confirms success or explains exactly what to fix: (edit-file filename old-string new-string)"
+    "- Compact directory tree, dirs first with file sizes: (ls-tree dir depth)"
+    "- Search text across files under a dir, bounded output: (grep-files pattern dir)",
 	    ;COMMUNICATION CHANNELS:
 	    "- Send message to user: (send string)"
 	    "- Send Telegram message to a specific chat id: (send-telegram-chat chat_id string)"
@@ -65,6 +72,24 @@
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)))))
+
+;; Filesystem awareness: line-numbered reads, exact-string edits with
+;; uniqueness enforced, bounded tree/search. Result strings are the
+;; verification — no blind writes, no re-reading to check what landed.
+(= (read-lines $f $start $count) (py-call (fsops.read_lines $f $start $count)))
+(= (edit-file $f $old $new)
+   (py-call (fsops.edit_file $f (py-call (helper.decode_safe_text $old))
+                                (py-call (helper.decode_safe_text $new)))))
+(= (ls-tree $dir $depth) (py-call (fsops.ls_tree $dir $depth)))
+(= (grep-files $pat $dir)
+   (py-call (fsops.grep_files (py-call (helper.decode_safe_text $pat)) $dir)))
+
+;; Autonomic goal-stack (to-mama spec v0.2): kernel math runs at wake events;
+;; these skills are the semantic interface (appraisal, birth, death-review).
+(= (goals) (py-call (goals.goals_view)))
+(= (goal-write $atom)
+   (py-call (goals.goal_write (py-call (helper.decode_safe_text $atom)))))
+(= (goal-drop $name $reason) (py-call (goals.goal_drop $name $reason)))
 
 ;; LLM API introspection (synthetic.new): budget, model list, session model switch.
 (= (llm-quota) (py-call (synthetic_llm.quota)))
