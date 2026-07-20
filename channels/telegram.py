@@ -31,8 +31,8 @@ def _api_base():
                           "https://api.telegram.org")
 
 
-def _api(method):
-    return f"{_api_base()}/bot{_token}/{method}"
+def _api(method, token=""):
+    return f"{_api_base()}/bot{token or _token}/{method}"
 
 
 def _split_chat_ids(raw):
@@ -775,10 +775,16 @@ def _send_upload(method, field, path, caption, chat_id):
     success or the actual reason, never a silent failure."""
     chat_id = _reply_target(chat_id)
     path = str(path)
-    if not _token or not chat_id:
-        return "send failed: missing token or chat id"
+    token = _token or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN", "")
     if not os.path.isfile(path):
+        # Check the file first: "no such file" is the answer the caller can act
+        # on, and it is the common case (a placeholder path copied verbatim).
         return "send failed: no such file: " + path
+    if not token:
+        return "send failed: no bot token configured"
+    if not chat_id:
+        return ("send failed: no chat to send to — pass one explicitly, "
+                "e.g. (send-image \"/path.svg\" \"caption\" \"111000111\")")
     size = os.path.getsize(path)
     if size > 50 * 1024 * 1024:
         return "send failed: %s is %d bytes; Telegram's limit is 50MB" % (path, size)
@@ -787,7 +793,7 @@ def _send_upload(method, field, path, caption, chat_id):
             data = {"chat_id": chat_id}
             if caption:
                 data["caption"] = str(caption).replace("\\n", "\n")[:1024]
-            resp = requests.post(_api(method), data=data,
+            resp = requests.post(_api(method, token), data=data,
                                  files={field: (os.path.basename(path), fh)},
                                  timeout=120)
         try:
