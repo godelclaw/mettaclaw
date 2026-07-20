@@ -84,7 +84,7 @@
                                  ($send (py-str ($prompt $lastmessage)))
                                  ($_ (println! (CHARS_SENT: (string_length $send) $send)))
                                  ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) (reasoningMode) $send)))
-                                 ($resp (py-call (helper.balance_parentheses (py-call (helper.strip_trailing_affect $respi)))))
+                                 ($resp (py-call (helper.balance_parentheses $respi)))
                                  ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
                                  ($sexpr (catch (sread (py-call (helper.decode_safe_text $response)))))
                                  ($_ (change-state! &error ()))
