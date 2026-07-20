@@ -29,3 +29,12 @@ to-claws/
 
 # Vendored deps git-cloned on first run (e.g. petta_lib_chromadb).
 repos/
+
+# operator/agent working files (never commit)
+PAUSED-BY-OPERATOR.md
+to-lila.md
+to-mama.md
+selfmodel/
+goal_stack_spec_draft.md
+Dignity.lean
+*.sed
