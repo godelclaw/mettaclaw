@@ -364,12 +364,26 @@ def _synthetic_model_ids():
             if isinstance(m, dict) and m.get("id")]
 
 
+_MODEL_IDS_CACHE = {"at": 0.0, "ids": []}
+
+
 def model_ids():
     """Structured list of switchable model ids (synthetic live list plus the
-    anthropic allowlist when configured). Presentation belongs to callers."""
+    anthropic allowlist when configured). Presentation belongs to callers.
+
+    Cached for 60s: one operator button press otherwise costs three separate
+    round trips to the provider (validate, then rebuild the menu, then the
+    next press), which is the difference between a control that feels
+    instant and one that feels broken."""
+    import time as _time
+    if _MODEL_IDS_CACHE["ids"] and _time.time() - _MODEL_IDS_CACHE["at"] < 60:
+        return list(_MODEL_IDS_CACHE["ids"])
     ids = list(_synthetic_model_ids())
     if os.environ.get("ANTHROPIC_API_KEY", ""):
         ids.extend(_anthropic_models())
+    if ids:
+        import time as _time
+        _MODEL_IDS_CACHE["at"], _MODEL_IDS_CACHE["ids"] = _time.time(), list(ids)
     return ids
 
 

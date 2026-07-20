@@ -472,11 +472,15 @@ def _handle_callback_query(cq):
                 "text": "model switching is operator-only",
             }, timeout=15)
             return "callback_not_operator"
-        reply = synthetic_llm.set_model(data[len("model:"):])
+        # Stop Telegram's spinner FIRST: the client shows a loading state until
+        # the callback is answered, so acknowledging before doing the work is
+        # the difference between "instant" and "stuck" from the operator's side.
+        started = time.time()
         requests.post(_api("answerCallbackQuery"), json={
-            "callback_query_id": cq.get("id"),
-            "text": str(reply)[:190],
+            "callback_query_id": cq.get("id"), "text": "switching…",
         }, timeout=15)
+        reply = synthetic_llm.set_model(data[len("model:"):])
+        print("[telegram] model switch handled in %.2fs" % (time.time() - started))
         requests.post(_api("editMessageText"), json={
             "chat_id": chat.get("id"),
             "message_id": message.get("message_id"),
