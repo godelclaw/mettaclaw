@@ -38,4 +38,5 @@ selfmodel/
 to-*.md
 *.sed
 *.log
+loo_distill_*.txt
 scratch/
