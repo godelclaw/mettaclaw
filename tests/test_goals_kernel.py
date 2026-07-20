@@ -117,6 +117,22 @@ class GoalKernelTests(unittest.TestCase):
         self.assertIn('note:"3-channel STI for Godel"', view)
         self.assertIn("blocked-by:add-atom-space-error", view)
 
+    def test_9dim_trace_with_surprise_and_8dim_history_coexist(self):
+        path = self.stack([FREE])
+        log = os.path.join(self.tmp.name, "updates.jsonl")
+        old8 = "⋄⟨Cn:.5 C:.5 Ct:.5 I:.5 J:.5 A:.5 S:.5 Co:.5⟩"
+        new9 = "⋄⟨Cn:.8 C:.8 Ct:.8 I:.8 J:.8 A:.8 S:.8 Co:.8 Sp:.8⟩"
+        with open(log, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"kind": "outbound", "text": "a\n" + old8}) + "\n")
+        goals.kernel_pass(path, log)
+        self.assertIn("Sp:0", goals.goals_view(path))   # absent dim stays 0
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"kind": "outbound", "text": "b\n" + new9}) + "\n")
+        goals.kernel_pass(path, log)
+        view = goals.goals_view(path)
+        self.assertIn("(mood Cn:0.53", view)            # 0.9*.5+0.1*.8
+        self.assertIn("Sp:0.08", view)                  # 0.9*0 +0.1*.8
+
 
 if __name__ == "__main__":
     unittest.main()

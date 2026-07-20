@@ -9,7 +9,7 @@ File atoms (one per line; kernel-owned atoms marked *):
   (goal <name> <area> sti:<0-1> lti:<0-1> vibes:(<v>*)
         blocked-by:<none|token|"text"> last-verified:<never|token> note:"<text>")
   (goal-flag <name> <stuck|saturated|cull-review>)   *
-  (mood Cn:x C:x Ct:x I:x J:x A:x S:x Co:x)          *
+  (mood Cn:x C:x Ct:x I:x J:x A:x S:x Co:x Sp:x)     *
 
 Streak counters and the outbound-log offset live in memory/goals_kernel.json;
 dropped goals are appended to memory/goals_compost.log (nothing is ever lost).
@@ -30,7 +30,7 @@ STUCK_WAKES = 3         # unchanged blocked-by across this many wakes -> stuck
 CULL_STI = 0.05         # sti below this AND lti below CULL_LTI -> cull-review
 CULL_LTI = 0.1
 DEFAULT_BUDGET = 3.0
-MOOD_DIMS = ("Cn", "C", "Ct", "I", "J", "A", "S", "Co")
+MOOD_DIMS = ("Cn", "C", "Ct", "I", "J", "A", "S", "Co", "Sp")
 
 # \s* after each field colon: a stray space must not reject the goal
 # (cost the agent six live turns of misdiagnosis on 2026-07-18).
@@ -45,7 +45,7 @@ _FLAG_RE = re.compile(r'^\(goal-flag\s+(\S+)\s+(stuck|saturated|cull-review)\)\s
 _BUDGET_RE = re.compile(r'^\(goal-budget\s+([\d.]+)\)\s*$')
 _MOOD_RE = re.compile(r'^\(mood\s.*\)\s*$')
 _AFFECT_RE = re.compile(r'⋄⟨([^⟩]*)⟩')
-_AFFECT_PAIR_RE = re.compile(r'(Cn|Ct|Co|C|I|J|A|S):(-?[\d.]+)')
+_AFFECT_PAIR_RE = re.compile(r'(Cn|Ct|Co|Sp|C|I|J|A|S):(-?[\d.]+)')
 
 
 def _goal_dict(m):
