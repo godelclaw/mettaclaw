@@ -1,0 +1,9 @@
+[{"response":
+  {"raised":
+   {"error":
+    {"message": "logical host path does not exist",
+     "kind": "FileNotFoundError"}}},
+  "request":
+  {"effect":
+   {"operation":
+    {"fileExists": {"path": "/home/oruzi/definitely_not_here_12345.md"}}}}}]

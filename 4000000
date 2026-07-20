@@ -1,0 +1,112 @@
+[{"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null))"}}}},
+  "request":
+  {"call": {"spec": "probe.get", "args": [{"integer": {"value": 0}}]}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null))"}}}},
+  "request":
+  {"call":
+   {"spec": "helper.decode_safe_text",
+    "args":
+    [{"string":
+      {"value":
+       "((shell cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null))"}}]}}},
+ {"response": {"returned": {"value": "none"}},
+  "request":
+  {"effect":
+   {"operation":
+    {"printLine":
+     {"text":
+      "(A-his-unquoted-shell ((shell cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null)))"}}}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell \"cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null\"))"}}}},
+  "request":
+  {"call": {"spec": "probe.get", "args": [{"integer": {"value": 1}}]}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell \"cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null\"))"}}}},
+  "request":
+  {"call":
+   {"spec": "helper.decode_safe_text",
+    "args":
+    [{"string":
+      {"value":
+       "((shell \"cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null\"))"}}]}}},
+ {"response": {"returned": {"value": "none"}},
+  "request":
+  {"effect":
+   {"operation":
+    {"printLine":
+     {"text":
+      "(B-same-but-quoted ((shell \"cat /home/oruzi/repos/godelclaw/bridges/ggb_l3_bridge.py 2>/dev/null\")))"}}}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell find /home/oruzi/repos -name _quote_*ggb_l3*_quote_ 2>/dev/null))"}}}},
+  "request":
+  {"call": {"spec": "probe.get", "args": [{"integer": {"value": 2}}]}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell find /home/oruzi/repos -name \"*ggb_l3*\" 2>/dev/null))"}}}},
+  "request":
+  {"call":
+   {"spec": "helper.decode_safe_text",
+    "args":
+    [{"string":
+      {"value":
+       "((shell find /home/oruzi/repos -name _quote_*ggb_l3*_quote_ 2>/dev/null))"}}]}}},
+ {"response": {"returned": {"value": "none"}},
+  "request":
+  {"effect":
+   {"operation":
+    {"printLine":
+     {"text":
+      "(C-his-unquoted-find ((shell find /home/oruzi/repos -name \"*ggb_l3*\" 2>/dev/null)))"}}}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell \"find /home/oruzi/repos -name *ggb_l3* 2>/dev/null\"))"}}}},
+  "request":
+  {"call": {"spec": "probe.get", "args": [{"integer": {"value": 3}}]}}},
+ {"response":
+  {"returned":
+   {"value":
+    {"string":
+     {"value":
+      "((shell \"find /home/oruzi/repos -name *ggb_l3* 2>/dev/null\"))"}}}},
+  "request":
+  {"call":
+   {"spec": "helper.decode_safe_text",
+    "args":
+    [{"string":
+      {"value":
+       "((shell \"find /home/oruzi/repos -name *ggb_l3* 2>/dev/null\"))"}}]}}},
+ {"response": {"returned": {"value": "none"}},
+  "request":
+  {"effect":
+   {"operation":
+    {"printLine":
+     {"text":
+      "(D-same-but-quoted ((shell \"find /home/oruzi/repos -name *ggb_l3* 2>/dev/null\")))"}}}}}]
