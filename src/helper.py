@@ -16,20 +16,6 @@ def decode_safe_text(value):
     return text
 
 
-def strip_trailing_affect(value):
-    # Drop only a complete final affect-trace line. A diamond in prose, string
-    # data, or code is ordinary content and must reach the command parser.
-    text = str(value)
-    lines = text.splitlines(keepends=True)
-    if not lines:
-        return text
-
-    final = lines[-1]
-    final_without_eol = final.rstrip("\r\n")
-    if final_without_eol.startswith("⋄⟨") and final_without_eol.endswith("⟩"):
-        return "".join(lines[:-1])
-    return text
-
 
 def balance_parentheses(s):
     s = s.strip()
