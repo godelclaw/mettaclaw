@@ -1,42 +1,42 @@
 (= (getSkills)
    (;INTERNAL:
-    "- Remember a particular string such as skills and memories: (remember string)"
-    "- Query long-term embedding memory for skills and memories with short phrases only: (query string)"
-    "- Pin a certain string as short-term working memory item to keep track of task state: (pin string)"
+    "- Remember a particular string such as skills and memories: (remember "string")"
+    "- Query long-term embedding memory for skills and memories with short phrases only: (query "short phrase")"
+    "- Pin a certain string as short-term working memory item to keep track of task state: (pin "string")"
     "- Goal stack + mood (kernel decays STI, consolidates LTI, flags stuck/cull-review at each wake): (goals)"
-    "- Add/update one goal — no quotes, hyphenate blocked-by, note is free text: (goal-write string) e.g. (goal-write (goal name Area sti:0.8 lti:0.3 vibes:(a b) blocked-by:none last-verified:never note:why it matters))"
-    "- Compost a goal (needs cull-review flag, or reason solved with last-verified set): (goal-drop name reason)"
+    "- Add/update one goal — THE ONE EXCEPTION: no quotes inside, hyphenate blocked-by, note is free text: (goal-write string) e.g. (goal-write (goal name Area sti:0.8 lti:0.3 vibes:(a b) blocked-by:none last-verified:never note:why it matters))"
+    "- Compost a goal (needs cull-review flag, or reason solved with last-verified set): (goal-drop "name" "reason")"
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     ;SHELL AND FILE I/O:
-    "- Execute shell command without apostrophe in string, it returns the command output to you: (shell string)"
-    "- Read file to string: (read-file filename)"
-    "- Write string to file: (write-file filename string)"
-    "- Append line to file: (append-file filename string)"
-    "- Read a numbered window of a file: (read-lines filename start count)"
-    "- Edit a file by exact unique string replacement — no full rewrite; the result confirms success or explains exactly what to fix: (edit-file filename old-string new-string)"
-    "- Compact directory tree, dirs first with file sizes: (ls-tree dir depth)"
-    "- Search text across files under a dir, bounded output: (grep-files pattern dir)",
+    "- Execute shell command without apostrophe in string, it returns the command output to you: (shell "command string")"
+    "- Read file to string: (read-file "filename")"
+    "- Write string to file: (write-file "filename" "string")"
+    "- Append line to file: (append-file "filename" "string")"
+    "- Read a numbered window of a file: (read-lines "filename" start count)"
+    "- Edit a file by exact unique string replacement — no full rewrite; the result confirms success or explains exactly what to fix: (edit-file "filename" "old-string" "new-string")"
+    "- Compact directory tree, dirs first with file sizes: (ls-tree "dir" depth)"
+    "- Search text across files under a dir, bounded output: (grep-files "pattern" "dir")",
 	    ;COMMUNICATION CHANNELS:
-	    "- Send message to user: (send string)"
-	    "- Send Telegram message to a specific chat id: (send-telegram-chat chat_id string)"
+	    "- Send message to user: (send "string")"
+	    "- Send Telegram message to a specific chat id: (send-telegram-chat "chat_id" "string")"
 	    "- Send a FILE to the chat as an attachment: (send-file \"/path/to/file.md\" \"caption\")"
 	    "- Send an IMAGE so it previews inline; .svg is auto-converted to png: (send-image \"/path/diagram.svg\" \"caption\")"
-	    "- Last k messages (both sides) from a chat by title or id: (recent-messages chat k)"
-	    "- Search the web using the configured provider: (search string)"
-    "- Search the web using Tavily API: (search-tavily string)"
-    "- Search the web using DuckDuckGo HTML: (search-ddg string)"
+	    "- Last k messages (both sides) from a chat by title or id: (recent-messages "chat" k)"
+	    "- Search the web using the configured provider: (search "string")"
+    "- Search the web using Tavily API: (search-tavily "string")"
+    "- Search the web using DuckDuckGo HTML: (search-ddg "string")"
     ;LLM API:
     "- Check your LLM API budget — model in use, credits left, rate window: (llm-quota)"
     "- List the LLM models you can use: (llm-models)"
-    "- Switch your LLM model for this session: (llm-set-model model-name)"
+    "- Switch your LLM model for this session: (llm-set-model "model-name")"
     ;MCP:
     "- List configured MCP servers from .mcp.json: (mcp-servers)"
-    "- List MCP tools exposed by a server: (mcp-tools server-name)"
-    "- Show one MCP tool's argument schema: (mcp-tool-info server-name tool-name)"
-    "- Call any MCP tool with JSON object arguments: (mcp-call server-name tool-name json-object-string)"
+    "- List MCP tools exposed by a server: (mcp-tools "server-name")"
+    "- Show one MCP tool's argument schema: (mcp-tool-info "server-name" "tool-name")"
+    "- Call any MCP tool with JSON object arguments: (mcp-call "server-name" "tool-name" "json-object-string")"
     ;CODE EXECUTION:
-    "- Execute MeTTa expression: (metta string)"))
+    "- Execute MeTTa expression: (metta "expression string")"))
 
 (= (read-file $file)
    (progn (translatePredicate (exists_file $file))
