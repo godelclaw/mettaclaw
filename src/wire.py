@@ -80,6 +80,7 @@ _AFFECT_BODY = (
     rf"Ct:{_AFFECT_VALUE}[ \t]+I:{_AFFECT_VALUE}[ \t]+"
     rf"J:{_AFFECT_VALUE}[ \t]+A:{_AFFECT_VALUE}[ \t]+"
     rf"S:{_AFFECT_VALUE}[ \t]+Co:{_AFFECT_VALUE}"
+    rf"(?:[ \t]+Sp:{_AFFECT_VALUE})?"
 )
 _UNICODE_AFFECT = re.compile(rf"^⋄⟨{_AFFECT_BODY}⟩$")
 _ASCII_AFFECT = re.compile(rf"^\[{_AFFECT_BODY}\]$")
