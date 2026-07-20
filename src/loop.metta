@@ -71,7 +71,7 @@
                                    (progn (change-state! &loops (maxLoops))
                                           (change-state! &sleepInterval (sleepInterval))
                                           (change-state! &last-heartbeat (get_time))
-                           (py-call (ggb_tick.query test 1))
+                          (py-call (ggb_tick.query test 1))
                                           (println! (py-call (goals.kernel_pass))))
                                    _)
                                _))
