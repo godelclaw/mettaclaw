@@ -487,6 +487,24 @@ def _handle_callback_query(cq):
         return "callback_error"
 
 
+_bot_username = None
+
+
+def _my_username():
+    """This bot's @username via getMe, cached; "" while unknown."""
+    global _bot_username
+    if _bot_username is None:
+        try:
+            r = requests.get(_api("getMe"), timeout=15).json()
+            name = str((r.get("result") or {}).get("username") or "")
+            if name:
+                _bot_username = name
+            return name
+        except Exception:
+            return ""
+    return _bot_username
+
+
 def _handle_slash_command(chat, sender, text):
     """Deterministic /model, /models, /quota handling inside the poll thread.
 
@@ -499,7 +517,15 @@ def _handle_slash_command(chat, sender, text):
     if not stripped.startswith("/"):
         return None
     parts = stripped.split(None, 1)
-    cmd = parts[0].split("@", 1)[0].lower()  # '/model@SomeBot' -> '/model'
+    head = parts[0]
+    cmd = head.split("@", 1)[0].lower()  # '/model@SomeBot' -> '/model'
+    if "@" in head and cmd in ("/model", "/models", "/quota"):
+        # An @suffix names the addressee. Answering a command aimed at a
+        # DIFFERENT bot switched the wrong agent's model live (2026-07-19).
+        target = head.split("@", 1)[1].lower()
+        mine = _my_username().lower()
+        if not mine or target != mine:
+            return "slash_command_other_bot:" + target
     arg = parts[1].strip() if len(parts) > 1 else ""
     if cmd not in ("/model", "/models", "/quota"):
         return None

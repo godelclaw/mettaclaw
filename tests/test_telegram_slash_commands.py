@@ -93,9 +93,21 @@ class SlashCommandTest(unittest.TestCase):
                          "slash_command:/model")
         self.assertIn("claude-fable-5", self.sent[-1][1])
 
-    def test_botname_suffix_stripped(self):
-        self.assertEqual(self.handle("/models@SomeBot"),
-                         "slash_command:/models")
+    def test_botname_suffix_for_self_is_handled(self):
+        telegram._bot_username = "SomeBot"
+        try:
+            self.assertEqual(self.handle("/models@SomeBot"),
+                             "slash_command:/models")
+        finally:
+            telegram._bot_username = None
+
+    def test_botname_suffix_for_other_bot_is_consumed(self):
+        telegram._bot_username = "SomeBot"
+        try:
+            self.assertEqual(self.handle("/models@OtherBot"),
+                             "slash_command_other_bot:otherbot")
+        finally:
+            telegram._bot_username = None
 
     def test_unrelated_commands_and_text_pass_through(self):
         self.assertIsNone(self.handle("/start"))
@@ -108,6 +120,28 @@ class SlashCommandTest(unittest.TestCase):
                                side_effect=RuntimeError("boom")):
             note = self.handle("/models")
         self.assertEqual(note, "slash_command_error:/models")
+
+
+
+class CrossBotAddressingTests(unittest.TestCase):
+    def setUp(self):
+        telegram._bot_username = "LilaTestBot"
+
+    def tearDown(self):
+        telegram._bot_username = None
+
+    def test_command_for_another_bot_is_consumed_not_answered(self):
+        note = telegram._handle_slash_command(
+            {"id": 1}, {"id": 111000111}, "/model@GodelOruziBot")
+        self.assertEqual(note, "slash_command_other_bot:godeloruzibot")
+
+    def test_unknown_identity_with_suffix_is_consumed(self):
+        telegram._bot_username = None
+        with mock.patch.object(telegram, "requests") as req:
+            req.get.side_effect = Exception("net down")
+            note = telegram._handle_slash_command(
+                {"id": 1}, {"id": 111000111}, "/model@AnyBot")
+        self.assertEqual(note, "slash_command_other_bot:anybot")
 
 
 if __name__ == "__main__":
