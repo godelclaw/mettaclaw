@@ -511,6 +511,25 @@ def _my_username():
     return _bot_username
 
 
+def _peek_slash_command(text, sender):
+    """Would _handle_slash_command take this? Decided without network calls, so
+    the poll thread can hand it off and keep polling."""
+    stripped = (text or "").strip()
+    if not stripped.startswith("/"):
+        return None
+    head = stripped.split(None, 1)[0]
+    cmd = head.split("@", 1)[0].lower()
+    if cmd not in ("/model", "/models", "/quota"):
+        return None
+    if "@" in head:
+        mine = _my_username().lower()
+        if not mine or head.split("@", 1)[1].lower() != mine:
+            return "slash_command_other_bot:" + head.split("@", 1)[1].lower()
+    if not _is_operator(sender):
+        return None
+    return "slash_command:" + cmd
+
+
 def _handle_slash_command(chat, sender, text):
     """Deterministic /model, /models, /quota handling inside the poll thread.
 
@@ -578,7 +597,9 @@ def _poll_loop():
                 update_id = int(update["update_id"])
                 if "callback_query" in update:
                     cq = update["callback_query"] or {}
-                    cb_note = _handle_callback_query(cq)
+                    threading.Thread(target=_handle_callback_query,
+                                     args=(cq,), daemon=True).start()
+                    cb_note = "callback_dispatched"
                     cb_msg = cq.get("message") or {}
                     # log the real allowlist verdict; the outcome is cb_note
                     # (a False here on a successful switch is a lying record)
@@ -611,10 +632,17 @@ def _poll_loop():
                         if not text:
                             note = "no_text_or_caption"
                         else:
-                            command_note = _handle_slash_command(
-                                chat, message.get("from"), text)
+                            command_note = _peek_slash_command(text,
+                                                              message.get("from"))
                             if command_note:
+                                # Operator commands answer on their own thread:
+                                # a slow provider call must not stall polling
+                                # for every other message behind it.
                                 note = command_note
+                                threading.Thread(
+                                    target=_handle_slash_command,
+                                    args=(chat, message.get("from"), text),
+                                    daemon=True).start()
                             else:
                                 queued = True
                 if not _append_update_log(update, kind, message, allowed, queued, note):

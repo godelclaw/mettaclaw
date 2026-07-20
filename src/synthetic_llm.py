@@ -280,13 +280,18 @@ def _openai_base():
     return os.environ.get("SYNTHETIC_BASE_URL", "https://api.synthetic.new/openai/v1").rstrip("/")
 
 
+# Operator introspection (models/quota) runs on the poll thread, so a slow
+# provider must never hold the channel hostage: 8s, then report the timeout.
+_INTROSPECT_TIMEOUT = float(os.environ.get("SYNTHETIC_INTROSPECT_TIMEOUT", "8"))
+
+
 def _get_json(url):
     key = os.environ.get("SYNTHETIC_API_KEY", "")
     if not key:
         return {"error": "SYNTHETIC_API_KEY is not set"}
     req = urllib.request.Request(url, headers={"Authorization": "Bearer " + key})
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=_INTROSPECT_TIMEOUT) as response:
             data = json.loads(response.read())
         return data if isinstance(data, dict) else {"error": "unexpected response"}
     except urllib.error.HTTPError as exc:
