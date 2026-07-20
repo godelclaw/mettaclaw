@@ -1,5 +1,7 @@
 import os
 import json
+import subprocess
+import tempfile
 import re
 import threading
 import time
@@ -734,3 +736,90 @@ def send_message(text, chat_id=""):
 
 def send_message_to_chat(chat_id, text):
     return send_message(text, chat_id=chat_id)
+
+
+def _send_upload(method, field, path, caption, chat_id):
+    """POST one file to Telegram. Returns a result string the agent can read —
+    success or the actual reason, never a silent failure."""
+    chat_id = _reply_target(chat_id)
+    path = str(path)
+    if not _token or not chat_id:
+        return "send failed: missing token or chat id"
+    if not os.path.isfile(path):
+        return "send failed: no such file: " + path
+    size = os.path.getsize(path)
+    if size > 50 * 1024 * 1024:
+        return "send failed: %s is %d bytes; Telegram's limit is 50MB" % (path, size)
+    try:
+        with open(path, "rb") as fh:
+            data = {"chat_id": chat_id}
+            if caption:
+                data["caption"] = str(caption).replace("\\n", "\n")[:1024]
+            resp = requests.post(_api(method), data=data,
+                                 files={field: (os.path.basename(path), fh)},
+                                 timeout=120)
+        try:
+            ok = bool(resp.ok and resp.json().get("ok"))
+        except ValueError:
+            ok = False
+        if not ok:
+            detail = ""
+            try:
+                detail = ": " + str(resp.json().get("description", ""))[:160]
+            except ValueError:
+                pass
+            return "send failed (HTTP %s)%s" % (resp.status_code, detail)
+        _log_outbound(chat_id, "[%s %s] %s" % (field, os.path.basename(path),
+                                               caption or ""))
+        return "sent %s (%d bytes) to chat %s" % (os.path.basename(path), size,
+                                                  chat_id)
+    except requests.exceptions.RequestException as exc:
+        return "send failed (%s): %s" % (type(exc).__name__, exc)
+
+
+def _rasterize_svg(path):
+    """SVG -> PNG so it previews inline. Returns the PNG path, or "" if no
+    converter is available (the caller then falls back to sendDocument)."""
+    out = os.path.join(tempfile.gettempdir(),
+                       os.path.basename(path).rsplit(".", 1)[0] + ".png")
+    try:
+        import cairosvg
+        cairosvg.svg2png(url=path, write_to=out, output_width=1400)
+        return out
+    except Exception:
+        pass
+    for tool in (["rsvg-convert", "-w", "1400", "-o", out, path],
+                 ["inkscape", "--export-type=png", "--export-width=1400",
+                  "--export-filename=" + out, path],
+                 ["convert", "-density", "150", path, out]):
+        try:
+            if subprocess.run(tool, capture_output=True,
+                              timeout=60).returncode == 0 and os.path.isfile(out):
+                return out
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return ""
+
+
+def send_file(path, caption="", chat_id=""):
+    """Send any file as a document (appears as an attachment)."""
+    return _send_upload("sendDocument", "document", path, caption, chat_id)
+
+
+def send_image(path, caption="", chat_id=""):
+    """Send an image so it previews inline. SVG is rasterized to PNG when a
+    converter exists; otherwise it is sent as a document with a note, because
+    Telegram cannot preview SVG."""
+    path = str(path)
+    if path.lower().endswith(".svg"):
+        png = _rasterize_svg(path)
+        if png:
+            result = _send_upload("sendPhoto", "photo", png, caption, chat_id)
+            try:
+                os.unlink(png)
+            except OSError:
+                pass
+            return result
+        note = (caption + " " if caption else "") + "(SVG: no rasterizer here, sent as a file)"
+        return _send_upload("sendDocument", "document", path, note, chat_id)
+    return _send_upload("sendPhoto", "photo", path, caption, chat_id)

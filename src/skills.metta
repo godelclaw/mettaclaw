@@ -20,6 +20,8 @@
 	    ;COMMUNICATION CHANNELS:
 	    "- Send message to user: (send string)"
 	    "- Send Telegram message to a specific chat id: (send-telegram-chat chat_id string)"
+	    "- Send a FILE to the chat as an attachment: (send-file \"/path/to/file.md\" \"caption\")"
+	    "- Send an IMAGE so it previews inline; .svg is auto-converted to png: (send-image \"/path/diagram.svg\" \"caption\")"
 	    "- Last k messages (both sides) from a chat by title or id: (recent-messages chat k)"
 	    "- Search the web using the configured provider: (search string)"
     "- Search the web using Tavily API: (search-tavily string)"
@@ -72,6 +74,17 @@
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)))))
+
+;; Telegram file/image delivery. The result string says what happened —
+;; "sent <name> (<n> bytes) to chat <id>" or the actual failure reason.
+;; send-image previews inline; SVG is rasterized to PNG when a converter
+;; exists, otherwise delivered as a file (Telegram cannot preview SVG).
+(= (send-file $path) (py-call (telegram.send_file $path "")))
+(= (send-file $path $caption)
+   (py-call (telegram.send_file $path (py-call (helper.decode_safe_text $caption)))))
+(= (send-image $path) (py-call (telegram.send_image $path "")))
+(= (send-image $path $caption)
+   (py-call (telegram.send_image $path (py-call (helper.decode_safe_text $caption)))))
 
 ;; Filesystem awareness: line-numbered reads, exact-string edits with
 ;; uniqueness enforced, bounded tree/search. Result strings are the
