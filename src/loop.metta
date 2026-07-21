@@ -100,5 +100,5 @@
                 (if (== (py-call (helper.recycle_requested)) 1)
                     (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
                     (progn
-                      (sleep (get-state &sleepInterval))
+                      (py-call (telegram.sleep_until_message (get-state &sleepInterval)))
                       (mettaclaw (+ 1 $k)))))))
