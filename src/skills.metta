@@ -69,9 +69,9 @@
                    sleep-interval-seconds (get-state &sleepInterval))))
 
 (= (rest $seconds)
-   ;; Clamped: a rest longer than the heartbeat cannot help (the heartbeat
-   ;; re-arms anyway), and on PLeaTTa an over-long sleep aborts the process.
-   (let $n (min 1800 (max 1 (py-call (int $seconds))))
+   ;; Rest duration remains the agent's decision. Telegram reports the wake
+   ;; time to the operator, who may deliberately end it with /wake.
+   (let $n (max 1 (py-call (int $seconds)))
         (progn (change-state! &loops 0)
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)

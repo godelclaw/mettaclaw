@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import subprocess
 import tempfile
 import re
@@ -545,7 +546,7 @@ def _peek_slash_command(text, sender):
         return None
     head = stripped.split(None, 1)[0]
     cmd = head.split("@", 1)[0].lower()
-    if cmd not in ("/model", "/models", "/quota"):
+    if cmd not in ("/model", "/models", "/quota", "/wake"):
         return None
     if "@" in head:
         mine = _my_username().lower()
@@ -570,7 +571,7 @@ def _handle_slash_command(chat, sender, text):
     parts = stripped.split(None, 1)
     head = parts[0]
     cmd = head.split("@", 1)[0].lower()  # '/model@SomeBot' -> '/model'
-    if "@" in head and cmd in ("/model", "/models", "/quota"):
+    if "@" in head and cmd in ("/model", "/models", "/quota", "/wake"):
         # An @suffix names the addressee. Answering a command aimed at a
         # DIFFERENT bot switched the wrong agent's model live (2026-07-19).
         target = head.split("@", 1)[1].lower()
@@ -581,11 +582,10 @@ def _handle_slash_command(chat, sender, text):
     if cmd not in ("/model", "/models", "/quota", "/wake"):
         return None
     if not _is_operator(sender):
-        # Spending levers are operator-only. For anyone else the message just
-        # flows to the agent as ordinary conversation.
+        # Operator controls are not available to other senders. Their message
+        # flows to the agent as ordinary conversation instead.
         return None
     try:
-        import synthetic_llm
         if cmd == "/wake":
             resting, left = rest_status()
             if resting:
@@ -595,6 +595,7 @@ def _handle_slash_command(chat, sender, text):
                 reply = "already awake"
             send_message_to_chat(str(chat.get("id", "")), reply)
             return "slash_command:/wake"
+        import synthetic_llm
         if cmd == "/models":
             requests.post(_api("sendMessage"), json={
                 "chat_id": chat.get("id"),
@@ -667,7 +668,6 @@ def _poll_loop():
                         if not text:
                             note = "no_text_or_caption"
                         else:
-                            _maybe_rest_notice(chat, message.get("from"))
                             command_note = _peek_slash_command(text,
                                                               message.get("from"))
                             if command_note:
@@ -680,6 +680,10 @@ def _poll_loop():
                                     args=(chat, message.get("from"), text),
                                     daemon=True).start()
                             else:
+                                # Only ordinary messages are queued. Slash
+                                # commands execute immediately, so claiming
+                                # that one was queued would be a lying notice.
+                                _maybe_rest_notice(chat, message.get("from"))
                                 queued = True
                 if not _append_update_log(update, kind, message, allowed, queued, note):
                     print("[telegram] continuing after update log failure")
@@ -803,7 +807,7 @@ def send_message(text, chat_id=""):
 
 
 def sleep_until_message(seconds):
-    """Rest, but wake the moment a human writes or an operator says /wake.
+    """Rest until the deadline or until an operator says /wake.
 
     A blocking sleep makes the agent unreachable for its whole duration and
     silent about it. This waits in short slices, so the rest is respected —
@@ -815,9 +819,11 @@ def sleep_until_message(seconds):
     except (TypeError, ValueError):
         seconds = 1
     deadline = time.time() + seconds
-    _sleep_until = deadline
-    _rest_notice_sent = False
+    # Clear a stale wake before publishing the rest. Publishing first leaves
+    # a narrow window where /wake can set the event and this clear loses it.
     _wake_event.clear()
+    _rest_notice_sent = False
+    _sleep_until = deadline
     try:
         while True:
             remaining = deadline - time.time()
@@ -833,7 +839,7 @@ def sleep_until_message(seconds):
 def rest_status():
     """(is_resting, seconds_left) as seen from outside the sleeping loop."""
     left = _sleep_until - time.time()
-    return (left > 0, int(left) if left > 0 else 0)
+    return (left > 0, math.ceil(left) if left > 0 else 0)
 
 
 def send_message_to_chat(chat_id, text):
