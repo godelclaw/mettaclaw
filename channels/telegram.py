@@ -24,6 +24,11 @@ _log_path = ""
 _msg_lock = threading.Lock()
 _log_lock = threading.Lock()
 _chat_titles = {}  # chat_id -> last-seen display title (for outbound records)
+# Rest state. The poll thread keeps running while the agent's main loop
+# sleeps, so it can answer "he is resting" and end the rest on request.
+_sleep_until = 0.0          # epoch when the current rest ends; 0 = awake
+_wake_event = threading.Event()
+_rest_notice_sent = False
 
 
 def _api_base():
@@ -511,6 +516,27 @@ def _my_username():
     return _bot_username
 
 
+def _maybe_rest_notice(chat, sender):
+    """Tell the operator the agent is resting, and for how long, so they can
+    decide whether to wait or /wake. Sent once per rest, not per message."""
+    global _rest_notice_sent
+    resting, left = rest_status()
+    if not resting or _rest_notice_sent or not _is_operator(sender):
+        return
+    _rest_notice_sent = True
+    wake_at = time.strftime("%H:%M", time.localtime(time.time() + left))
+    mins, secs = left // 60, left % 60
+    span = ("%dm%02ds" % (mins, secs)) if mins else ("%ds" % secs)
+    try:
+        send_message_to_chat(
+            str(chat.get("id", "")),
+            "\U0001F4A4 resting — wakes in %s (at %s). Your message is queued "
+            "and will be read then; send /wake to end the rest now."
+            % (span, wake_at))
+    except Exception as exc:
+        print("[telegram] rest notice failed:", exc)
+
+
 def _peek_slash_command(text, sender):
     """Would _handle_slash_command take this? Decided without network calls, so
     the poll thread can hand it off and keep polling."""
@@ -552,7 +578,7 @@ def _handle_slash_command(chat, sender, text):
         if not mine or target != mine:
             return "slash_command_other_bot:" + target
     arg = parts[1].strip() if len(parts) > 1 else ""
-    if cmd not in ("/model", "/models", "/quota"):
+    if cmd not in ("/model", "/models", "/quota", "/wake"):
         return None
     if not _is_operator(sender):
         # Spending levers are operator-only. For anyone else the message just
@@ -560,6 +586,15 @@ def _handle_slash_command(chat, sender, text):
         return None
     try:
         import synthetic_llm
+        if cmd == "/wake":
+            resting, left = rest_status()
+            if resting:
+                _wake_event.set()
+                reply = "awake — cut %dm%02ds of rest short" % (left // 60, left % 60)
+            else:
+                reply = "already awake"
+            send_message_to_chat(str(chat.get("id", "")), reply)
+            return "slash_command:/wake"
         if cmd == "/models":
             requests.post(_api("sendMessage"), json={
                 "chat_id": chat.get("id"),
@@ -632,6 +667,7 @@ def _poll_loop():
                         if not text:
                             note = "no_text_or_caption"
                         else:
+                            _maybe_rest_notice(chat, message.get("from"))
                             command_note = _peek_slash_command(text,
                                                               message.get("from"))
                             if command_note:
@@ -764,6 +800,40 @@ def send_message(text, chat_id=""):
         # A transient network failure on send must never cross Janus and kill the
         # loop (the same failure class that crashed Lila via synthetic_llm).
         print(f"[telegram] send failed ({type(exc).__name__}): {exc}")
+
+
+def sleep_until_message(seconds):
+    """Rest, but wake the moment a human writes or an operator says /wake.
+
+    A blocking sleep makes the agent unreachable for its whole duration and
+    silent about it. This waits in short slices, so the rest is respected —
+    an incoming message does NOT cut it short — but the operator is told how
+    long it has left and can end it deliberately with /wake."""
+    global _sleep_until, _rest_notice_sent
+    try:
+        seconds = max(0, int(float(seconds)))
+    except (TypeError, ValueError):
+        seconds = 1
+    deadline = time.time() + seconds
+    _sleep_until = deadline
+    _rest_notice_sent = False
+    _wake_event.clear()
+    try:
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return "rested %ds" % seconds
+            if _wake_event.wait(min(1.0, remaining)):
+                return "woken by /wake"
+    finally:
+        _sleep_until = 0.0
+        _wake_event.clear()
+
+
+def rest_status():
+    """(is_resting, seconds_left) as seen from outside the sleeping loop."""
+    left = _sleep_until - time.time()
+    return (left > 0, int(left) if left > 0 else 0)
 
 
 def send_message_to_chat(chat_id, text):

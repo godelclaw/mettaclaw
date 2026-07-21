@@ -71,7 +71,6 @@
                                    (progn (change-state! &loops (maxLoops))
                                           (change-state! &sleepInterval (sleepInterval))
                                           (change-state! &last-heartbeat (get_time))
-                          (py-call (ggb_tick.query test 1))
                                           (println! (py-call (goals.kernel_pass))))
                                    _)
                                _))
@@ -99,9 +98,7 @@
                 ;; bookkeeping, then let the service manager start a fresh
                 ;; heap. The request flag is cleared only by the new process.
                 (if (== (py-call (helper.recycle_requested)) 1)
+                    (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
                     (progn
-                      (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
-                      (cut))
-                    (progn
-                      (sleep (get-state &sleepInterval))
+                      (py-call (telegram.sleep_until_message (get-state &sleepInterval)))
                       (mettaclaw (+ 1 $k)))))))
