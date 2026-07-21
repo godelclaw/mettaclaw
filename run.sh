@@ -101,10 +101,10 @@ case "$METTACLAW_ENGINE" in
             export PLEATTA_PYTHON="${PLEATTA_PYTHON:-$(command -v python3)}"
         fi
         export PLEATTA_PY_WORKER
-        export PLEATTA_HOST_ROOT="${PLEATTA_HOST_ROOT:-$ROOT}"
         export PETTA_LIB_ROOT="${PETTA_LIB_ROOT:-$PETTA_ROOT/lib}"
         export PLEATTA_LIBRARY_PATH="${PLEATTA_LIBRARY_PATH:-$ROOT:$ROOT/repos/petta_lib_chromadb}"
-        export PLEATTA_MAX_SLEEP_SECONDS="${PLEATTA_MAX_SLEEP_SECONDS:-120}"
+        # Host confinement and maximum sleep are optional operator policies.
+        # Do not silently change native PeTTa semantics when they are unset.
         unset PLEATTA_CALL_FIXTURE
 
         TRANSCRIPT_DIR="${METTACLAW_TRANSCRIPT_DIR:-$STATE_HOME/$INSTANCE/pleatta-transcripts}"
