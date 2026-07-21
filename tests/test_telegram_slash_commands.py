@@ -1,7 +1,8 @@
-"""Deterministic slash commands (/model, /models, /quota) are answered in the
+"""Deterministic slash commands (/model, /models, /quota, /wake) are answered in the
 poll thread with zero LLM involvement and are never queued for the agent."""
 import os
 import sys
+import threading
 import unittest
 from unittest import mock
 
@@ -92,6 +93,95 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(self.handle("/model claude-fable-5"),
                          "slash_command:/model")
         self.assertIn("claude-fable-5", self.sent[-1][1])
+
+    def test_wake_is_poll_fast_path(self):
+        self.assertEqual(
+            telegram._peek_slash_command("/wake", self.operator),
+            "slash_command:/wake")
+
+    def test_wake_does_not_depend_on_model_backend(self):
+        real_import = __import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "synthetic_llm":
+                raise ImportError("model backend unavailable")
+            return real_import(name, *args, **kwargs)
+
+        telegram._wake_event.clear()
+        try:
+            with mock.patch.object(telegram, "rest_status",
+                                   return_value=(True, 125)), \
+                 mock.patch("builtins.__import__",
+                            side_effect=guarded_import):
+                self.assertEqual(self.handle("/wake"),
+                                 "slash_command:/wake")
+            self.assertTrue(telegram._wake_event.is_set())
+            self.assertIn("2m05s", self.sent[-1][1])
+        finally:
+            telegram._wake_event.clear()
+
+    def test_wake_for_other_bot_is_consumed_without_waking(self):
+        telegram._bot_username = "SomeBot"
+        telegram._wake_event.clear()
+        try:
+            self.assertEqual(
+                self.handle("/wake@OtherBot"),
+                "slash_command_other_bot:otherbot")
+            self.assertFalse(telegram._wake_event.is_set())
+            self.assertEqual(self.sent, [])
+        finally:
+            telegram._bot_username = None
+            telegram._wake_event.clear()
+
+    def test_poll_dispatches_wake_without_false_queue_notice(self):
+        update = {
+            "update_id": 77,
+            "message": {
+                "message_id": 12,
+                "chat": {"id": -4321, "type": "group"},
+                "from": self.operator,
+                "text": "/wake",
+            },
+        }
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"result": [update]}
+
+        class ImmediateThread:
+            def __init__(self, target, args=(), daemon=None):
+                self.target = target
+                self.args = args
+
+            def start(self):
+                self.target(*self.args)
+
+        def one_poll(*args, **kwargs):
+            telegram._running = False
+            return response
+
+        telegram._running = True
+        try:
+            with mock.patch.object(telegram.requests, "get",
+                                   side_effect=one_poll), \
+                 mock.patch.object(telegram, "_chat_is_allowed",
+                                   return_value=True), \
+                 mock.patch.object(telegram, "_download_attachment",
+                                   return_value=None), \
+                 mock.patch.object(telegram, "_append_update_log",
+                                   return_value=True), \
+                 mock.patch.object(telegram, "_save_offset"), \
+                 mock.patch.object(telegram, "_set_last") as queued, \
+                 mock.patch.object(telegram, "_maybe_rest_notice") as notice, \
+                 mock.patch.object(telegram, "_handle_slash_command") as handle, \
+                 mock.patch.object(threading, "Thread", ImmediateThread):
+                telegram._poll_loop()
+        finally:
+            telegram._running = False
+
+        handle.assert_called_once_with(
+            update["message"]["chat"], self.operator, "/wake")
+        notice.assert_not_called()
+        queued.assert_not_called()
 
     def test_botname_suffix_for_self_is_handled(self):
         telegram._bot_username = "SomeBot"
