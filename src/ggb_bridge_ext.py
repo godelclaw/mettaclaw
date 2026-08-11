@@ -40,3 +40,14 @@ def ggbL3Revise(agent):
         return data.get('status', 'error')
     except Exception:
         return 'error'
+
+PEER_CLI = '/home/oruzi/repos/godelclaw/bridges/ggb_peer_cli.py'
+
+def ggbSendToPeer(peer, sender, subject, body):
+    try:
+        r = subprocess.run(['python3', PEER_CLI, 'send', str(peer), str(sender), str(subject), str(body)],
+                          capture_output=True, text=True, timeout=10)
+        data = json.loads(r.stdout.strip())
+        return data.get('status', 'error')
+    except Exception:
+        return 'error'
