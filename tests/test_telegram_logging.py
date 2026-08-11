@@ -340,6 +340,8 @@ def test_energy_updates_are_atomic_across_threads():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "energy.json")
         previous = os.environ.get("METTACLAW_ENERGY_PATH")
+        previous_light = os.environ.pop(
+            "METTACLAW_TELEGRAM_LIGHT_ARM_IDS", None)
         os.environ["METTACLAW_ENERGY_PATH"] = path
         try:
             workers = [threading.Thread(
@@ -357,6 +359,8 @@ def test_energy_updates_are_atomic_across_threads():
                 os.environ.pop("METTACLAW_ENERGY_PATH", None)
             else:
                 os.environ["METTACLAW_ENERGY_PATH"] = previous
+            if previous_light is not None:
+                os.environ["METTACLAW_TELEGRAM_LIGHT_ARM_IDS"] = previous_light
 
 
 def test_delete_my_recent_advances_past_tombstoned_sends():
@@ -384,6 +388,8 @@ def test_energy_updates_are_atomic_across_threads():
     with tempfile.TemporaryDirectory() as tmp:
         path = str(pathlib.Path(tmp) / "energy.json")
         previous = os.environ.get("METTACLAW_ENERGY_PATH")
+        previous_light = os.environ.pop(
+            "METTACLAW_TELEGRAM_LIGHT_ARM_IDS", None)
         os.environ["METTACLAW_ENERGY_PATH"] = path
         try:
             workers = [threading.Thread(
@@ -401,6 +407,8 @@ def test_energy_updates_are_atomic_across_threads():
                 os.environ.pop("METTACLAW_ENERGY_PATH", None)
             else:
                 os.environ["METTACLAW_ENERGY_PATH"] = previous
+            if previous_light is not None:
+                os.environ["METTACLAW_TELEGRAM_LIGHT_ARM_IDS"] = previous_light
 
 
 def test_delete_my_recent_advances_past_tombstoned_sends():
