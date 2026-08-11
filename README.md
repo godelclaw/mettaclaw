@@ -43,7 +43,8 @@ pip install -r requirements.txt
 `initialize.sh` creates local, ignored runtime files:
 
 - `config/local.toml` — human-edited paths and ordinary settings (copied from `config/default.toml`).
-- `config/secrets.env` — API keys and bot tokens; kept mode 600.
+- `config/secrets.env` — API keys, bot tokens, and Telegram identity or
+  authorization IDs; kept mode 600.
 - `.env` — generated runtime environment; do not edit directly.
 - `memory/prompt.txt` — live identity, seeded from `identity/default-prompt.txt`.
 
@@ -54,6 +55,7 @@ defaults. Put secrets only in `config/secrets.env`:
 ```
 SYNTHETIC_API_KEY=sk-...
 METTACLAW_TELEGRAM_BOT_TOKEN=123456789:...
+METTACLAW_TELEGRAM_OPERATOR_IDS=<telegram-user-id>
 ```
 
 The LLM provider is any OpenAI-compatible endpoint (default `api.synthetic.new`);
@@ -114,5 +116,4 @@ Shell output of the actual invocation of the generated MeTTa code:
 System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
-
 
