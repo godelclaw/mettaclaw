@@ -116,7 +116,7 @@ class SlashCommandTest(unittest.TestCase):
                 self.assertEqual(self.handle("/wake"),
                                  "slash_command:/wake")
             self.assertTrue(telegram._wake_event.is_set())
-            self.assertIn("2m05s", self.sent[-1][1])
+            self.assertEqual(self.sent, [])
         finally:
             telegram._wake_event.clear()
 
@@ -222,15 +222,15 @@ class CrossBotAddressingTests(unittest.TestCase):
 
     def test_command_for_another_bot_is_consumed_not_answered(self):
         note = telegram._handle_slash_command(
-            {"id": 1}, {"id": 111000111}, "/model@GodelOruziBot")
-        self.assertEqual(note, "slash_command_other_bot:godeloruzibot")
+            {"id": 1}, {"id": 555000555}, "/model@OtherTestBot")
+        self.assertEqual(note, "slash_command_other_bot:othertestbot")
 
     def test_unknown_identity_with_suffix_is_consumed(self):
         telegram._bot_username = None
         with mock.patch.object(telegram, "requests") as req:
             req.get.side_effect = Exception("net down")
             note = telegram._handle_slash_command(
-                {"id": 1}, {"id": 111000111}, "/model@AnyBot")
+                {"id": 1}, {"id": 555000555}, "/model@AnyBot")
         self.assertEqual(note, "slash_command_other_bot:anybot")
 
 

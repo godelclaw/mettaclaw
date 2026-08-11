@@ -1,5 +1,8 @@
+import json
 import os
 import re
+import sys
+import time
 
 
 SAFE_TEXT_REPLACEMENTS = (
@@ -58,6 +61,150 @@ def recycle_requested():
     the reliable boundary type (bug found live 2026-07-18/19)."""
     path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
     return 1 if path and os.path.isfile(path) else 0
+
+
+def recycle_ack():
+    """Consume the boundary flag: the NEW process clears it at boot, so a
+    pending request can fire at most one process exit. Before this
+    existed, the flag was immortal — nothing anywhere removed it."""
+    path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+    return 1
+
+
+def recycle_exit():
+    """Hard process exit for the recycle boundary. Merely returning from
+    the loop recursion lands in engine backtracking, which re-enters the
+    loop from scratch inside the same process — a boot-loop that re-arms
+    a fresh budget every cycle (the 2026-08-06 storm). The service
+    manager (Restart=always) starts the fresh heap."""
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(0)
+
+
+# ---- present-moment continuity (PresentMoment.lean) ------------------------
+# The working self — last results, energy, idle pacing, rhythm phase, and
+# any stated rest intention — is snapshotted at every turn boundary
+# (persist) and restored at boot (restore), so a recycle or restart is
+# sleep, not a fresh boot. The continuity invariant: restore ∘ persist =
+# identity on this projection, within the feedback window.
+
+_WORKING_CAP = 50000  # mirrors (maxFeedback)
+_working_boot_cache = {}
+
+
+def _working_set_path():
+    return os.environ.get("METTACLAW_WORKING_SET_PATH",
+                          "./memory/working_set.json")
+
+
+def _working_read():
+    try:
+        with open(_working_set_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _working_write(data):
+    path = _working_set_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, path)
+
+
+def working_set_save(loops, sleep, lastresults, hb_clock):
+    """persist: snapshot the working self at a turn boundary."""
+    try:
+        data = _working_read()
+        data.update({
+            "loops": int(loops),
+            "sleepInterval": int(sleep),
+            "lastresults": str(lastresults)[-_WORKING_CAP:],
+            "last_heartbeat": float(hb_clock),
+            "saved_at": time.time(),
+        })
+        _working_write(data)
+        return 1
+    except Exception:
+        return 0
+
+
+def intent_save(why):
+    """Store the agent's stated rest intention; it greets the next
+    waking (WOKE_FROM_REST) and survives any boundary in between."""
+    try:
+        data = _working_read()
+        data["intent"] = str(why)[:500]
+        _working_write(data)
+        return 1
+    except Exception:
+        return 0
+
+
+def working_boot():
+    """restore: the NEW process loads the snapshot, prefixes the waking
+    lastresults with a continuity marker (plus the consumed rest
+    intention when one was stored), and clears the intention so it fires
+    once. First-ever boot (no snapshot) leaves fresh-start defaults."""
+    global _working_boot_cache
+    data = _working_read()
+    cache = dict(data)
+    if data:
+        intent = data.pop("intent", None)
+        cache.pop("intent", None)
+        marker = "CONTINUITY: resumed " + time.strftime("%Y-%m-%d %H:%M:%S")
+        if intent:
+            marker += " | WOKE_FROM_REST: " + str(intent)
+        prior = str(cache.get("lastresults", ""))
+        # The marker lives only in the waking view; the snapshot keeps
+        # pristine content so markers never stack across boots.
+        cache["lastresults"] = (marker + "\n" + prior)[:_WORKING_CAP] \
+            if prior else marker
+        if intent is not None:
+            try:
+                _working_write(data)  # consume the intention on disk
+            except OSError:
+                pass
+    _working_boot_cache = cache
+    return 1
+
+
+def boot_str(key, default):
+    v = _working_boot_cache.get(str(key))
+    return str(v) if v is not None else str(default)
+
+
+def boot_int(key, default):
+    v = _working_boot_cache.get(str(key))
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        try:
+            return int(default)
+        except (TypeError, ValueError):
+            return 0
+
+
+def boot_num(key, default):
+    v = _working_boot_cache.get(str(key))
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        try:
+            return float(default)
+        except (TypeError, ValueError):
+            return 0.0
 
 
 def _persist_atom(persist, name, value):

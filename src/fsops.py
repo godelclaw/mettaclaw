@@ -15,14 +15,45 @@ MAX_FILES_SCANNED = 2000
 SKIP_DIRS = {".git", "__pycache__", "node_modules", "chroma_db", ".venv"}
 
 
+def read_file(path):
+    """Whole file as a string, or a reason. Never a silent empty result:
+    'read failed: no such file: X (cwd Y)' is actionable; '' is a mystery."""
+    path = str(path)
+    try:
+        with open(path, "rb") as f:
+            data = f.read(MAX_FILE_BYTES + 1)
+        if len(data) > MAX_FILE_BYTES:
+            return ("read failed: %s exceeds %d bytes — use read-lines for a "
+                    "bounded window" % (path, MAX_FILE_BYTES))
+        if not data:
+            # An empty file and a failed read must never look alike.
+            return "READ_OK_EMPTY_FILE: %s exists and holds zero bytes" % path
+        return data.decode("utf-8", errors="replace")
+    except FileNotFoundError:
+        return "read failed: no such file: %s (cwd %s)" % (path, os.getcwd())
+    except IsADirectoryError:
+        return "read failed: %s is a directory — use (ls-tree %r 1)" % (path, path)
+    except PermissionError:
+        return "read failed: permission denied: %s" % path
+    except OSError as exc:
+        return "read failed (%s): %s" % (type(exc).__name__, exc)
+
+
 def read_lines(path, start=1, count=60):
     """Numbered window of a file; the numbers are what edit anchors need."""
     path = str(path)
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            lines = fh.read().splitlines()
+        with open(path, "rb") as fh:
+            data = fh.read(MAX_FILE_BYTES + 1)
     except OSError as exc:
         return f"read-lines failed: {exc}"
+    if len(data) > MAX_FILE_BYTES:
+        return (f"read-lines failed: {path} exceeds {MAX_FILE_BYTES} bytes; "
+                "use shell tools that stream a bounded range")
+    if not data:
+        # An empty file and a failed read must never look alike.
+        return f"READ_OK_EMPTY_FILE: {path} exists and holds zero bytes"
+    lines = data.decode("utf-8", errors="replace").splitlines()
     start = max(1, int(start))
     count = min(int(count), MAX_LINES)
     window = lines[start - 1:start - 1 + count]

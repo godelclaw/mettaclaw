@@ -1,0 +1,6 @@
+inventories found: 51
+conformant: 51
+failed: 0
+branch systems checked: 408
+semantic-hash mismatches: 0
+general-poly coords (detailed eq check skipped): 0 branches

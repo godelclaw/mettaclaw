@@ -33,6 +33,18 @@ shell(Cmd, Out) :-
     ( Status = exit(124) -> Out = timeout_error
     ; Status = exit(137) -> Out = timeout_error
     ; Status = killed(_) -> Out = timeout_error
+    ; Text == "" ->
+        %% Empty output was indistinguishable from a failed command, so a
+        %% mistyped shell string looked exactly like "no matches found".
+        %% Say which one happened.
+        ( Status = exit(0)
+          -> Out = "SHELL_OK_NO_OUTPUT (command succeeded, printed nothing)"
+        ; Status = exit(Code)
+          -> format(string(Out),
+                    "SHELL_ERROR exit ~w (command failed, printed nothing)",
+                    [Code])
+        ; Out = "SHELL_ERROR (command did not exit normally)"
+        )
     ; Out = Text
     ).
 

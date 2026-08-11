@@ -1,0 +1,145 @@
+inventories found: 324
+conformant: 0
+failed: 324
+branch systems checked: 2576
+semantic-hash unverified (canonical form may differ): 0
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b4_w24_split_v2/inventory.json
+   - branch 0 zero-bit coord w_24_00 not an equation
+   - branch 0 zero-bit coord w_24_11 not an equation
+   - branch 0 zero-bit coord w_24_22 not an equation
+   - branch 1 zero-bit coord w_24_00 not an equation
+   - branch 1 zero-bit coord w_24_11 not an equation
+   - branch 2 zero-bit coord w_24_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b4c4_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b4c6_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b5_w24_split_v2/inventory.json
+   - branch 0 zero-bit coord w_24_00 not an equation
+   - branch 0 zero-bit coord w_24_11 not an equation
+   - branch 0 zero-bit coord w_24_22 not an equation
+   - branch 1 zero-bit coord w_24_00 not an equation
+   - branch 1 zero-bit coord w_24_11 not an equation
+   - branch 2 zero-bit coord w_24_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b5c6_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b6_w24_split_v2/inventory.json
+   - branch 0 zero-bit coord w_24_00 not an equation
+   - branch 0 zero-bit coord w_24_11 not an equation
+   - branch 0 zero-bit coord w_24_22 not an equation
+   - branch 1 zero-bit coord w_24_00 not an equation
+   - branch 1 zero-bit coord w_24_11 not an equation
+   - branch 2 zero-bit coord w_24_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b6c2_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b6c4_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b6c6_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b7_w24_split_v2/inventory.json
+   - branch 0 zero-bit coord w_24_00 not an equation
+   - branch 0 zero-bit coord w_24_11 not an equation
+   - branch 0 zero-bit coord w_24_22 not an equation
+   - branch 1 zero-bit coord w_24_00 not an equation
+   - branch 1 zero-bit coord w_24_11 not an equation
+   - branch 2 zero-bit coord w_24_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_b7c6_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_w01_split/inventory.json
+   - branch 0 zero-bit coord w_01_00 not an equation
+   - branch 0 zero-bit coord w_01_11 not an equation
+   - branch 0 zero-bit coord w_01_22 not an equation
+   - branch 1 inv-symbol tail mismatch: ['branch_inv_2']
+   - branch 1 zero-bit coord w_01_00 not an equation
+   - branch 1 zero-bit coord w_01_11 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b4_w24_split_v1/inventory.json
+   - branch 0 zero-bit coord w_24_00 not an equation
+   - branch 0 zero-bit coord w_24_11 not an equation
+   - branch 0 zero-bit coord w_24_22 not an equation
+   - branch 1 zero-bit coord w_24_00 not an equation
+   - branch 1 zero-bit coord w_24_11 not an equation
+   - branch 2 zero-bit coord w_24_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b4c2_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b4c4_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b4c6_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b4c7_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b6_w24_split_v1/inventory.json
+   - branch 0 zero-bit coord w_24_00 not an equation
+   - branch 0 zero-bit coord w_24_11 not an equation
+   - branch 0 zero-bit coord w_24_22 not an equation
+   - branch 1 zero-bit coord w_24_00 not an equation
+   - branch 1 zero-bit coord w_24_11 not an equation
+   - branch 2 zero-bit coord w_24_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b6c4_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component02_b6c6_w35_split_v1/inventory.json
+   - branch 0 zero-bit coord w_35_00 not an equation
+   - branch 0 zero-bit coord w_35_11 not an equation
+   - branch 0 zero-bit coord w_35_22 not an equation
+   - branch 1 zero-bit coord w_35_00 not an equation
+   - branch 1 zero-bit coord w_35_11 not an equation
+   - branch 2 zero-bit coord w_35_00 not an equation

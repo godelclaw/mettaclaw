@@ -5,6 +5,8 @@ import os
 import pathlib
 import sys
 import tempfile
+import threading
+import threading
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -329,8 +331,96 @@ def test_callback_log_records_actual_allowlist_decision():
         assert record["kind"] == "callback_query"
         assert record["allowed"] is True
         assert record["queued"] is False
-        assert record["note"] == "callback_model_switch"
+        assert record["note"] == "callback_dispatched"
 
+
+
+def test_energy_updates_are_atomic_across_threads():
+    tg = load_telegram()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(pathlib.Path(tmp) / "energy.json")
+        previous = os.environ.get("METTACLAW_ENERGY_PATH")
+        os.environ["METTACLAW_ENERGY_PATH"] = path
+        try:
+            workers = [threading.Thread(
+                target=tg.energy_set, args=(str(1000 + i), "light"))
+                for i in range(20)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+            data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+            assert len(data["senders"]) == 20
+            assert set(data["senders"].values()) == {"light"}
+        finally:
+            if previous is None:
+                os.environ.pop("METTACLAW_ENERGY_PATH", None)
+            else:
+                os.environ["METTACLAW_ENERGY_PATH"] = previous
+
+
+def test_delete_my_recent_advances_past_tombstoned_sends():
+    tg = load_telegram()
+    with tempfile.TemporaryDirectory() as tmp:
+        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+        tg._token = "fake-token"
+        tg._log_outbound("-1", "older", 10)
+        tg._log_outbound("-1", "newer", 11)
+        deleted = []
+
+        def fake_post(url, json=None, timeout=None):
+            deleted.append(json["message_id"])
+            return FakeResponse({"ok": True})
+
+        tg.requests.post = fake_post
+        assert "message 11" in tg.delete_my_recent("-1", 1)
+        assert "message 10" in tg.delete_my_recent("-1", 1)
+        assert "nothing to delete" in tg.delete_my_recent("-1", 1)
+        assert deleted == [11, 10]
+
+
+def test_energy_updates_are_atomic_across_threads():
+    tg = load_telegram()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(pathlib.Path(tmp) / "energy.json")
+        previous = os.environ.get("METTACLAW_ENERGY_PATH")
+        os.environ["METTACLAW_ENERGY_PATH"] = path
+        try:
+            workers = [threading.Thread(
+                target=tg.energy_set, args=(str(1000 + i), "light"))
+                for i in range(20)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+            data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+            assert len(data["senders"]) == 20
+            assert set(data["senders"].values()) == {"light"}
+        finally:
+            if previous is None:
+                os.environ.pop("METTACLAW_ENERGY_PATH", None)
+            else:
+                os.environ["METTACLAW_ENERGY_PATH"] = previous
+
+
+def test_delete_my_recent_advances_past_tombstoned_sends():
+    tg = load_telegram()
+    with tempfile.TemporaryDirectory() as tmp:
+        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+        tg._token = "fake-token"
+        tg._log_outbound("-1", "older", 10)
+        tg._log_outbound("-1", "newer", 11)
+        deleted = []
+
+        def fake_post(url, json=None, timeout=None):
+            deleted.append(json["message_id"])
+            return FakeResponse({"ok": True})
+
+        tg.requests.post = fake_post
+        assert "message 11" in tg.delete_my_recent("-1", 1)
+        assert "message 10" in tg.delete_my_recent("-1", 1)
+        assert "nothing to delete" in tg.delete_my_recent("-1", 1)
+        assert deleted == [11, 10]
 
 
 if __name__ == "__main__":
@@ -341,3 +431,7 @@ if __name__ == "__main__":
     test_attachment_download_is_atomic_and_sanitized()
     test_oversized_attachment_leaves_no_partial_file()
     test_callback_log_records_actual_allowlist_decision()
+    test_energy_updates_are_atomic_across_threads()
+    test_delete_my_recent_advances_past_tombstoned_sends()
+    test_energy_updates_are_atomic_across_threads()
+    test_delete_my_recent_advances_past_tombstoned_sends()

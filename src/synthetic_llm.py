@@ -27,12 +27,42 @@ def _int_env(name, default, minimum):
     return max(value, minimum)
 
 
+_consecutive_empty = 0
+
+
+def _note_answered():
+    """A real answer clears the failure streak."""
+    global _consecutive_empty
+    _consecutive_empty = 0
+
+
 def _empty_action(reason):
+    """Return the no-op action, paced.
+
+    A provider that fails — including HTTP 200 carrying no content, which is
+    what credit exhaustion and rate shaping look like — is not answering. The
+    agent loop cannot tell that apart from "the model chose to do nothing": it
+    sees no commands, so it never reaches a (rest ...), and calls again on the
+    next iteration with no delay. Being rate-limited therefore *increases* the
+    call rate, which is exactly backwards, and burned 316 calls in one day.
+
+    Pacing belongs here rather than in the loop: the agent keeps full control
+    of its own resting, and a failing provider costs wall-clock instead of the
+    remaining budget. The streak resets on the first real answer.
+    """
+    global _consecutive_empty
+    _consecutive_empty += 1
+    base = _float_env("SYNTHETIC_EMPTY_BACKOFF", 15.0, 0.0)
+    cap = _float_env("SYNTHETIC_EMPTY_BACKOFF_CAP", 300.0, 0.0)
+    wait = min(cap, base * (2 ** (_consecutive_empty - 1))) if base else 0.0
     print(
         "[synthetic_llm] transient chat failure: "
-        f"{type(reason).__name__}: {reason}; returning ()",
+        f"{type(reason).__name__}: {reason}; returning () "
+        f"(consecutive {_consecutive_empty}, pausing {wait:.0f}s)",
         file=sys.stderr,
     )
+    if wait > 0:
+        time.sleep(wait)
     return "()"
 
 
@@ -44,7 +74,7 @@ def _empty_action(reason):
 
 _ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com/v1"
 _ANTHROPIC_DEFAULT_MODELS = (
-    "claude-fable-5,claude-opus-4-8,claude-sonnet-5,claude-haiku-4-5-20251001"
+    "claude-fable-5,claude-opus-5,claude-opus-4-8,claude-sonnet-5,claude-haiku-4-5-20251001"
 )
 
 
@@ -177,6 +207,77 @@ def _anthropic_request(provider, effective_model, max_tokens, prompt):
     )
 
 
+def _usage_path():
+    return os.environ.get("METTACLAW_ANTHROPIC_USAGE_PATH",
+                          "memory/anthropic_usage.json")
+
+
+def _tally_anthropic(usage):
+    """Accumulate real token counts from Anthropic responses (the only
+    numbers a non-admin key can see). Read back by quota()."""
+    try:
+        today = time.strftime("%Y-%m-%d")
+        try:
+            with open(_usage_path(), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            d = {}
+        if d.get("today") != today:
+            d = {"today": today, "in": 0, "out": 0,
+                 "since": d.get("since", today),
+                 "total_in": d.get("total_in", 0),
+                 "total_out": d.get("total_out", 0)}
+        inn = int(usage.get("input_tokens", 0))             + int(usage.get("cache_creation_input_tokens", 0) or 0)             + int(usage.get("cache_read_input_tokens", 0) or 0)
+        out = int(usage.get("output_tokens", 0))
+        d["in"] += inn; d["out"] += out
+        d["total_in"] = d.get("total_in", 0) + inn
+        d["total_out"] = d.get("total_out", 0) + out
+        tmp = _usage_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        os.replace(tmp, _usage_path())
+    except OSError:
+        pass
+
+
+def _fmt_tokens(n):
+    n = int(n)
+    return "%.1fM" % (n / 1e6) if n >= 1e6 else "%dk" % (n // 1000) if n >= 1000 else str(n)
+
+
+def _diagnose_empty(payload):
+    """Explain an empty answer using the provider's actual stop reason."""
+    try:
+        if isinstance(payload.get("content"), list):
+            stop = payload.get("stop_reason")
+            used = (payload.get("usage") or {}).get("output_tokens")
+            if stop == "max_tokens":
+                return (
+                    "output budget exhausted before any answer was emitted "
+                    f"(stop_reason=max_tokens, output_tokens={used}). Raise "
+                    "maxOutputToken, or think in smaller steps."
+                )
+            return f"empty response (stop_reason={stop})"
+        choice = (payload.get("choices") or [{}])[0]
+        finish = choice.get("finish_reason")
+        msg = choice.get("message") or {}
+        reasoning = msg.get("reasoning_content") or ""
+        used = (payload.get("usage") or {}).get("completion_tokens")
+        if finish == "length":
+            return (
+                "output budget exhausted before any answer was emitted "
+                f"(finish_reason=length, completion_tokens={used}, "
+                f"reasoning_chars={len(reasoning)}). The whole budget went to "
+                "reasoning. Raise maxOutputToken, or think in smaller steps."
+            )
+        if reasoning:
+            return (f"empty answer with {len(reasoning)} chars of reasoning "
+                    f"(finish_reason={finish})")
+        return f"empty response (finish_reason={finish})"
+    except (AttributeError, IndexError, TypeError):
+        return "empty response"
+
+
 def _extract_content(payload):
     """Assistant text from either response dialect (native or openai-compat)."""
     if isinstance(payload.get("content"), list):  # native Messages API
@@ -184,6 +285,7 @@ def _extract_content(payload):
                  if isinstance(b, dict) and b.get("type") == "text"]
         usage = payload.get("usage") or {}
         if usage:
+            _tally_anthropic(usage)
             print(
                 "[synthetic_llm] anthropic usage: "
                 f"in={usage.get('input_tokens')} "
@@ -235,8 +337,9 @@ def chat(model, max_tokens, effort, prompt):
                 payload = json.loads(response.read())
             content = _extract_content(payload)
             if isinstance(content, str) and content.strip():
+                _note_answered()
                 return content
-            return _empty_action("empty response")
+            return _empty_action(_diagnose_empty(payload))
         except urllib.error.HTTPError as exc:
             if exc.code not in _RETRIABLE_HTTP_STATUS:
                 raise
@@ -320,28 +423,33 @@ def _percent(value):
 
 
 def quota():
-    """Compact budget summary: current model, weekly credits, rolling 5h window."""
+    """One line: model, its real numbers when we have them, nothing else."""
+    on_anthropic = _is_anthropic_model(current_model())
+    provider_tag = "Anthropic API" if on_anthropic else "Synthetic"
+    parts = [f"model={current_model()} ({provider_tag})"]
+    if on_anthropic:
+        try:
+            with open(_usage_path(), encoding="utf-8") as fh:
+                d = json.load(fh)
+            if d.get("in") or d.get("out"):
+                parts.append("today=%s in / %s out"
+                             % (_fmt_tokens(d.get("in", 0)),
+                                _fmt_tokens(d.get("out", 0))))
+        except (OSError, ValueError):
+            pass  # no numbers -> say nothing about it
     data = _get_json(_api_root() + "/v2/quotas")
-    if "error" in data:
+    if "error" not in data:
+        week = data.get("weeklyTokenLimit") or {}
+        if week:
+            parts.append(f"synthetic_weekly={week.get('remainingCredits', '?')} "
+                         f"of {week.get('maxCredits', '?')} "
+                         f"({_percent(week.get('percentRemaining'))}%)")
+        five = data.get("rollingFiveHourLimit") or {}
+        if five:
+            parts.append(f"5h={five.get('remaining', '?')}/{five.get('max', '?')}"
+                         + (" LIMITED" if five.get("limited") else ""))
+    elif len(parts) == 1:
         return f"quota unavailable: {data['error']}"
-    parts = [f"model={current_model()}"]
-    if _is_anthropic_model(current_model()):
-        parts.append("provider=anthropic (its usage is tracked in the Anthropic console; credits below are synthetic's)")
-    week = data.get("weeklyTokenLimit") or {}
-    if week:
-        parts.append(
-            f"weekly_credits={week.get('remainingCredits', '?')} of {week.get('maxCredits', '?')} "
-            f"({_percent(week.get('percentRemaining'))}% left)"
-        )
-    five = data.get("rollingFiveHourLimit") or {}
-    if five:
-        parts.append(
-            f"5h_window={five.get('remaining', '?')}/{five.get('max', '?')}"
-            + (" LIMITED" if five.get("limited") else "")
-        )
-    sub = data.get("subscription") or {}
-    if sub:
-        parts.append(f"subscription={sub.get('requests', '?')}/{sub.get('limit', '?')}")
     return " | ".join(parts)
 
 

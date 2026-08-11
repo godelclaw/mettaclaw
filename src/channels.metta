@@ -35,7 +35,7 @@
 ;Receive the latest user message considering all communication channels:
 (= (receive)
    (if (== (commchannel) telegram)
-       (py-call (telegram.getLastMessage))
+       (py-call (telegram.getActivityBatch))
        (if (== (commchannel) irc)
            (py-call (irc.getLastMessage))
            (py-call (mattermost.getLastMessage)))))
@@ -59,6 +59,12 @@
    (let $safemsg (string-replace $msg  "\n" "\\n")
         (let $outmsg (py-call (helper.decode_safe_text $safemsg))
              (let $temp (cut) (py-call (telegram.send_message_to_chat $chat_id $outmsg))))))
+
+;; Clean up after a test send: delete your own last k messages to a chat,
+;; newest first, using the ids recorded when they were sent. Only your own
+;; messages, only within Telegram's 48h window.
+(= (delete-my-recent $chat_id $k)
+   (py-call (telegram.delete_my_recent $chat_id $k)))
 
 ;Search the internet for some information:
 (= (search $msg)

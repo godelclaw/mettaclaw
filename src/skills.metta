@@ -2,14 +2,16 @@
    (;INTERNAL:
     "- Remember a particular string such as skills and memories: (remember \"string\")"
     "- Query long-term embedding memory for skills and memories with short phrases only: (query \"short phrase\")"
-    "- Pin a certain string as short-term working memory item to keep track of task state: (pin \"string\")"
+    "- Pin a working-memory line — persists across restarts, shown every turn under PINNED, cap 12: (pin \"string\")"
+    "- Remove pins containing a fragment: (unpin \"fragment\")"
     "- Goal stack + mood (kernel decays STI, consolidates LTI, flags stuck/cull-review at each wake): (goals)"
-    "- Add/update one goal — THE ONE EXCEPTION: no quotes inside, hyphenate blocked-by, note is free text: (goal-write string) e.g. (goal-write (goal name Area sti:0.8 lti:0.3 vibes:(a b) blocked-by:none last-verified:never note:why it matters))"
+    "- Add/update one goal (liberal format, see (help \"goal-write\")): (goal-write (goal name Area sti:0.8 lti:0.3 vibes:(a b) blocked-by:none last-verified:never note:why it matters))"
     "- Compost a goal (needs cull-review flag, or reason solved with last-verified set): (goal-drop \"name\" \"reason\")"
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
+    "- Rest with a stated intention shown at your next waking: (rest seconds \"why\")"
     ;SHELL AND FILE I/O:
-    "- Execute shell command without apostrophe in string, it returns the command output to you: (shell \"command string\")"
+    "- Execute shell command, it returns the command output to you: (shell \"command string\")"
     "- Read file to string: (read-file \"filename\")"
     "- Write string to file: (write-file \"filename\" \"string\")"
     "- Append line to file: (append-file \"filename\" \"string\")"
@@ -22,11 +24,16 @@
 	    "- Send Telegram message to a specific chat id: (send-telegram-chat \"chat_id\" \"string\")"
 	    "- Send a FILE to the chat as an attachment: (send-file \"/path/to/file.md\" \"caption\")"
 	    "- Send an IMAGE so it previews inline; .svg is auto-converted to png: (send-image \"/path/diagram.svg\" \"caption\")"
+	    "- Clean up after a test send: delete your own last k messages to a chat: (delete-my-recent \"chat_id\" k)"
+	    "- Arming energy per sender (how many loops a message grants): (energy) to view, (energy-set \"default|Name|id\" \"full|mid|light\")"
+	    "- Sibling claw control, watchdog-safe: (sibling-status) | (sibling-on) | (sibling-off \"reason\")"
 	    "- Last k messages (both sides) from a chat by title or id: (recent-messages \"chat\" k)"
 	    "- Search the web using the configured provider: (search \"string\")"
     "- Search the web using Tavily API: (search-tavily \"string\")"
     "- Search the web using DuckDuckGo HTML: (search-ddg \"string\")"
     ;LLM API:
+    "- Check your embedding memory's health — how far the on-disk index trails your writes: (memory-health)"
+    "- Attempt memory-index catch-up and report measured before/after drift: (memory-compact)"
     "- Check your LLM API budget — model in use, credits left, rate window: (llm-quota)"
     "- List the LLM models you can use: (llm-models)"
     "- Switch your LLM model for this session: (llm-set-model \"model-name\")"
@@ -36,12 +43,22 @@
     "- Show one MCP tool's argument schema: (mcp-tool-info \"server-name\" \"tool-name\")"
     "- Call any MCP tool with JSON object arguments: (mcp-call \"server-name\" \"tool-name\" \"json-object-string\")"
     ;CODE EXECUTION:
-    "- Execute MeTTa expression: (metta \"expression string\")"))
+    "- Execute MeTTa expression: (metta \"expression string\")"
+    ;CLAUDE CODE AND TMUX:
+    "- Ask Claude Code one headless question (needs Zar's authorization toggle): (claude-code \"prompt\")"
+    "- List tmux windows: (tmux-windows)"
+    "- Read the last n lines of a window: (tmux-peek \"oruzi:CC-mama\" 30)"
+    "- Type into the Claude Code window (allowlisted + authorized only): (tmux-send \"oruzi:CC-mama\" \"message\")"
+    ;WHEN UNSURE:
+    "- Man page for any skill (usage, example, common failure): (help \"skill-name\")"
+    "- Dry-run a command string through the real parser, nothing executes: (check \"(shell \\\"ls /tmp\\\")\")"))
 
+;; read-file explains failure instead of silently returning nothing: the old
+;; Prolog chain FAILED (empty result, no reason) on a missing/unreadable path,
+;; which cost real time — the file existed but a relative path did not resolve
+;; from the loop's cwd, and nothing said so.
 (= (read-file $file)
-   (progn (translatePredicate (exists_file $file))
-          (translatePredicate (read_file_to_string $file $content ()))
-          $content))
+   (py-call (fsops.read_file $file)))
 
 (= (write-file $file $str)
    (progn (translatePredicate (open $file write $Out))
@@ -69,13 +86,25 @@
                    sleep-interval-seconds (get-state &sleepInterval))))
 
 (= (rest $seconds)
-   ;; Rest duration remains the agent's decision. Telegram reports the wake
-   ;; time to the operator, who may deliberately end it with /wake.
+   ;; Rest duration remains the agent's decision. An authenticated operator
+   ;; message or /wake may deliberately end it; other activity queues.
    (let $n (max 1 (py-call (int $seconds)))
         (progn (change-state! &loops 0)
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)))))
+
+(= (rest $seconds $why)
+   ;; Rest with a stated intention: the why survives every boundary and
+   ;; greets the next waking (WOKE_FROM_REST), and tells anyone thinking
+   ;; who wakes the agent what the rest is for.
+   (let $n (max 1 (py-call (int $seconds)))
+        (progn (change-state! &loops 0)
+               (change-state! &sleepInterval $n)
+               (py-call (helper.intent_save (py-call (helper.decode_safe_text $why))))
+               (RESTING loops-left (get-state &loops)
+                        sleep-interval-seconds (get-state &sleepInterval)
+                        intent (py-call (helper.decode_safe_text $why))))))
 
 ;; Telegram file/image delivery. The result string says what happened —
 ;; "sent <name> (<n> bytes) to chat <id>" or the actual failure reason.
@@ -106,7 +135,47 @@
    (py-call (goals.goal_write (py-call (helper.decode_safe_text $atom)))))
 (= (goal-drop $name $reason) (py-call (goals.goal_drop $name $reason)))
 
+;; Claude Code bridge + tmux interface. The authorization flag is Zar's
+;; (/claude_code_authorization in Telegram); it gates claude-code and
+;; tmux-send, and is re-read on every call so revocation is immediate.
+(= (claude-code $prompt)
+   (py-call (claude_bridge.ask (py-call (helper.decode_safe_text $prompt)))))
+(= (tmux-windows) (py-call (tmux_bridge.windows)))
+(= (tmux-peek $win $n) (py-call (tmux_bridge.peek $win $n)))
+(= (tmux-send $win $text)
+   (py-call (tmux_bridge.send $win (py-call (helper.decode_safe_text $text)))))
+
+;; Progressive disclosure: one-line catalog above, full page on demand.
+;; check parses with the loop's OWN reader (sread), so its verdict is the
+;; loop's verdict — nothing is executed either way.
+(= (help) (py-call (skills_help.help "")))
+(= (help $name) (py-call (skills_help.help (py-call (helper.decode_safe_text $name)))))
+(= (check $str)
+   ;; repr BEFORE the bridge: a caught syntax_error compound cannot cross
+   ;; janus (Domain error: py_term) — as a string it always can.
+   (let $decoded (py-call (helper.decode_safe_text $str))
+        (let $parsed (catch (sread $decoded))
+             (let $rendered (repr $parsed)
+                  (py-call (skills_help.verdict $decoded $rendered))))))
+
+;; Pins: real, persisted working memory (previously catalog-only — the call
+;; just echoed itself into results feedback and vanished on restart).
+(= (pin $text) (py-call (pins.pin (py-call (helper.decode_safe_text $text)))))
+(= (unpin $frag) (py-call (pins.unpin (py-call (helper.decode_safe_text $frag)))))
+
+;; Arming energy (persisted per-sender loop tiers) and sibling-claw control.
+;; sibling-on/off always handle the watchdog pause marker too, so a stop
+;; STAYS stopped and a start is not raced by the reviver.
+(= (energy) (py-call (telegram.energy_view)))
+(= (energy-set $who $tier) (py-call (telegram.energy_set $who $tier)))
+(= (sibling-status) (py-call (sibling.sibling_status)))
+(= (sibling-on) (py-call (sibling.sibling_on)))
+(= (sibling-off $reason)
+   (py-call (sibling.sibling_off (py-call (helper.decode_safe_text $reason)))))
+
 ;; LLM API introspection (synthetic.new): budget, model list, session model switch.
+(= (memory-health) (py-call (memory_health.report)))
+(= (memory-compact) (py-call (memory_health.compact)))
 (= (llm-quota) (py-call (synthetic_llm.quota)))
 (= (llm-models) (py-call (synthetic_llm.models)))
 (= (llm-set-model $name) (py-call (synthetic_llm.set_model $name)))

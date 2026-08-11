@@ -1,0 +1,7 @@
+[{"response": {"returned": {"value": "none"}},
+  "request":
+  {"effect":
+   {"operation":
+    {"printLine":
+     {"text":
+      "(READ-AIMAMA (call_native read_file_to_string \"/home/aimama/aihub/GPT-Pro_Responses/GSLT2GSLT/INDEX.md\" $c ()))"}}}}}]

@@ -31,8 +31,6 @@ _chat_titles = {}  # chat_id -> last-seen display title (for outbound records)
 # sleeps, so it can answer "he is resting" and end the rest on request.
 _sleep_until = 0.0          # epoch when the current rest ends; 0 = awake
 _wake_event = threading.Event()
-_wake_lock = threading.Lock()
-_wake_reason = ""
 _rest_notice_sent = False
 
 
@@ -343,16 +341,6 @@ def _tier_loops(tier):
     defaults = {"full": 50, "mid": 30, "light": 10}
     envnames = {"full": "METTACLAW_LOOPS_FULL", "mid": "METTACLAW_LOOPS_MID",
                 "light": "METTACLAW_LOOPS_LIGHT"}
-    # Live override: energy.json tier_loops takes priority over env and defaults
-    try:
-        import json as _json
-        with open(_energy_path()) as _f:
-            _edata = _json.load(_f)
-        _tl = _edata.get('tier_loops', {})
-        if tier in _tl:
-            return max(1, int(_tl[tier]))
-    except Exception:
-        pass  # silently fall through to env/defaults
     try:
         return max(1, int(os.environ.get(envnames[tier], defaults[tier])))
     except (KeyError, ValueError, TypeError):
@@ -403,18 +391,6 @@ def _energy_load():
         return {"default": "full", "senders": senders,
                 "names": _sender_names_env()}
 
-
-def getMode():
-    """Return the loop mode from energy.json, default 'generic'."""
-    try:
-        with _energy_lock:
-            with open(_energy_path(), 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return data.get('mode', 'generic')
-    except (OSError, ValueError, TypeError):
-        pass
-    return 'generic'
 
 def _energy_save(data):
     with _energy_lock:
@@ -666,22 +642,6 @@ def _is_operator(sender):
     return str((sender or {}).get("id", "")) in _operator_ids()
 
 
-def _request_wake(reason):
-    """Interrupt a timed rest and retain truthful provenance for its result."""
-    global _wake_reason
-    with _wake_lock:
-        _wake_reason = str(reason)
-        _wake_event.set()
-
-
-def _wake_for_operator_message(sender):
-    """An authenticated operator message is itself an explicit wake request."""
-    if not _is_operator(sender):
-        return False
-    _request_wake("operator message")
-    return True
-
-
 def _models_keyboard():
     """Inline keyboard of switchable models: tap a button to switch (handled
     by _handle_callback_query, zero LLM involvement)."""
@@ -876,7 +836,7 @@ def _handle_slash_command(chat, sender, text):
         if cmd == "/wake":
             # Wake silently. The agent's next real reply is the confirmation;
             # a separate "awake" acknowledgement is just noise in the chat.
-            _request_wake("/wake")
+            _wake_event.set()
             return "slash_command:/wake"
         if cmd == "/claude_code_authorization":
             import claude_bridge
@@ -979,9 +939,7 @@ def _poll_loop():
                                 # Only ordinary messages are queued. Slash
                                 # commands execute immediately, so claiming
                                 # that one was queued would be a lying notice.
-                                sender = message.get("from")
-                                if not _wake_for_operator_message(sender):
-                                    _maybe_rest_notice(chat, sender)
+                                _maybe_rest_notice(chat, message.get("from"))
                                 queued = True
                 if not _append_update_log(update, kind, message, allowed, queued, note):
                     print("[telegram] continuing after update log failure")
@@ -1110,7 +1068,19 @@ def _log_own_delete(chat_id, message_id, note="own_delete"):
         print("[telegram] delete tombstone log error:", exc)
 
 
+def _placeholder_only(text):
+    """A message with no real content: dots, ellipses, whitespace. These
+    arise when the model abbreviates a repeated command as (send ...) —
+    the literal placeholder must fail loudly, never ship."""
+    body = str(text).replace("\\n", "\n").replace("_newline_", "\n")
+    return not body.strip(" .…\t\r\n_")
+
+
 def send_message(text, chat_id=""):
+    if _placeholder_only(text):
+        return ("send refused: placeholder-only message ('...' is not a "
+                "message). Write the actual text, or send nothing — "
+                "repeating a previous send needs the full text again.")
     chat_id = _reply_target(chat_id)
     if not _token or not chat_id:
         print("[telegram] cannot send: missing token or chat id")
@@ -1143,40 +1113,33 @@ def send_message(text, chat_id=""):
 
 
 def sleep_until_message(seconds):
-    """Rest until the deadline or until the operator speaks or says /wake.
+    """Rest until the deadline or until an operator says /wake.
 
     A blocking sleep makes the agent unreachable for its whole duration and
-    silent about it. This waits in short slices. Other senders queue without
-    cutting rest short; an authenticated operator message wakes the agent and
-    is consumed normally by the next turn."""
-    global _sleep_until, _rest_notice_sent, _wake_reason
+    silent about it. This waits in short slices, so the rest is respected —
+    an incoming message does NOT cut it short — but the operator is told how
+    long it has left and can end it deliberately with /wake."""
+    global _sleep_until, _rest_notice_sent
     try:
         seconds = max(0, int(float(seconds)))
     except (TypeError, ValueError):
         seconds = 1
     deadline = time.time() + seconds
-    # Clear a stale wake and publish the rest under the same lock used by wake
-    # requests. A request is therefore ordered either before this rest or
-    # after it; one published during rest cannot be lost by this clear.
-    with _wake_lock:
-        _wake_event.clear()
-        _wake_reason = ""
-        _rest_notice_sent = False
-        _sleep_until = deadline
+    # Clear a stale wake before publishing the rest. Publishing first leaves
+    # a narrow window where /wake can set the event and this clear loses it.
+    _wake_event.clear()
+    _rest_notice_sent = False
+    _sleep_until = deadline
     try:
         while True:
             remaining = deadline - time.time()
             if remaining <= 0:
                 return "rested %ds" % seconds
             if _wake_event.wait(min(1.0, remaining)):
-                with _wake_lock:
-                    reason = _wake_reason or "wake request"
-                return "woken by %s" % reason
+                return "woken by /wake"
     finally:
-        with _wake_lock:
-            _sleep_until = 0.0
-            _wake_event.clear()
-            _wake_reason = ""
+        _sleep_until = 0.0
+        _wake_event.clear()
 
 
 def rest_status():

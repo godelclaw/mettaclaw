@@ -16,6 +16,7 @@ class RestControlTest(unittest.TestCase):
     def tearDown(self):
         telegram._sleep_until = 0.0
         telegram._wake_event.clear()
+        telegram._wake_reason = ""
 
     def test_wake_event_is_cleared_before_rest_is_published(self):
         observations = []
@@ -25,6 +26,7 @@ class RestControlTest(unittest.TestCase):
                 observations.append(telegram.rest_status()[0])
 
             def wait(self, timeout):
+                telegram._wake_reason = "/wake"
                 return True
 
         original = telegram._wake_event
@@ -39,6 +41,41 @@ class RestControlTest(unittest.TestCase):
         self.assertFalse(
             observations[0],
             "publishing rest before clearing a stale event can lose /wake")
+
+    def test_operator_message_requests_wake(self):
+        with mock.patch.dict(
+                os.environ,
+                {"METTACLAW_TELEGRAM_OPERATOR_IDS": "111000111"}):
+            self.assertTrue(telegram._wake_for_operator_message(
+                {"id": 111000111, "is_bot": False}))
+        self.assertTrue(telegram._wake_event.is_set())
+        self.assertEqual(telegram._wake_reason, "operator message")
+
+    def test_non_operator_message_does_not_request_wake(self):
+        with mock.patch.dict(
+                os.environ,
+                {"METTACLAW_TELEGRAM_OPERATOR_IDS": "111000111"}):
+            self.assertFalse(telegram._wake_for_operator_message(
+                {"id": 222000222, "is_bot": False}))
+        self.assertFalse(telegram._wake_event.is_set())
+        self.assertEqual(telegram._wake_reason, "")
+
+    def test_timed_rest_reports_operator_message_wake(self):
+        class MessageWakeEvent:
+            def clear(self):
+                pass
+
+            def wait(self, timeout):
+                telegram._wake_reason = "operator message"
+                return True
+
+        original = telegram._wake_event
+        telegram._wake_event = MessageWakeEvent()
+        try:
+            self.assertEqual(telegram.sleep_until_message(30),
+                             "woken by operator message")
+        finally:
+            telegram._wake_event = original
 
     def test_agent_requested_rest_has_no_hidden_upper_clamp(self):
         source = (ROOT / "src" / "skills.metta").read_text(encoding="utf-8")

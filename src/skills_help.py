@@ -1,0 +1,205 @@
+"""Man pages + command checking. Progressive disclosure, kept deliberately
+small: the catalog stays one line per skill; the page arrives only on the
+turn that asks for it, and the checker answers format questions for free
+(no LLM, it inspects what the loop's own reader produced).
+"""
+
+# skill -> (min_args, max_args). None = variadic tail.
+ARITY = {
+    "remember": (1, 1), "query": (1, 1), "pin": (1, 1), "unpin": (1, 1),
+    "goals": (0, 0), "goal-write": (1, 1), "goal-drop": (2, 2),
+    "rest": (0, 1),
+    "shell": (1, 1), "read-file": (1, 1), "write-file": (2, 2),
+    "append-file": (2, 2), "read-lines": (3, 3), "edit-file": (3, 3),
+    "ls-tree": (2, 2), "grep-files": (2, 2),
+    "send": (1, 1), "send-telegram-chat": (2, 2),
+    "send-file": (1, 2), "send-image": (1, 2),
+    "delete-my-recent": (2, 2), "recent-messages": (2, 2),
+    "search": (1, 1), "search-tavily": (1, 1), "search-ddg": (1, 1),
+    "llm-quota": (0, 0), "llm-models": (0, 0), "llm-set-model": (1, 1),
+    "energy": (0, 0), "energy-set": (2, 2),
+    "sibling-status": (0, 0), "sibling-on": (0, 0), "sibling-off": (1, 1),
+    "mcp-servers": (0, 0), "mcp-tools": (1, 1), "mcp-tool-info": (2, 2),
+    "mcp-call": (3, 3),
+    "metta": (1, 1), "help": (0, 1), "check": (1, 1),
+    "claude-code": (1, 1), "tmux-windows": (0, 0),
+    "tmux-peek": (2, 2), "tmux-send": (2, 2),
+}
+
+PAGES = {
+    "shell": (
+        'usage: (shell "command string")\n'
+        'One string, no apostrophes inside. Output comes back as the result.\n'
+        'fails: (shell ls /tmp) — unquoted args make it a 3-arg call and no\n'
+        '3-arg shell exists. Quote the whole command: (shell "ls /tmp").'),
+    "goal-write": (
+        'usage: (goal-write (goal <name> <Area> sti:<0-1> lti:<0-1>\n'
+        '        vibes:(a b) blocked-by:none last-verified:never note:free text))\n'
+        'Liberal: quoted string or bare atom, commas or spaces in vibes,\n'
+        'vibes omitted entirely — all accepted and normalized.\n'
+        'blocked-by and note: hyphenate-multi-word-values.'),
+    "goal-drop": (
+        'usage: (goal-drop "name" "reason")\n'
+        'Needs the cull-review flag on that goal, OR a reason starting with\n'
+        '"solved" plus a last-verified date on the goal. Composting is\n'
+        'deliberate — a goal you merely dislike is edited, not dropped.'),
+    "pin": (
+        'usage: (pin "short state line")  |  (unpin "fragment")\n'
+        'Persists to disk, survives restarts, shown every turn under PINNED.\n'
+        'Cap 12, oldest drops. Pin STATE ("BS v0.5 verified, hebbian next"),\n'
+        'use (remember ...) for things future-you should be able to query.'),
+    "metta": (
+        'usage: (metta "expression string")\n'
+        'Evaluates in the LIVE loop space. Definitions do not persist across\n'
+        'separate (metta ...) calls — chain dependent steps in ONE call via\n'
+        'nested let. repr of an unevaluated call stringifies the CALL: force\n'
+        'results first: (let $r (f x) (repr $r)).'),
+    "read-file": (
+        'usage: (read-file "path")\n'
+        'Whole file, or a reason: "read failed: no such file: X (cwd Y)".\n'
+        'Relative paths resolve from the loop cwd shown in that message —\n'
+        'when in doubt use absolute paths.'),
+    "edit-file": (
+        'usage: (edit-file "path" "old-string" "new-string")\n'
+        'Exact unique replacement. If old-string matches zero or many places\n'
+        'the result says so — widen the snippet until unique.'),
+    "send": (
+        'usage: (send "message")\n'
+        'Replies to the current chat. End messages to humans/agents with the\n'
+        'affect trace line. For another chat: (send-telegram-chat "id" "msg").'),
+    "send-file": (
+        'usage: (send-file "/abs/path" "caption")  |  (send-image ...)\n'
+        'send-image previews inline; SVG is rasterized when possible.\n'
+        'Result echoes the sent message id — that is what delete uses.'),
+    "delete-my-recent": (
+        'usage: (delete-my-recent "chat_id" k)\n'
+        'Deletes your own last k messages to that chat (ids are recorded at\n'
+        'send time). Only your messages, only within Telegram\'s 48h window;\n'
+        'a forward of your message belongs to the forwarder, not you.'),
+    "query": (
+        'usage: (query "short phrase")\n'
+        'Embedding search over long-term memory. EMBED_DAEMON_DOWN means the\n'
+        'memory service is unreachable — it does NOT mean nothing is stored.\n'
+        'Report it once and move on; do not retry-storm.'),
+    "energy": (
+        'usage: (energy)  |  (energy-set "default|Name|id" "full|mid|light")\n'
+        'How many loops a sender\'s message arms: full=50 mid=30 light=10.\n'
+        'Persisted; the operator has the same controls as /energy in chat.'),
+    "sibling-off": (
+        'usage: (sibling-status) | (sibling-on) | (sibling-off "reason")\n'
+        'Watchdog-safe: off sets the pause marker BEFORE stopping (no revival\n'
+        'race); on clears it before starting. The result reports the VERIFIED\n'
+        'state, not the attempt.'),
+    "mcp-call": (
+        'usage: (mcp-call "server" "tool" "json-object-string")\n'
+        'Discover first: (mcp-servers), (mcp-tools "server"),\n'
+        '(mcp-tool-info "server" "tool") for the argument schema.'),
+    "rest": (
+        'usage: (rest) — until the next human message | (rest seconds)\n'
+        'Ends the burst. The operator\'s message or /wake ends a timed rest;\n'
+        'other activity queues. Rest remains yours to choose.'),
+    "claude-code": (
+        'usage: (claude-code "one clear question or task")\n'
+        'Runs Claude Code headless; the reply comes back as the result.\n'
+        'Gated by Zar\'s /claude_code_authorization toggle. Takes up to 300s\n'
+        '— batch it last so faster commands are not stuck behind it.'),
+    "tmux-send": (
+        'usage: (tmux-send "oruzi:CC-mama" "message for Claude Code")\n'
+        'Types into the interactive Claude Code session as user input.\n'
+        'Only allowlisted windows; also needs the authorization toggle.\n'
+        'Read the reply LATER with (tmux-peek "oruzi:CC-mama" 30) — the\n'
+        'session answers in its own time, not within your turn.'),
+    "check": (
+        'usage: (check "(shell \\"ls /tmp\\")")\n'
+        'Dry-run: parses the string with the SAME reader the loop uses and\n'
+        'reports head, arg count, and arity fit — without executing anything.\n'
+        'Costs a command slot, not a turn: batch it beside real work.'),
+}
+# aliases so help finds pages under sibling names
+for a, b in (("unpin", "pin"), ("write-file", "read-file"),
+             ("append-file", "read-file"), ("send-image", "send-file"),
+             ("send-telegram-chat", "send"), ("energy-set", "energy"),
+             ("sibling-on", "sibling-off"), ("sibling-status", "sibling-off"),
+             ("remember", "query"), ("mcp-servers", "mcp-call"),
+             ("mcp-tools", "mcp-call"), ("mcp-tool-info", "mcp-call"),
+             ("search-tavily", "search"), ("search-ddg", "search")):
+    PAGES.setdefault(a, PAGES.get(b, ""))
+PAGES.setdefault("search", 'usage: (search "phrase") — configured provider; '
+                 'also (search-tavily ...), (search-ddg ...).')
+
+
+def help(name=""):
+    name = str(name).strip().strip('"')
+    if not name:
+        known = sorted(set(list(PAGES) + list(ARITY)))
+        return ("help pages: " + " ".join(known)
+                + " — (help \"name\") for one page")
+    page = PAGES.get(name)
+    if page:
+        return page
+    if name in ARITY:
+        lo, hi = ARITY[name]
+        return "%s takes %s args; no longer page yet." % (
+            name, lo if lo == hi else "%d-%d" % (lo, hi))
+    return "no help for %r — (help) lists everything" % name
+
+
+def _split_top(text):
+    """Top-level tokens of one rendered s-expression: '(a "b c" (d e))' ->
+    ['a', '"b c"', '(d e)']. Works on repr output, which is regular."""
+    text = text.strip()
+    if not (text.startswith("(") and text.endswith(")")):
+        return None
+    body, out, buf, depth, instr = text[1:-1], [], "", 0, False
+    for ch in body:
+        if instr:
+            buf += ch
+            if ch == '"':
+                instr = False
+        elif ch == '"':
+            instr = True; buf += ch
+        elif ch == "(":
+            depth += 1; buf += ch
+        elif ch == ")":
+            depth -= 1; buf += ch
+        elif ch.isspace() and depth == 0:
+            if buf:
+                out.append(buf); buf = ""
+        else:
+            buf += ch
+    if buf:
+        out.append(buf)
+    return out
+
+
+def verdict(original, rendered):
+    """Human verdict on a dry-run parse. `rendered` is repr of what the
+    loop's own reader produced — a string, so it always crosses the bridge."""
+    rendered = str(rendered).strip()
+    low = rendered.lower()
+    if low.startswith("(error") or "syntax_error" in low or "parse error" in low:
+        return ("PARSE FAILED: %s — the loop would reject this batch. "
+                "Common causes: unbalanced parentheses, an apostrophe or "
+                "unescaped quote inside a string." % _compact(rendered))
+    toks = _split_top(rendered)
+    if not toks:
+        return ("parses, but as a bare atom (%s) — a command must be "
+                "(skill args...)" % _compact(rendered))
+    head, argc = toks[0], len(toks) - 1
+    if head not in ARITY:
+        return ("parses as (%s … %d args) but %r is NOT a known skill — "
+                "(help) lists them" % (head, argc, head))
+    lo, hi = ARITY[head]
+    if lo <= argc <= hi:
+        return "OK: (%s …) with %d args — valid call, not executed" % (head, argc)
+    want = str(lo) if lo == hi else "%d-%d" % (lo, hi)
+    hint = ""
+    if argc > hi and head == "shell":
+        hint = " — quote the whole command as ONE string"
+    return ("ARITY: (%s …) got %d args, takes %s%s — this is the error the "
+            "loop reports as a format failure" % (head, argc, want, hint))
+
+
+def _compact(v, limit=90):
+    s = str(v)
+    return s if len(s) <= limit else s[:limit] + "…"

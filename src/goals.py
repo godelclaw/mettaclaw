@@ -34,25 +34,33 @@ MOOD_DIMS = ("Cn", "C", "Ct", "I", "J", "A", "S", "Co", "Sp")
 
 # \s* after each field colon: a stray space must not reject the goal
 # (cost the agent six live turns of misdiagnosis on 2026-07-18).
+_NUMBER = r'-?(?:\d+(?:\.\d*)?|\.\d+)'
 _GOAL_RE = re.compile(
     r'^\(goal\s+(?P<name>[^\s()"]+)\s+(?P<area>[^\s()"]+)'
-    r'\s+sti:\s*(?P<sti>-?[\d.]+)\s+lti:\s*(?P<lti>-?[\d.]+)'
+    rf'\s+sti:\s*(?P<sti>{_NUMBER})\s+lti:\s*(?P<lti>{_NUMBER})'
     r'\s+vibes:\s*\((?P<vibes>[^()]*)\)'
     r'\s+blocked-by:\s*(?P<blocked>none|"[^"]*"|[^\s()"]+)'
     r'\s+last-verified:\s*(?P<verified>[^\s()"]+)'
     r'\s+note:\s*(?:"(?P<noteq>[^"]*)"|(?P<note>[^()"]*))\)\s*$')
+_LEGACY_GOAL_RE = re.compile(
+    r'^\(goal\s+(?P<name>[^\s()"]+)\s+(?P<area>[^\s()"]+)'
+    rf'\s+sti:\s*(?P<sti>{_NUMBER})\s+lti:\s*(?P<lti>{_NUMBER})'
+    r'\s+vibes:\s*\((?P<vibes>[^()]*)\)'
+    r'\s+blocked-by:\s*(?P<blocked>none|"[^"]*"|[^\s()"]+)\)\s*$')
 _FLAG_RE = re.compile(r'^\(goal-flag\s+(\S+)\s+(stuck|saturated|cull-review)\)\s*$')
-_BUDGET_RE = re.compile(r'^\(goal-budget\s+([\d.]+)\)\s*$')
+_BUDGET_RE = re.compile(rf'^\(goal-budget\s+({_NUMBER})\)\s*$')
 _MOOD_RE = re.compile(r'^\(mood\s.*\)\s*$')
 _AFFECT_RE = re.compile(r'⋄⟨([^⟩]*)⟩')
-_AFFECT_PAIR_RE = re.compile(r'(Cn|Ct|Co|Sp|C|I|J|A|S):(-?[\d.]+)')
+_AFFECT_PAIR_RE = re.compile(rf'(Cn|Ct|Co|Sp|C|I|J|A|S):({_NUMBER})')
 
 
 def _goal_dict(m):
-    """Normalized goal dict from a _GOAL_RE match (quoted or free-text note)."""
+    """Normalized goal dict from a canonical or legacy goal match."""
     g = m.groupdict()
-    note = g.pop("noteq")
-    g["note"] = note if note is not None else (g["note"] or "").strip()
+    note = g.pop("noteq", None)
+    free_note = g.pop("note", None)
+    g["note"] = note if note is not None else (free_note or "").strip()
+    g["verified"] = g.get("verified") or "never"
     g["sti"] = min(1.0, max(0.0, float(g["sti"])))
     g["lti"] = min(1.0, max(0.0, float(g["lti"])))
     return g
@@ -95,13 +103,31 @@ def _fmt_goal(g):
 
 
 def _parse(lines):
-    """Split file lines into goals (ordered), flags, budget, other lines."""
+    """Parse, migrate legacy records, and enforce one record per goal name.
+
+    Canonical records win over legacy duplicates. Within the same format, the
+    last record wins while retaining the name's first stack position. Unknown
+    non-goal lines remain untouched; malformed goal-looking lines fail loudly
+    so they can never become a second, inert goal store again.
+    """
     goals, flags, other = [], set(), []
+    positions, canonical = {}, {}
     budget = None
-    for line in lines:
+    for lineno, line in enumerate(lines, 1):
         m = _GOAL_RE.match(line)
+        is_canonical = bool(m)
+        if not m:
+            m = _LEGACY_GOAL_RE.match(line)
         if m:
-            goals.append(_goal_dict(m))
+            goal = _goal_dict(m)
+            name = goal["name"]
+            if name not in positions:
+                positions[name] = len(goals)
+                canonical[name] = is_canonical
+                goals.append(goal)
+            elif is_canonical or not canonical[name]:
+                goals[positions[name]] = goal
+                canonical[name] = is_canonical
             continue
         m = _FLAG_RE.match(line)
         if m:
@@ -113,6 +139,9 @@ def _parse(lines):
             continue
         if _MOOD_RE.match(line):
             continue  # kernel-owned; re-emitted each pass
+        if line.lstrip().startswith("(goal ") or line.lstrip().startswith(
+                "(goal-budget"):
+            raise ValueError("malformed goal record at line %d" % lineno)
         other.append(line)
     return goals, flags, budget, other
 
@@ -201,6 +230,8 @@ def kernel_pass(goals_path=None, log_path=None):
                     flags.discard((g["name"], "stuck"))
                 if g["sti"] < CULL_STI and g["lti"] < CULL_LTI:
                     flags.add((g["name"], "cull-review"))
+                else:
+                    flags.discard((g["name"], "cull-review"))
 
             total = sum(g["sti"] for g in goals)
             if total > budget > 0:
@@ -249,11 +280,81 @@ def goals_view(goals_path=None):
     return "\n".join(lines)
 
 
+def attention_view(goals_path=None):
+    """Pure, read-only ranking of the authoritative goal snapshot.
+
+    STI remains the primary signal. LTI breaks equal-STI ties, so the fast
+    variable's four-decimal floor no longer erases all ordering information.
+    Stable file order breaks exact ties. This view neither pays wages nor
+    rewrites attention state; it claims ranking, not conservation.
+    """
+    lines = _read_lines(_goals_path(goals_path))
+    if not lines:
+        return "(no ranked goals)"
+    try:
+        parsed, _flags, _budget, _other = _parse(lines)
+    except ValueError as exc:
+        return "attention unavailable: %s" % exc
+    ranked = sorted(enumerate(parsed),
+                    key=lambda pair: (-pair[1]["sti"],
+                                      -pair[1]["lti"], pair[0]))
+    return " > ".join(
+        "%s(sti:%s lti:%s)" % (g["name"], _r(g["sti"]), _r(g["lti"]))
+        for _index, g in ranked) or "(no ranked goals)"
+
+
+def _sexpr_from_pylist(value):
+    """Render a janus-marshalled expression back into s-expression text.
+
+    A bare (goal ...) atom crosses the Python bridge as a nested LIST, and
+    str() of that list is Python syntax — which no s-expression regex can
+    ever match. This was why (goal-write <atom>) failed on every attempt
+    while looking correct: the format was fine, the marshalling was not.
+    A trailing field token like 'vibes:' followed by a list is rejoined as
+    'vibes:(...)' — the reader splits them, we merge them back.
+    """
+    if not isinstance(value, list):
+        return str(value)
+    parts = []
+    for item in value:
+        rendered = ("(" + " ".join(_sexpr_from_pylist(x) for x in item) + ")"
+                    if isinstance(item, list) else str(item))
+        if parts and parts[-1].endswith(":") and rendered.startswith("("):
+            parts[-1] += rendered
+        else:
+            parts.append(rendered)
+    return "(" + " ".join(parts) + ")"
+
+
+def _normalize_goal_text(atom):
+    """Whatever arrives — s-expression text, a python-list repr of it, comma
+    or space vibes, a space after 'vibes:', a missing vibes field — becomes
+    the one canonical line the parser accepts."""
+    text = str(atom).strip()
+    if text.startswith("["):
+        try:
+            import ast
+            text = _sexpr_from_pylist(ast.literal_eval(text))
+        except (ValueError, SyntaxError):
+            pass
+    # the reader splits 'vibes:(' into 'vibes: (' — rejoin
+    text = re.sub(r"(\bvibes:|\bblocked-by:|\blast-verified:|\bnote:|\bsti:|\blti:)\s+\(", r"\1(", text)
+    # commas and spaces inside vibes both mean "list of vibes"
+    text = re.sub(r"vibes:\s*\(([^)]*)\)",
+                  lambda m: "vibes:(" + " ".join(
+                      w for w in re.split(r"[,\s]+", m.group(1)) if w) + ")",
+                  text)
+    # a goal without vibes gets an empty vibes list rather than a rejection
+    if text.startswith("(goal ") and "vibes:" not in text:
+        text = re.sub(r"(\s+blocked-by:)", r" vibes:()\1", text, count=1)
+    return text
+
+
 def goal_write(atom, goals_path=None):
     """Add or update one goal (or the budget) from its S-expression text."""
     with _LOCK:
         path = _goals_path(goals_path)
-        text = str(atom).strip()
+        text = _normalize_goal_text(atom)
         mb = _BUDGET_RE.match(text)
         if mb:
             budget = float(mb.group(1))
@@ -266,7 +367,10 @@ def goal_write(atom, goals_path=None):
                     'last-verified:<never|timestamp> note:free text) on one '
                     'line — no quotes needed, hyphenate blocked-by')
         lines = _read_lines(path) or []
-        goals, flags, old_budget, other = _parse(lines)
+        try:
+            goals, flags, old_budget, other = _parse(lines)
+        except ValueError as exc:
+            return "goal-write rejected: %s" % exc
         state = _load_kernel_state(_kernel_path(path))
         mood = state.get("mood") or None
         if mb:
@@ -293,7 +397,10 @@ def goal_drop(name, reason, goals_path=None):
         path = _goals_path(goals_path)
         name, reason = str(name), str(reason)
         lines = _read_lines(path) or []
-        goals, flags, budget, other = _parse(lines)
+        try:
+            goals, flags, budget, other = _parse(lines)
+        except ValueError as exc:
+            return "goal-drop rejected: %s" % exc
         match = [g for g in goals if g["name"] == name]
         if not match:
             return "no goal named %s" % name
@@ -310,8 +417,8 @@ def goal_drop(name, reason, goals_path=None):
             with open(_compost_path(path), "a", encoding="utf-8") as fh:
                 fh.write("%s %s %s\n" % (
                     time.strftime("%Y-%m-%dT%H:%M:%S"), reason, _fmt_goal(g)))
-        except OSError:
-            pass
+        except OSError as exc:
+            return "goal-drop failed: compost log was not written: %s" % exc
         goals = [x for x in goals if x["name"] != name]
         flags = {(n, f) for n, f in flags if n != name}
         state = _load_kernel_state(_kernel_path(path))

@@ -1,0 +1,21 @@
+inventories found: 324
+conformant: 321
+failed: 3
+branch systems checked: 2576
+semantic-hash mismatches: 0
+general-poly coords (detailed eq check skipped): 0 branches
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/component01_w01_split/inventory.json
+   - branch 1 inv tail bad: 'branch_inv_2' for offset 2
+   - branch 2 inv tail bad: 'branch_inv_1' for offset 1
+   - branch 3 inv tail bad: 'branch_inv_1' for offset 1
+   - branch 3 inv tail bad: 'branch_inv_2' for offset 2
+   - branch 4 inv tail bad: 'branch_inv_0' for offset 0
+   - branch 5 inv tail bad: 'branch_inv_0' for offset 0
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/components/inventory.json
+   - branch_count=None
+   - n_coordinates=0
+   - branches len=0
+FAIL /shared/zahrada/krenn/allcollapse_case_artifacts/case_0/components_reduced_v2/inventory.json
+   - branch_count=None
+   - n_coordinates=0
+   - branches len=0

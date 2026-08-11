@@ -82,6 +82,8 @@ def main():
 
     emit("METTACLAW_TELEGRAM_ALLOW_PRIVATE", telegram.get("allow_private"))
     emit("METTACLAW_TELEGRAM_OPERATOR_IDS", telegram.get("operator_ids"))
+    emit("METTACLAW_TELEGRAM_LIGHT_ARM_IDS", telegram.get("light_arm_ids"))
+    emit("METTACLAW_TELEGRAM_SENDER_NAMES", telegram.get("sender_names"))
     emit("METTACLAW_TELEGRAM_ALLOWED_CHAT_IDS", telegram.get("allowed_chat_ids"))
 
     emit("METTACLAW_SEARCH_PROVIDER", search.get("provider"))

@@ -1,5 +1,6 @@
+import os
 import sys
-sys.path.insert(0, '/home/oruzi/repos/mettaclaw')
+sys.path.insert(0, os.path.expanduser('~/repos/mettaclaw'))
 from ggb_bridge_ext import ggbL3Share, ggbL3Query, ggbL3Revise
 
 def share(agent, content, key, strength, confidence, goal, timestamp, origin):

@@ -5,16 +5,21 @@
 (= (reasoningMode) (empty))
 
 (= (initLoop)
-   (progn (configure maxLoops 50) ;20
+   (progn (py-call (helper.recycle_ack)) ;new process consumes the boundary flag
+          (py-call (helper.working_boot)) ;continuity: load the present-moment snapshot
+          (configure maxLoops 50) ;20
           (configure sleepInterval 1) ;10
           (configure LLM syn:large:text)
-          (configure maxOutputToken 6000)
+          (configure maxOutputToken 32768) ;the 2026-07 swipl crashes were the frozen chroma HNSW index (fixed by sync_threshold), NOT this ceiling; 6000 starved reasoning models into empty answers
           (configure reasoningMode medium)
           (change-state! &prevmsg "")
-          (change-state! &lastresults "")
-          (change-state! &sleepInterval (sleepInterval))
-          (change-state! &loops (maxLoops))
-          (change-state! &last-heartbeat (get_time))))
+          ;; PresentMoment.restore: wake with the working self intact —
+          ;; a recycle or restart is sleep, not a fresh boot. First-ever
+          ;; boot (no snapshot) keeps the fresh-start values below.
+          (change-state! &lastresults (py-call (helper.boot_str "lastresults" "")))
+          (change-state! &sleepInterval (py-call (helper.boot_int "sleepInterval" (sleepInterval))))
+          (change-state! &loops (py-call (helper.boot_int "loops" (maxLoops))))
+          (change-state! &last-heartbeat (py-call (helper.boot_num "last_heartbeat" (get_time))))))
 
 ;; Heartbeat (optional): when the loop wakes and this clock is stale, re-arm a
 ;; fresh (maxLoops)-cycle burst. Human messages reset the clock, so the timer is
@@ -46,6 +51,7 @@
                          " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
                          " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
                          " GOAL_STACK: " (py-call (goals.goals_view))
+                         " PINNED: " (py-call (pins.view))
                          " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " TIME: " (get_time_as_string)))))
 
 (= (HandleError $msg $cmd $sexpr)
@@ -63,42 +69,56 @@
                         (change-state! &loops (max 0 (- (get-state &loops) 1))))
          (progn (println! (---------iteration $k))
                 (let* (($msg (string-safe (repr (receive))))
-                       ($msgnew (prog1 (!= $msg (get-state &prevmsg))
-                                       (change-state! &prevmsg $msg)))
+                       ($msgnew (> (string_length $msg) 0))
                        ($humanmsg (lastMessageIsHuman))
                        ($_ (if $msgnew
                                (if $humanmsg
-                                   (progn (change-state! &loops (maxLoops))
+                                   (progn (change-state! &loops
+                                            ;; per-sender energy tier: full 50 /
+                                            ;; mid 30 / light 10 (see /energy).
+                                            ;; max: a message only ADDS energy —
+                                            ;; it never drains what the agent holds
+                                            (max (get-state &loops)
+                                                 (py-call (telegram.lastMessageArmLoops))))
                                           (change-state! &sleepInterval (sleepInterval))
                                           (change-state! &last-heartbeat (get_time))
                                           (println! (py-call (goals.kernel_pass))))
                                    _)
                                _))
                        ($_hb (maybeHeartbeat)))
-                      (if (> (get-state &loops) 0)
+                      (if (and (> (get-state &loops) 0) (== (py-call (ggb_bridge_ext.ggbGovernanceGate tick)) (quote PASS)))
                           (let* (($prompt (getContext))
-                                 ($lastmessage (HUMAN-LAST-MSG: $msg
-                                               MESSAGE-IS-NEW: $msgnew
-                                               HUMAN-MESSAGE-ARMS-LOOP: $humanmsg))
+                                 ($lastmessage (NEW_ACTIVITY: $msg))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
                                  ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                 ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) (reasoningMode) $send)))
+                                 ($mode (py-call (telegram.getMode)))
+                                 ($rmode (if (== $mode (quote coding)) (quote high) (reasoningMode)))
+                                 ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) $rmode $send)))
                                  ($resp (py-call (helper.balance_parentheses $respi)))
-                                 ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
+                                 ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (no_commands_parsed)))))
                                  ($sexpr (catch (sread (py-call (helper.decode_safe_text $response)))))
                                  ($_ (change-state! &error ()))
-                                 ($_ (HandleError MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_RETRY $response $sexpr))
+                                 ($_ (HandleError multi_command_parse_error_nothing_ran $response $sexpr))
                                  ($_ (println! (RESPONSE: $sexpr)))
-                                 ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
+                                 ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
                                  ($_ (println! $results)))
                                 (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                        (change-state! &lastresults (string-safe (repr $results))))) _))
+                ;; PresentMoment.persist: snapshot the working self at every
+                ;; turn boundary — the write half of the continuity invariant.
+                (py-call (helper.working_set_save (get-state &loops) (get-state &sleepInterval) (get-state &lastresults) (get-state &last-heartbeat)))
                 ;; Recycling is cooperative: finish the current turn and its
-                ;; bookkeeping, then let the service manager start a fresh
-                ;; heap. The request flag is cleared only by the new process.
+                ;; bookkeeping, then exit the PROCESS so the service manager
+                ;; starts a fresh heap. The exit must be a hard process exit:
+                ;; merely returning from the recursion lands in engine
+                ;; backtracking, which re-enters the loop from scratch in the
+                ;; same process and re-arms a fresh budget every cycle (the
+                ;; 2026-08-06 boot-loop storm). The new process consumes the
+                ;; flag at boot (helper.recycle_ack in initLoop).
                 (if (== (py-call (helper.recycle_requested)) 1)
-                    (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
+                    (progn (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
+                           (py-call (helper.recycle_exit)))
                     (progn
                       (py-call (telegram.sleep_until_message (get-state &sleepInterval)))
                       (mettaclaw (+ 1 $k)))))))

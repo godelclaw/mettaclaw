@@ -30,7 +30,10 @@ if [ -d "$PETTA_PY_ENV" ]; then
     # Keep PATH in sync with PYTHONHOME: a bare `python3` (e.g. from a shell
     # skill or subprocess) must resolve to THIS env's interpreter, or it loads
     # the wrong stdlib and dies with "ModuleNotFoundError: encodings".
-    export PATH="$PETTA_PY_ENV/bin:$PATH"
+    export PATH="$PETTA_PY_ENV/bin:$HOME/.local/bin:$PATH"
+    # ~/.local/bin: systemd user services run no login shell, so ~/.profile
+    # never adds it — without this line the agent lives in a poorer PATH
+    # than any interactive shell (claude, cc-telegram, user tools all live there).
 else
     echo "warning: PETTA_PY_ENV ($PETTA_PY_ENV) not found; the Python bridge will likely fail. Set petta_py_env in config/local.toml." >&2
 fi
@@ -43,6 +46,7 @@ export SYNTHETIC_MODEL="${SYNTHETIC_MODEL:-syn:large:text}"
 export METTACLAW_CHROMA_DIR="${METTACLAW_CHROMA_DIR:-$ROOT/chroma_db}"
 export METTACLAW_CHROMA_COLLECTION="${METTACLAW_CHROMA_COLLECTION:-memories}"
 export METTACLAW_CHROMA_METRIC="${METTACLAW_CHROMA_METRIC:-cosine}"
+export METTACLAW_CHROMA_SYNC_THRESHOLD="${METTACLAW_CHROMA_SYNC_THRESHOLD:-20}"
 export METTACLAW_MEMORY_LOG_DIR="${METTACLAW_MEMORY_LOG_DIR:-$ROOT/memory/remembered}"
 export METTACLAW_TELEGRAM_OFFSET_PATH="${METTACLAW_TELEGRAM_OFFSET_PATH:-$ROOT/telegram_offset.txt}"
 export METTACLAW_EMBED_MODEL="${METTACLAW_EMBED_MODEL:-}"
@@ -79,6 +83,15 @@ case "$TARGET" in /*) ;; *) TARGET="$ROOT/$TARGET" ;; esac
 if [ "$TARGET" = "$ROOT/run.metta" ]; then
     rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
 fi
+
+# Memory-index startup diagnostic and best-effort hard-drift recovery.
+# Chroma flushes its HNSW index only every sync_threshold writes; an index far
+# behind the write-ahead log segfaults the process when the backlog is replayed
+# at query time. This subprocess reports to the service journal, not the model
+# prompt. It attempts catch-up only at dangerous drift and reports measured
+# before/after state. It remains non-fatal so diagnostics cannot prevent boot.
+PYTHONPATH="$ROOT/src:$ROOT/repos/petta_lib_chromadb" \
+    "$PETTA_PY_ENV/bin/python3" "$ROOT/src/memory_health.py" 2>&1 || true
 
 case "$METTACLAW_ENGINE" in
     petta)

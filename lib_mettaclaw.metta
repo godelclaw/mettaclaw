@@ -18,5 +18,5 @@
 !(import! &self ./src/skills)
 !(import! &self ./src/memory)
 !(import! &self ./src/loop)
-!(git-import! "https://github.com/patham9/petta_lib_chromadb.git" "" (py-call (helper.path_from_env "METTACLAW_REPOS_DIR" "./repos")))
+!(git-import! "https://github.com/godelclaw/petta_lib_chromadb.git" "a34cba7cb2a7802bcd3c39df148bdd323fe632de" (py-call (helper.path_from_env "METTACLAW_REPOS_DIR" "./repos")))
 !(import! &self (library petta_lib_chromadb lib_chromadb))

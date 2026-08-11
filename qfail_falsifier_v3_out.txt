@@ -1,0 +1,5 @@
+complete manifests used 37 skipped incomplete 1 ['component39_tree_manifest.json']
+rows 3908 q_not_certified 0 depth hist {}
+child slots 0 known 0 unknown 0 q_children 0
+conditional q-rate (known only) n/a (no measured children)
+base q-rate 0.0
