@@ -75,6 +75,17 @@ implemented yet.
 
 Both methods launch from the repository root.
 
+Before publishing, install the repository's public/private boundary check once:
+
+```bash
+git config core.hooksPath .githooks
+python3 scripts/audit_public_tree.py --history
+```
+
+The pre-push hook rejects private runtime paths and any locally configured
+credential or Telegram identity found in tracked history. It reports only the
+affected path, never the private value.
+
 *Wrapper (recommended).* `run.sh` regenerates `.env` from `config/local.toml`,
 sources `config/secrets.env`, initializes runtime files, then starts the agent
 loop:
@@ -116,4 +127,3 @@ Shell output of the actual invocation of the generated MeTTa code:
 System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
-
