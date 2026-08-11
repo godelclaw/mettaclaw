@@ -36,7 +36,8 @@ kind = "telegram"
 
 [telegram]
 allow_private = true
-allowed_chat_ids = []
+# Identity-bearing Telegram settings belong in config/secrets.env; see its
+# example file. This keeps authorization data out of generated .env and Git.
 
 [search]
 # "auto" tries Tavily first when TAVILY_API_KEY is set, then DuckDuckGo HTML.
