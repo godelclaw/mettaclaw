@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import time
 
 import memory_health
@@ -25,6 +26,16 @@ def _health_path():
     instance = os.environ.get("METTACLAW_INSTANCE", "default")
     return os.path.join(state_home, "pettaclaw", instance,
                         "telegram-health.json")
+
+
+def _generation():
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+            timeout=2, check=True)
+        return result.stdout.strip()[:12]
+    except (OSError, subprocess.SubprocessError):
+        return os.environ.get("METTACLAW_DEPLOYED_COMMIT", "unknown")[:12]
 
 
 def status(now=None):
@@ -54,7 +65,7 @@ def status(now=None):
     return {
         "state": "ok" if not problems else "problem",
         "problems": problems,
-        "generation": os.environ.get("METTACLAW_DEPLOYED_COMMIT", "unknown")[:12],
+        "generation": _generation(),
         "menu": channel.get("menu_status", "unknown"),
         "telegram_poll_age_seconds": poll_age,
         "loop": "waiting" if legitimate_wait else channel.get(
