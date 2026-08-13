@@ -124,6 +124,41 @@ def test_poll_logs_before_advancing_offset_and_queues_allowed_message():
         assert tg.lastMessageIsHuman() == 0
 
 
+def test_poll_defaults_use_robust_long_poll_window():
+    tg = load_telegram()
+    observed = {}
+
+    def fake_get(url, params=None, timeout=None):
+        assert url.endswith("/getUpdates")
+        observed["poll_timeout"] = params["timeout"]
+        observed["request_timeout"] = timeout
+        tg._running = False
+        return FakeResponse({"ok": True, "result": []})
+
+    keys = (
+        "METTACLAW_TELEGRAM_POLL_TIMEOUT",
+        "METTACLAW_TELEGRAM_REQUEST_TIMEOUT",
+        "METTACLAW_TELEGRAM_HEALTH_PATH",
+    )
+    previous = {key: os.environ.pop(key, None) for key in keys}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = str(
+                pathlib.Path(tmp) / "health.json")
+            tg.requests.get = fake_get
+            tg._offset = None
+            tg._running = True
+            tg._poll_loop()
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    assert observed == {"poll_timeout": 20, "request_timeout": 30}
+
+
 def test_channel_posts_are_logged_with_kind():
     tg = load_telegram()
     with tempfile.TemporaryDirectory() as tmp:
@@ -433,6 +468,7 @@ def test_delete_my_recent_advances_past_tombstoned_sends():
 
 if __name__ == "__main__":
     test_poll_logs_before_advancing_offset_and_queues_allowed_message()
+    test_poll_defaults_use_robust_long_poll_window()
     test_channel_posts_are_logged_with_kind()
     test_log_failure_does_not_block_message_delivery_or_offset()
     test_bot_messages_are_delivered_but_do_not_arm_loop()

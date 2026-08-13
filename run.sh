@@ -6,6 +6,8 @@ PETTA_ROOT="${PETTA_ROOT:-${HOME:-}/repos/PeTTa}"
 PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
 METTACLAW_ENGINE="${METTACLAW_ENGINE:-petta}"
 PLEATTA_ROOT="${PLEATTA_ROOT:-${HOME:-}/repos/LeaTTa-petta}"
+STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
+INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
 
 if [ "${METTACLAW_SKIP_INITIALIZE:-0}" != "1" ] && [ -x "$ROOT/initialize.sh" ]; then
     "$ROOT/initialize.sh" >/dev/null
@@ -48,7 +50,8 @@ export METTACLAW_CHROMA_COLLECTION="${METTACLAW_CHROMA_COLLECTION:-memories}"
 export METTACLAW_CHROMA_METRIC="${METTACLAW_CHROMA_METRIC:-cosine}"
 export METTACLAW_CHROMA_SYNC_THRESHOLD="${METTACLAW_CHROMA_SYNC_THRESHOLD:-20}"
 export METTACLAW_MEMORY_LOG_DIR="${METTACLAW_MEMORY_LOG_DIR:-$ROOT/memory/remembered}"
-export METTACLAW_TELEGRAM_OFFSET_PATH="${METTACLAW_TELEGRAM_OFFSET_PATH:-$ROOT/telegram_offset.txt}"
+export METTACLAW_TELEGRAM_OFFSET_PATH="${METTACLAW_TELEGRAM_OFFSET_PATH:-$STATE_HOME/$INSTANCE/telegram/offset}"
+export METTACLAW_TELEGRAM_LOG_PATH="${METTACLAW_TELEGRAM_LOG_PATH:-$STATE_HOME/$INSTANCE/telegram/updates.jsonl}"
 export METTACLAW_EMBED_MODEL="${METTACLAW_EMBED_MODEL:-}"
 export METTACLAW_EMBED_DIM="${METTACLAW_EMBED_DIM:-1024}"
 export METTACLAW_EMBED_DEVICE="${METTACLAW_EMBED_DEVICE:-auto}"
@@ -60,10 +63,11 @@ export METTACLAW_EMBED_ENDPOINT="${METTACLAW_EMBED_ENDPOINT:-http://127.0.0.1:88
 
 # Cooperative heap recycling. A requester creates the flag; the running loop
 # exits after its current turn; this new process removes the acknowledged flag.
-STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
-INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
 export METTACLAW_RECYCLE_REQUEST_PATH="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/recycle.requested}"
-mkdir -p "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")"
+mkdir -p \
+    "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")" \
+    "$(dirname "$METTACLAW_TELEGRAM_OFFSET_PATH")" \
+    "$(dirname "$METTACLAW_TELEGRAM_LOG_PATH")"
 
 mkdir -p "$METTACLAW_CHROMA_DIR" "$METTACLAW_MEMORY_LOG_DIR" "$ROOT/chat" "$ROOT/episodes"
 
