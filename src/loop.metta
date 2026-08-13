@@ -80,7 +80,7 @@
                                             ;; it never drains what the agent holds
                                             (max (get-state &loops)
                                                  (py-call (telegram.lastMessageArmLoops))))
-                                          (change-state! &sleepInterval (sleepInterval))
+                                          (change-state! &sleepInterval (if (> (get-state &loops) 0) (sleepInterval) 60))
                                           (change-state! &last-heartbeat (get_time))
                                           (println! (py-call (goals.kernel_pass))))
                                    _)
