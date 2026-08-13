@@ -114,8 +114,12 @@ def wait_seconds(loops_left, requested_seconds):
         requested = max(0, int(float(requested_seconds)))
     except (TypeError, ValueError):
         requested = 1
-    if current_mode() == "claw23" and loops_left <= 0:
-        return max(60, requested)
+    with _lock:
+        state = _load()
+    if state["mode"] == "claw23" and loops_left <= 0:
+        # A normal completed burst has the exact claw23 cadence. Explicit
+        # (rest N) sets autonomy_paused, preserving the agent's chosen N.
+        return requested if state["autonomy_paused"] else 60
     return requested
 
 
