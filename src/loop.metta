@@ -28,7 +28,8 @@
 (= (heartbeatInterval) (py-call (helper.int_env "METTACLAW_HEARTBEAT_INTERVAL_SECONDS" 1800)))
 
 (= (maybeHeartbeat)
-   (if (<= (heartbeatInterval) 0)
+   (if (or (<= (heartbeatInterval) 0)
+           (== (py-call (loop_modes.autonomy_paused)) 1))
        _
        (let $now (get_time)
             (if (>= (- $now (get-state &last-heartbeat)) (heartbeatInterval))
@@ -48,6 +49,7 @@
                          " HISTORY: " (getHistory)
                          " LOOPS_LEFT: " (get-state &loops)
                          " SLEEP_INTERVAL_SECONDS: " (get-state &sleepInterval)
+                         " ACTIVE_MODE: " (py-call (loop_modes.current_mode))
                          " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
                          " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
                          " GOAL_STACK: " (py-call (goals.goals_view))
@@ -60,8 +62,8 @@
                  ($else $sexpr))))
 
 (= (mettaclaw)
-   (mettaclaw 1))
-(= (mettaclaw $k)
+   (mettaclaw 1 0))
+(= (mettaclaw $k $autonomousReady)
    (progn (if (== $k 1) (progn (initLoop)
                                (initMemory)
                                (initChannels)
@@ -73,7 +75,8 @@
                        ($humanmsg (lastMessageIsHuman))
                        ($_ (if $msgnew
                                (if $humanmsg
-                                   (progn (change-state! &loops
+                                   (progn (py-call (loop_modes.resume_autonomy))
+                                          (change-state! &loops
                                             ;; per-sender energy tier: full 50 /
                                             ;; mid 30 / light 10 (see /energy).
                                             ;; max: a message only ADDS energy —
@@ -85,15 +88,26 @@
                                           (println! (py-call (goals.kernel_pass))))
                                    _)
                                _))
-                       ($_hb (maybeHeartbeat)))
+                       ($_hb (maybeHeartbeat))
+                       ($mode (py-call (loop_modes.current_mode)))
+                       ($autonomous (and (and (== $mode (quote claw23))
+                                               (== $autonomousReady 1))
+                                          (and (not $msgnew)
+                                               (== (py-call (loop_modes.autonomy_paused)) 0))))
+                       ($_auto (if $autonomous
+                                  (progn (change-state! &loops (maxLoops))
+                                         (change-state! &sleepInterval (sleepInterval))
+                                         (println! (CLAW23_AUTONOMOUS_BURST at (get_time_as_string))))
+                                  _)))
                       (if (and (> (get-state &loops) 0) (== (py-call (ggb_bridge_ext.ggbGovernanceGate tick)) (quote PASS)))
                           (let* (($prompt (getContext))
-                                 ($lastmessage (NEW_ACTIVITY: $msg))
+                                 ($lastmessage (if $autonomous
+                                                   (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
+                                                   (NEW_ACTIVITY: $msg)))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
                                  ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                 ($mode (py-call (telegram.getMode)))
-                                 ($rmode (if (== $mode (quote coding)) (quote high) (reasoningMode)))
+                                 ($rmode (py-call (loop_modes.reasoning_mode (reasoningMode))))
                                  ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) $rmode $send)))
                                  ($resp (py-call (helper.balance_parentheses $respi)))
                                  ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (no_commands_parsed)))))
@@ -120,5 +134,7 @@
                     (progn (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
                            (py-call (helper.recycle_exit)))
                     (progn
-                      (py-call (telegram.sleep_until_message (get-state &sleepInterval)))
-                      (mettaclaw (+ 1 $k)))))))
+                      (let $wait (py-call (loop_modes.wait_seconds (get-state &loops) (get-state &sleepInterval)))
+                           (let $waitResult (py-call (telegram.sleep_until_message $wait))
+                                (mettaclaw (+ 1 $k)
+                                           (py-call (loop_modes.autonomous_ready (get-state &loops) $waitResult))))))))))

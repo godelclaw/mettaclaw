@@ -55,6 +55,7 @@ defaults. Put secrets only in `config/secrets.env`:
 ```
 SYNTHETIC_API_KEY=sk-...
 METTACLAW_TELEGRAM_BOT_TOKEN=123456789:...
+METTACLAW_TELEGRAM_BOT_USERNAME=ExampleBot
 METTACLAW_TELEGRAM_OPERATOR_IDS=<telegram-user-id>
 ```
 
@@ -93,6 +94,14 @@ loop:
 ```
 ./run.sh
 ```
+
+The loop policy is mutable runtime state, separate from the protected source.
+Use `(mode)`, `(modes)`, or `(mode-set "claw23")` from the agent, and `/mode`,
+`/modes`, or `/mode claw23` from an authorized Telegram account. `generic` is
+event-armed; `coding` adds high reasoning effort; `claw23` runs bounded fast
+bursts and, after a 60-second input wait, renews autonomous work. `(nop)` ends
+one fast burst while leaving renewal enabled; `(rest)` explicitly suspends it.
+The selected mode persists in the ignored `memory/` state across restarts.
 
 To validate your PeTTa + Python setup without starting the loop, run the
 import-only smoke test first — it loads the full library (git-cloning the
