@@ -35,6 +35,11 @@ _wake_lock = threading.Lock()
 _wake_reason = ""
 _rest_notice_sent = False
 
+_CONTROL_COMMANDS = (
+    "/model", "/models", "/mode", "/modes", "/quota", "/wake",
+    "/energy", "/claude_code_authorization",
+)
+
 
 def _api_base():
     return os.environ.get("METTACLAW_TELEGRAM_BASE_URL",
@@ -404,18 +409,6 @@ def _energy_load():
                 "names": _sender_names_env()}
 
 
-def getMode():
-    """Return the loop mode from energy.json, default 'generic'."""
-    try:
-        with _energy_lock:
-            with open(_energy_path(), 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return data.get('mode', 'generic')
-    except (OSError, ValueError, TypeError):
-        pass
-    return 'generic'
-
 def _energy_save(data):
     with _energy_lock:
         path = _energy_path()
@@ -614,7 +607,7 @@ def recent_activity(n=10, chat=None, snippet_chars=110):
     """Short-term memory: the last n allowed messages from the local update
     log as '[hh:mm chat sender: text…]', oldest→newest. Always in context, so
     the agent keeps group-dynamics awareness (who spoke, when, was I last?)
-    across turns — the vericlaw/godelclaw last-k-messages continuity, kept
+    across turns — bounded last-k-messages continuity, kept
     sweetly simple. Never raises (janus boundary)."""
     try:
         n = max(1, int(n))
@@ -696,6 +689,17 @@ def _models_keyboard():
     return {"inline_keyboard": rows}
 
 
+def _modes_keyboard():
+    """Inline keyboard for the persistent cognitive-loop policy."""
+    import loop_modes
+    current = loop_modes.current_mode()
+    rows = []
+    for name in loop_modes.MODES:
+        label = ("● " if name == current else "") + name
+        rows.append([{"text": label, "callback_data": "mode:" + name}])
+    return {"inline_keyboard": rows}
+
+
 def _handle_callback_query(cq):
     """A tapped, namespaced model button (callback_data 'model:<id>') from an
     operator: switch, acknowledge, update the menu message."""
@@ -725,6 +729,28 @@ def _handle_callback_query(cq):
                 "reply_markup": _energy_keyboard(),
             }, timeout=15)
             return "callback_energy"
+        if data.startswith("mode:"):
+            if not _chat_is_allowed(chat):
+                return "callback_disallowed_chat"
+            if not _is_operator(cq.get("from")):
+                requests.post(_api("answerCallbackQuery"), json={
+                    "callback_query_id": cq.get("id"),
+                    "text": "mode switching is operator-only",
+                }, timeout=15)
+                return "callback_not_operator"
+            import loop_modes
+            reply = loop_modes.set_mode(data[len("mode:"):])
+            _request_wake("mode switch")
+            requests.post(_api("answerCallbackQuery"), json={
+                "callback_query_id": cq.get("id"), "text": str(reply)[:190],
+            }, timeout=15)
+            requests.post(_api("editMessageText"), json={
+                "chat_id": chat.get("id"),
+                "message_id": message.get("message_id"),
+                "text": loop_modes.mode_view(),
+                "reply_markup": _modes_keyboard(),
+            }, timeout=15)
+            return "callback_mode_switch"
         if not data.startswith("model:"):
             return "callback_ignored"
         if not _chat_is_allowed(chat):
@@ -789,9 +815,21 @@ def _energy_keyboard():
 _bot_username = None
 
 
+def _known_username():
+    """Configured/cached bot identity, without any network operation."""
+    return str(
+        _bot_username
+        or os.environ.get("METTACLAW_TELEGRAM_BOT_USERNAME", "")
+    ).lstrip("@")
+
+
 def _my_username():
     """This bot's @username via getMe, cached; "" while unknown."""
     global _bot_username
+    configured = _known_username()
+    if configured:
+        _bot_username = configured
+        return configured
     if _bot_username is None:
         try:
             r = requests.get(_api("getMe"), timeout=15).json()
@@ -833,10 +871,12 @@ def _peek_slash_command(text, sender):
         return None
     head = stripped.split(None, 1)[0]
     cmd = head.split("@", 1)[0].lower()
-    if cmd not in ("/model", "/models", "/quota", "/wake", "/energy", "/claude_code_authorization"):
+    if cmd not in _CONTROL_COMMANDS:
         return None
     if "@" in head:
-        mine = _my_username().lower()
+        # The polling path must not block on getMe. Identity is provisioned
+        # alongside the token; an unknown addressed command is safely consumed.
+        mine = _known_username().lower()
         if not mine or head.split("@", 1)[1].lower() != mine:
             return "slash_command_other_bot:" + head.split("@", 1)[1].lower()
     if not _is_operator(sender):
@@ -845,7 +885,7 @@ def _peek_slash_command(text, sender):
 
 
 def _handle_slash_command(chat, sender, text):
-    """Deterministic /model, /models, /quota handling inside the poll thread.
+    """Deterministic operator commands with zero LLM involvement.
 
     Zero LLM involvement: the reply is sent directly and the message is NOT
     queued for the agent, so a command costs no tokens and works even while
@@ -858,15 +898,15 @@ def _handle_slash_command(chat, sender, text):
     parts = stripped.split(None, 1)
     head = parts[0]
     cmd = head.split("@", 1)[0].lower()  # '/model@SomeBot' -> '/model'
-    if "@" in head and cmd in ("/model", "/models", "/quota", "/wake", "/energy", "/claude_code_authorization"):
+    if "@" in head and cmd in _CONTROL_COMMANDS:
         # An @suffix names the addressee. Answering a command aimed at a
         # DIFFERENT bot switched the wrong agent's model live (2026-07-19).
         target = head.split("@", 1)[1].lower()
-        mine = _my_username().lower()
+        mine = _known_username().lower()
         if not mine or target != mine:
             return "slash_command_other_bot:" + target
     arg = parts[1].strip() if len(parts) > 1 else ""
-    if cmd not in ("/model", "/models", "/quota", "/wake", "/energy", "/claude_code_authorization"):
+    if cmd not in _CONTROL_COMMANDS:
         return None
     if not _is_operator(sender):
         # Operator controls are not available to other senders. Their message
@@ -891,6 +931,23 @@ def _handle_slash_command(chat, sender, text):
                 "reply_markup": _energy_keyboard(),
             }, timeout=15)
             return "slash_command:/energy"
+        if cmd in ("/mode", "/modes"):
+            import loop_modes
+            if cmd == "/modes":
+                requests.post(_api("sendMessage"), json={
+                    "chat_id": chat.get("id"),
+                    "text": loop_modes.mode_view(),
+                    "reply_markup": _modes_keyboard(),
+                }, timeout=15)
+                return "slash_command:/modes"
+            if arg:
+                reply = loop_modes.set_mode(arg)
+                _request_wake("mode switch")
+            else:
+                reply = (loop_modes.mode_view()
+                         + " — /mode <name> to switch, /modes to list")
+            send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
+            return "slash_command:/mode"
         import synthetic_llm
         if cmd == "/models":
             requests.post(_api("sendMessage"), json={
@@ -919,10 +976,21 @@ def _poll_loop():
     global _offset
     while _running:
         try:
-            params = {"timeout": 20}
+            try:
+                poll_timeout = min(30, max(1, int(os.environ.get(
+                    "METTACLAW_TELEGRAM_POLL_TIMEOUT", "5"))))
+            except ValueError:
+                poll_timeout = 5
+            try:
+                request_timeout = max(poll_timeout + 2, int(os.environ.get(
+                    "METTACLAW_TELEGRAM_REQUEST_TIMEOUT", "10")))
+            except ValueError:
+                request_timeout = max(poll_timeout + 2, 10)
+            params = {"timeout": poll_timeout}
             if _offset is not None:
                 params["offset"] = _offset
-            resp = requests.get(_api("getUpdates"), params=params, timeout=30)
+            resp = requests.get(
+                _api("getUpdates"), params=params, timeout=request_timeout)
             resp.raise_for_status()
             data = resp.json()
             for update in data.get("result", []):
@@ -1002,7 +1070,8 @@ def _poll_loop():
 
 
 def start_telegram(token="", chat_id=""):
-    global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats, _offset_path, _log_path
+    global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats
+    global _offset_path, _log_path, _bot_username
     _token = str(
         token
         or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN")
@@ -1026,6 +1095,10 @@ def start_telegram(token="", chat_id=""):
     )
     _offset_path = os.environ.get("METTACLAW_TELEGRAM_OFFSET_PATH", "")
     _log_path = os.environ.get("METTACLAW_TELEGRAM_LOG_PATH", "")
+    configured_username = os.environ.get(
+        "METTACLAW_TELEGRAM_BOT_USERNAME", "").lstrip("@")
+    if configured_username:
+        _bot_username = configured_username
     if not _token:
         print("[telegram] disabled: set METTACLAW_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN")
         return None
@@ -1138,7 +1211,7 @@ def send_message(text, chat_id=""):
             print(f"[telegram] send rejected (HTTP {resp.status_code})")
     except requests.exceptions.RequestException as exc:
         # A transient network failure on send must never cross Janus and kill the
-        # loop (the same failure class that crashed Lila via synthetic_llm).
+        # loop (the same failure class as a provider exception crossing Janus).
         print(f"[telegram] send failed ({type(exc).__name__}): {exc}")
 
 

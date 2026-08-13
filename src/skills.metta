@@ -10,6 +10,8 @@
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     "- Rest with a stated intention shown at your next waking: (rest seconds \"why\")"
+    "- Finish this fast burst without suspending autonomous renewal: (nop)"
+    "- Inspect/select the persistent cognitive loop policy: (mode) | (modes) | (mode-set \"name\")"
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
     "- Read file to string: (read-file \"filename\")"
@@ -81,7 +83,8 @@
         (eval $code)))
 
 (= (rest)
-   (progn (change-state! &loops 0)
+   (progn (py-call (loop_modes.pause_autonomy))
+          (change-state! &loops 0)
           (RESTING loops-left (get-state &loops)
                    sleep-interval-seconds (get-state &sleepInterval))))
 
@@ -89,7 +92,8 @@
    ;; Rest duration remains the agent's decision. An authenticated operator
    ;; message or /wake may deliberately end it; other activity queues.
    (let $n (max 1 (py-call (int $seconds)))
-        (progn (change-state! &loops 0)
+        (progn (py-call (loop_modes.pause_autonomy))
+               (change-state! &loops 0)
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)))))
@@ -99,12 +103,24 @@
    ;; greets the next waking (WOKE_FROM_REST), and tells anyone thinking
    ;; who wakes the agent what the rest is for.
    (let $n (max 1 (py-call (int $seconds)))
-        (progn (change-state! &loops 0)
+        (progn (py-call (loop_modes.pause_autonomy))
+               (change-state! &loops 0)
                (change-state! &sleepInterval $n)
                (py-call (helper.intent_save (py-call (helper.decode_safe_text $why))))
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)
                         intent (py-call (helper.decode_safe_text $why))))))
+
+;; A claw23 burst ends either at its step bound or explicitly via nop. Unlike
+;; rest, nop leaves autonomous renewal armed for the next idle boundary.
+(= (nop)
+   (progn (py-call (loop_modes.resume_autonomy))
+          (change-state! &loops 0)
+          (BURST_COMPLETE loops-left (get-state &loops))))
+
+(= (mode) (py-call (loop_modes.mode_view)))
+(= (modes) (py-call (loop_modes.modes_view)))
+(= (mode-set $name) (py-call (loop_modes.set_mode $name)))
 
 ;; Telegram file/image delivery. The result string says what happened —
 ;; "sent <name> (<n> bytes) to chat <id>" or the actual failure reason.
