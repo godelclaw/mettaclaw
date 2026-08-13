@@ -17,22 +17,25 @@ def test_send_accepts_any_window_on_the_user_tmux_server():
         calls.append(args)
         return 0, ""
 
-    with mock.patch.object(tmux_bridge, "_run", side_effect=fake_run):
+    with mock.patch.object(tmux_bridge, "_run", side_effect=fake_run), \
+            mock.patch.object(tmux_bridge.time, "sleep") as pause:
         result = tmux_bridge.send("agent:5", "hello")
 
     assert result.startswith("sent to agent:5")
     assert calls == [
-        ("send-keys", "-t", "agent:5", "hello"),
+        ("send-keys", "-l", "-t", "agent:5", "--", "hello"),
         ("send-keys", "-t", "agent:5", "Enter"),
     ]
+    pause.assert_called_once_with(2.0)
 
 
 def test_send_keeps_a_bare_window_target_bare():
-    with mock.patch.object(tmux_bridge, "_run", return_value=(0, "")) as run:
+    with mock.patch.object(tmux_bridge, "_run", return_value=(0, "")) as run, \
+            mock.patch.object(tmux_bridge.time, "sleep"):
         result = tmux_bridge.send("godel", "hello")
 
     assert result.startswith("sent to godel")
-    run.assert_any_call("send-keys", "-t", "godel", "hello")
+    run.assert_any_call("send-keys", "-l", "-t", "godel", "--", "hello")
 
 
 def test_send_rejects_empty_input_without_touching_tmux():
@@ -46,3 +49,13 @@ def test_send_reports_tmux_target_failure():
             tmux_bridge, "_run", return_value=(1, "can't find window")):
         assert tmux_bridge.send("agent:missing", "hello") == (
             "tmux-send failed: can't find window")
+
+
+def test_send_reports_submit_failure_after_the_pause():
+    with mock.patch.object(
+            tmux_bridge, "_run",
+            side_effect=[(0, ""), (1, "can't submit")]), \
+            mock.patch.object(tmux_bridge.time, "sleep") as pause:
+        assert tmux_bridge.send("agent:5", "hello") == (
+            "tmux-send submit failed: can't submit")
+    pause.assert_called_once_with(2.0)

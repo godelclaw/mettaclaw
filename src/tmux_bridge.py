@@ -6,6 +6,7 @@ more privileged than the shell skill the agent already has.
 """
 
 import subprocess
+import time
 
 
 def _run(*args):
@@ -44,10 +45,16 @@ def send(window, text):
     if not text:
         return "tmux-send: empty message"
     target = window
-    code, out = _run("send-keys", "-t", target, text)
+    code, out = _run("send-keys", "-l", "-t", target, "--", text)
     if code != 0:
         return "tmux-send failed: %s" % out
-    _run("send-keys", "-t", target, "Enter")
+    # Codex and similar TUIs treat an Enter delivered in the same input burst
+    # as a composition newline. Let the literal paste settle, then submit it as
+    # a distinct event.
+    time.sleep(2.0)
+    code, out = _run("send-keys", "-t", target, "Enter")
+    if code != 0:
+        return "tmux-send submit failed: %s" % out
     return ("sent to %s — the session will see it as user input; "
             "(tmux-peek \"%s\" 30) in a later turn to read the reply"
             % (target, target))
