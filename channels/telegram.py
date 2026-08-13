@@ -34,6 +34,70 @@ _wake_event = threading.Event()
 _wake_lock = threading.Lock()
 _wake_reason = ""
 _rest_notice_sent = False
+_health_lock = threading.RLock()
+_health_state = {}
+_health_last_write = 0.0
+
+_CONTROL_COMMANDS = (
+    "/model", "/models", "/mode", "/modes", "/quota", "/wake",
+    "/energy", "/health", "/claude_code_authorization",
+)
+
+_MENU_COMMANDS = (
+    ("mode", "Show or switch the cognitive loop mode"),
+    ("modes", "List cognitive loop modes"),
+    ("model", "Show or switch the language model"),
+    ("models", "List language models"),
+    ("energy", "Show per-sender arming energy"),
+    ("health", "Show runtime, channel, and memory health"),
+    ("quota", "Show model budget"),
+    ("wake", "End the current rest"),
+)
+
+
+def _health_path():
+    configured = os.environ.get("METTACLAW_TELEGRAM_HEALTH_PATH", "")
+    if configured:
+        return configured
+    state_home = os.environ.get(
+        "XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
+    instance = os.environ.get("METTACLAW_INSTANCE", "default")
+    return os.path.join(state_home, "pettaclaw", instance,
+                        "telegram-health.json")
+
+
+def _health_update(force=False, **fields):
+    """Atomically publish non-secret liveness facts for an external monitor."""
+    global _health_last_write
+    now = time.time()
+    with _health_lock:
+        _health_state.update(fields)
+        _health_state["observed_at"] = now
+        if not force and now - _health_last_write < 15:
+            return
+        path = _health_path()
+        directory = os.path.dirname(path) or "."
+        try:
+            os.makedirs(directory, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".telegram-health-",
+                                       dir=directory, text=True)
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(_health_state, fh, sort_keys=True)
+                    fh.write("\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, path)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            _health_last_write = now
+        except OSError as exc:
+            print("[telegram] health write failed:", type(exc).__name__)
 
 
 def _api_base():
@@ -404,18 +468,6 @@ def _energy_load():
                 "names": _sender_names_env()}
 
 
-def getMode():
-    """Return the loop mode from energy.json, default 'generic'."""
-    try:
-        with _energy_lock:
-            with open(_energy_path(), 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return data.get('mode', 'generic')
-    except (OSError, ValueError, TypeError):
-        pass
-    return 'generic'
-
 def _energy_save(data):
     with _energy_lock:
         path = _energy_path()
@@ -614,7 +666,7 @@ def recent_activity(n=10, chat=None, snippet_chars=110):
     """Short-term memory: the last n allowed messages from the local update
     log as '[hh:mm chat sender: text…]', oldest→newest. Always in context, so
     the agent keeps group-dynamics awareness (who spoke, when, was I last?)
-    across turns — the vericlaw/godelclaw last-k-messages continuity, kept
+    across turns — bounded last-k-messages continuity, kept
     sweetly simple. Never raises (janus boundary)."""
     try:
         n = max(1, int(n))
@@ -696,6 +748,17 @@ def _models_keyboard():
     return {"inline_keyboard": rows}
 
 
+def _modes_keyboard():
+    """Inline keyboard for the persistent cognitive-loop policy."""
+    import loop_modes
+    current = loop_modes.current_mode()
+    rows = []
+    for name in loop_modes.MODES:
+        label = ("● " if name == current else "") + name
+        rows.append([{"text": label, "callback_data": "mode:" + name}])
+    return {"inline_keyboard": rows}
+
+
 def _handle_callback_query(cq):
     """A tapped, namespaced model button (callback_data 'model:<id>') from an
     operator: switch, acknowledge, update the menu message."""
@@ -725,6 +788,28 @@ def _handle_callback_query(cq):
                 "reply_markup": _energy_keyboard(),
             }, timeout=15)
             return "callback_energy"
+        if data.startswith("mode:"):
+            if not _chat_is_allowed(chat):
+                return "callback_disallowed_chat"
+            if not _is_operator(cq.get("from")):
+                requests.post(_api("answerCallbackQuery"), json={
+                    "callback_query_id": cq.get("id"),
+                    "text": "mode switching is operator-only",
+                }, timeout=15)
+                return "callback_not_operator"
+            import loop_modes
+            reply = loop_modes.set_mode(data[len("mode:"):])
+            _request_wake("mode switch")
+            requests.post(_api("answerCallbackQuery"), json={
+                "callback_query_id": cq.get("id"), "text": str(reply)[:190],
+            }, timeout=15)
+            requests.post(_api("editMessageText"), json={
+                "chat_id": chat.get("id"),
+                "message_id": message.get("message_id"),
+                "text": loop_modes.mode_view(),
+                "reply_markup": _modes_keyboard(),
+            }, timeout=15)
+            return "callback_mode_switch"
         if not data.startswith("model:"):
             return "callback_ignored"
         if not _chat_is_allowed(chat):
@@ -789,9 +874,21 @@ def _energy_keyboard():
 _bot_username = None
 
 
+def _known_username():
+    """Configured/cached bot identity, without any network operation."""
+    return str(
+        _bot_username
+        or os.environ.get("METTACLAW_TELEGRAM_BOT_USERNAME", "")
+    ).lstrip("@")
+
+
 def _my_username():
     """This bot's @username via getMe, cached; "" while unknown."""
     global _bot_username
+    configured = _known_username()
+    if configured:
+        _bot_username = configured
+        return configured
     if _bot_username is None:
         try:
             r = requests.get(_api("getMe"), timeout=15).json()
@@ -833,10 +930,12 @@ def _peek_slash_command(text, sender):
         return None
     head = stripped.split(None, 1)[0]
     cmd = head.split("@", 1)[0].lower()
-    if cmd not in ("/model", "/models", "/quota", "/wake", "/energy", "/claude_code_authorization"):
+    if cmd not in _CONTROL_COMMANDS:
         return None
     if "@" in head:
-        mine = _my_username().lower()
+        # The polling path must not block on getMe. Identity is provisioned
+        # alongside the token; an unknown addressed command is safely consumed.
+        mine = _known_username().lower()
         if not mine or head.split("@", 1)[1].lower() != mine:
             return "slash_command_other_bot:" + head.split("@", 1)[1].lower()
     if not _is_operator(sender):
@@ -845,7 +944,7 @@ def _peek_slash_command(text, sender):
 
 
 def _handle_slash_command(chat, sender, text):
-    """Deterministic /model, /models, /quota handling inside the poll thread.
+    """Deterministic operator commands with zero LLM involvement.
 
     Zero LLM involvement: the reply is sent directly and the message is NOT
     queued for the agent, so a command costs no tokens and works even while
@@ -858,15 +957,15 @@ def _handle_slash_command(chat, sender, text):
     parts = stripped.split(None, 1)
     head = parts[0]
     cmd = head.split("@", 1)[0].lower()  # '/model@SomeBot' -> '/model'
-    if "@" in head and cmd in ("/model", "/models", "/quota", "/wake", "/energy", "/claude_code_authorization"):
+    if "@" in head and cmd in _CONTROL_COMMANDS:
         # An @suffix names the addressee. Answering a command aimed at a
         # DIFFERENT bot switched the wrong agent's model live (2026-07-19).
         target = head.split("@", 1)[1].lower()
-        mine = _my_username().lower()
+        mine = _known_username().lower()
         if not mine or target != mine:
             return "slash_command_other_bot:" + target
     arg = parts[1].strip() if len(parts) > 1 else ""
-    if cmd not in ("/model", "/models", "/quota", "/wake", "/energy", "/claude_code_authorization"):
+    if cmd not in _CONTROL_COMMANDS:
         return None
     if not _is_operator(sender):
         # Operator controls are not available to other senders. Their message
@@ -891,6 +990,28 @@ def _handle_slash_command(chat, sender, text):
                 "reply_markup": _energy_keyboard(),
             }, timeout=15)
             return "slash_command:/energy"
+        if cmd == "/health":
+            import runtime_health
+            send_message_to_chat(str(chat.get("id", "")),
+                                 runtime_health.report())
+            return "slash_command:/health"
+        if cmd in ("/mode", "/modes"):
+            import loop_modes
+            if cmd == "/modes":
+                requests.post(_api("sendMessage"), json={
+                    "chat_id": chat.get("id"),
+                    "text": loop_modes.mode_view(),
+                    "reply_markup": _modes_keyboard(),
+                }, timeout=15)
+                return "slash_command:/modes"
+            if arg:
+                reply = loop_modes.set_mode(arg)
+                _request_wake("mode switch")
+            else:
+                reply = (loop_modes.mode_view()
+                         + " — /mode <name> to switch, /modes to list")
+            send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
+            return "slash_command:/mode"
         import synthetic_llm
         if cmd == "/models":
             requests.post(_api("sendMessage"), json={
@@ -919,12 +1040,24 @@ def _poll_loop():
     global _offset
     while _running:
         try:
-            params = {"timeout": 20}
+            try:
+                poll_timeout = min(30, max(1, int(os.environ.get(
+                    "METTACLAW_TELEGRAM_POLL_TIMEOUT", "5"))))
+            except ValueError:
+                poll_timeout = 5
+            try:
+                request_timeout = max(poll_timeout + 2, int(os.environ.get(
+                    "METTACLAW_TELEGRAM_REQUEST_TIMEOUT", "10")))
+            except ValueError:
+                request_timeout = max(poll_timeout + 2, 10)
+            params = {"timeout": poll_timeout}
             if _offset is not None:
                 params["offset"] = _offset
-            resp = requests.get(_api("getUpdates"), params=params, timeout=30)
+            resp = requests.get(
+                _api("getUpdates"), params=params, timeout=request_timeout)
             resp.raise_for_status()
             data = resp.json()
+            _health_update(poll_status="ok", last_poll_ok_at=time.time())
             for update in data.get("result", []):
                 update_id = int(update["update_id"])
                 if "callback_query" in update:
@@ -997,12 +1130,48 @@ def _poll_loop():
                         _tier_for_sender(sender),
                     )
         except Exception as exc:
-            print("[telegram] poll error:", exc)
+            _health_update(force=True, poll_status="error",
+                           last_poll_error_at=time.time(),
+                           poll_error_type=type(exc).__name__)
+            # Request exceptions can include the token-bearing API URL. Never
+            # echo their full text into a persistent service journal.
+            print("[telegram] poll error:", type(exc).__name__)
             time.sleep(5)
 
 
+def _register_menu_commands():
+    """Publish the deterministic controls to Telegram's slash-command menu."""
+    try:
+        response = requests.post(
+            _api("setMyCommands"),
+            json={
+                "commands": [
+                    {"command": command, "description": description}
+                    for command, description in _MENU_COMMANDS
+                ]
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not payload.get("ok", False):
+            raise RuntimeError("Telegram rejected the command menu")
+        _health_update(force=True, menu_status="ok",
+                       menu_registered_at=time.time())
+    except Exception as exc:
+        # Menu discoverability is not allowed to take down message polling;
+        # typed slash commands continue to work and the health watch records
+        # registration failures from the service journal.
+        _health_update(force=True, menu_status="error",
+                       menu_error_at=time.time(),
+                       menu_error_type=type(exc).__name__)
+        print("[telegram] command menu registration failed:",
+              type(exc).__name__)
+
+
 def start_telegram(token="", chat_id=""):
-    global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats, _offset_path, _log_path
+    global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats
+    global _offset_path, _log_path, _bot_username
     _token = str(
         token
         or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN")
@@ -1026,6 +1195,10 @@ def start_telegram(token="", chat_id=""):
     )
     _offset_path = os.environ.get("METTACLAW_TELEGRAM_OFFSET_PATH", "")
     _log_path = os.environ.get("METTACLAW_TELEGRAM_LOG_PATH", "")
+    configured_username = os.environ.get(
+        "METTACLAW_TELEGRAM_BOT_USERNAME", "").lstrip("@")
+    if configured_username:
+        _bot_username = configured_username
     if not _token:
         print("[telegram] disabled: set METTACLAW_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN")
         return None
@@ -1033,6 +1206,9 @@ def start_telegram(token="", chat_id=""):
         return _thread
     _load_offset()
     _running = True
+    _health_update(force=True, running=True, started_at=time.time(),
+                   menu_status="pending", poll_status="starting")
+    threading.Thread(target=_register_menu_commands, daemon=True).start()
     _thread = threading.Thread(target=_poll_loop, daemon=True)
     _thread.start()
     return _thread
@@ -1041,6 +1217,7 @@ def start_telegram(token="", chat_id=""):
 def stop_telegram():
     global _running
     _running = False
+    _health_update(force=True, running=False, stopped_at=time.time())
 
 
 def _reply_target(chat_id=""):
@@ -1138,8 +1315,8 @@ def send_message(text, chat_id=""):
             print(f"[telegram] send rejected (HTTP {resp.status_code})")
     except requests.exceptions.RequestException as exc:
         # A transient network failure on send must never cross Janus and kill the
-        # loop (the same failure class that crashed Lila via synthetic_llm).
-        print(f"[telegram] send failed ({type(exc).__name__}): {exc}")
+        # loop (the same failure class as a provider exception crossing Janus).
+        print(f"[telegram] send failed ({type(exc).__name__})")
 
 
 def sleep_until_message(seconds):
@@ -1163,6 +1340,8 @@ def sleep_until_message(seconds):
         _wake_reason = ""
         _rest_notice_sent = False
         _sleep_until = deadline
+    _health_update(force=True, loop_status="waiting",
+                   waiting_since=time.time(), waiting_until=deadline)
     try:
         while True:
             remaining = deadline - time.time()
@@ -1177,6 +1356,8 @@ def sleep_until_message(seconds):
             _sleep_until = 0.0
             _wake_event.clear()
             _wake_reason = ""
+        _health_update(force=True, loop_status="awake", waiting_until=0.0,
+                       last_wait_completed_at=time.time())
 
 
 def rest_status():

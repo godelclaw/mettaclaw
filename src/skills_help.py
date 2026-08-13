@@ -9,6 +9,10 @@ ARITY = {
     "remember": (1, 1), "query": (1, 1), "pin": (1, 1), "unpin": (1, 1),
     "goals": (0, 0), "goal-write": (1, 1), "goal-drop": (2, 2),
     "rest": (0, 1),
+    "nop": (0, 0),
+    "mode": (0, 0),
+    "modes": (0, 0),
+    "mode-set": (1, 1),
     "shell": (1, 1), "read-file": (1, 1), "write-file": (2, 2),
     "append-file": (2, 2), "read-lines": (3, 3), "edit-file": (3, 3),
     "ls-tree": (2, 2), "grep-files": (2, 2),
@@ -104,10 +108,11 @@ PAGES = {
         'Gated by Zar\'s /claude_code_authorization toggle. Takes up to 300s\n'
         '— batch it last so faster commands are not stuck behind it.'),
     "tmux-send": (
-        'usage: (tmux-send "oruzi:CC-mama" "message for Claude Code")\n'
-        'Types into the interactive Claude Code session as user input.\n'
-        'Only allowlisted windows; also needs the authorization toggle.\n'
-        'Read the reply LATER with (tmux-peek "oruzi:CC-mama" 30) — the\n'
+        'usage: (tmux-send "session:window" "message")\n'
+        'Types into any window on this Unix user\'s tmux server. All such\n'
+        'windows are shared agent workspace; no separate allowlist or\n'
+        'authorization toggle applies.\n'
+        'Read the reply LATER with (tmux-peek "session:window" 30) — the\n'
         'session answers in its own time, not within your turn.'),
     "check": (
         'usage: (check "(shell \\"ls /tmp\\")")\n'

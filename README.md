@@ -55,6 +55,7 @@ defaults. Put secrets only in `config/secrets.env`:
 ```
 SYNTHETIC_API_KEY=sk-...
 METTACLAW_TELEGRAM_BOT_TOKEN=123456789:...
+METTACLAW_TELEGRAM_BOT_USERNAME=ExampleBot
 METTACLAW_TELEGRAM_OPERATOR_IDS=<telegram-user-id>
 ```
 
@@ -94,6 +95,14 @@ loop:
 ./run.sh
 ```
 
+The loop policy is mutable runtime state, separate from the protected source.
+Use `(mode)`, `(modes)`, or `(mode-set "claw23")` from the agent, and `/mode`,
+`/modes`, or `/mode claw23` from an authorized Telegram account. `generic` is
+event-armed; `coding` adds high reasoning effort; `claw23` runs bounded fast
+bursts and, after a 60-second input wait, renews autonomous work. `(nop)` ends
+one fast burst while leaving renewal enabled; `(rest)` explicitly suspends it.
+The selected mode persists in the ignored `memory/` state across restarts.
+
 To validate your PeTTa + Python setup without starting the loop, run the
 import-only smoke test first — it loads the full library (git-cloning the
 `petta_lib_chromadb` dependency into `./repos` on the first run) and exits:
@@ -127,3 +136,28 @@ Shell output of the actual invocation of the generated MeTTa code:
 System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
+
+## Protected self-modification
+
+The file tools create immutable proposals instead of rewriting the running
+agent. A proposal contains the exact candidate bytes, their SHA-256 digest,
+the prior target digest, and provenance. MeTTa candidates are parsed by PeTTa's
+`top_forms` and `sread` without calling `process_form`. Optional semantic
+evaluation runs without network, secrets, a writable host tree, or ambient
+home-directory access.
+
+Promotion is a separate operation for a supervisor that has a writable view of
+the protected root. The agent runtime should see that root read-only:
+
+```sh
+python3 scripts/selfmod_supervisor.py verify PROPOSAL_ID \
+  --root PROTECTED_ROOT --store PROPOSAL_STORE
+python3 scripts/selfmod_supervisor.py promote PROPOSAL_ID \
+  --root PROTECTED_ROOT --store PROPOSAL_STORE
+```
+
+Add `--semantic` to require sandboxed PeTTa evaluation. Configure locations
+with `METTACLAW_PROTECTED_ROOT`, `METTACLAW_SELFMOD_PROPOSAL_STORE`, and
+`PETTA_ROOT`. Optional external governance is enabled only when
+`METTACLAW_SELFMOD_REQUIRE_GOVERNANCE=1`; its executable is supplied through
+`METTACLAW_GGB_SELFMOD_CLI`.

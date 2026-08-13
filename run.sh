@@ -7,7 +7,7 @@ PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
 METTACLAW_ENGINE="${METTACLAW_ENGINE:-petta}"
 PLEATTA_ROOT="${PLEATTA_ROOT:-${HOME:-}/repos/LeaTTa-petta}"
 
-if [ -x "$ROOT/initialize.sh" ]; then
+if [ "${METTACLAW_SKIP_INITIALIZE:-0}" != "1" ] && [ -x "$ROOT/initialize.sh" ]; then
     "$ROOT/initialize.sh" >/dev/null
 fi
 

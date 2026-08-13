@@ -10,13 +10,15 @@
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     "- Rest with a stated intention shown at your next waking: (rest seconds \"why\")"
+    "- Finish this fast burst without suspending autonomous renewal: (nop)"
+    "- Inspect/select the persistent cognitive loop policy: (mode) | (modes) | (mode-set \"name\")"
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
     "- Read file to string: (read-file \"filename\")"
-    "- Write string to file: (write-file \"filename\" \"string\")"
-    "- Append line to file: (append-file \"filename\" \"string\")"
+    "- Propose an exact protected-file replacement: (write-file \"filename\" \"string\")"
+    "- Propose appending one line to a protected file: (append-file \"filename\" \"string\")"
     "- Read a numbered window of a file: (read-lines \"filename\" start count)"
-    "- Edit a file by exact unique string replacement — no full rewrite; the result confirms success or explains exactly what to fix: (edit-file \"filename\" \"old-string\" \"new-string\")"
+    "- Propose an exact unique-string edit to protected code: (edit-file \"filename\" \"old-string\" \"new-string\")"
     "- Compact directory tree, dirs first with file sizes: (ls-tree \"dir\" depth)"
     "- Search text across files under a dir, bounded output: (grep-files \"pattern\" \"dir\")",
 	    ;COMMUNICATION CHANNELS:
@@ -47,8 +49,8 @@
     ;CLAUDE CODE AND TMUX:
     "- Ask Claude Code one headless question (needs Zar's authorization toggle): (claude-code \"prompt\")"
     "- List tmux windows: (tmux-windows)"
-    "- Read the last n lines of a window: (tmux-peek \"oruzi:CC-mama\" 30)"
-    "- Type into the Claude Code window (allowlisted + authorized only): (tmux-send \"oruzi:CC-mama\" \"message\")"
+    "- Read the last n lines of any window on this user's tmux server: (tmux-peek \"session:window\" 30)"
+    "- Type into any window on this user's tmux server: (tmux-send \"session:window\" \"message\")"
     ;WHEN UNSURE:
     "- Man page for any skill (usage, example, common failure): (help \"skill-name\")"
     "- Dry-run a command string through the real parser, nothing executes: (check \"(shell \\\"ls /tmp\\\")\")"))
@@ -61,18 +63,13 @@
    (py-call (fsops.read_file $file)))
 
 (= (write-file $file $str)
-   (progn (translatePredicate (open $file write $Out))
-          (translatePredicate (write $Out $str))
-          (translatePredicate (close $Out))
-          True))
+   (py-call (ggb_bridge_ext.ggbProposeWrite $file $str)))
+
+(= (edit-file $file $old $new)
+   (py-call (ggb_bridge_ext.ggbProposeEdit $file $old $new)))
 
 (= (append-file $file $str)
-   (progn (translatePredicate (exists_file $file))
-          (translatePredicate (open $file append $Out))
-          (translatePredicate (write $Out $str))
-          (translatePredicate (nl $Out)),
-          (translatePredicate (close $Out))
-          True))
+   (py-call (ggb_bridge_ext.ggbProposeAppend $file $str)))
 
 !(import_prolog_functions_from_file ./src/skills.pl (shell first_char))
 
@@ -81,7 +78,8 @@
         (eval $code)))
 
 (= (rest)
-   (progn (change-state! &loops 0)
+   (progn (py-call (loop_modes.pause_autonomy))
+          (change-state! &loops 0)
           (RESTING loops-left (get-state &loops)
                    sleep-interval-seconds (get-state &sleepInterval))))
 
@@ -89,7 +87,8 @@
    ;; Rest duration remains the agent's decision. An authenticated operator
    ;; message or /wake may deliberately end it; other activity queues.
    (let $n (max 1 (py-call (int $seconds)))
-        (progn (change-state! &loops 0)
+        (progn (py-call (loop_modes.pause_autonomy))
+               (change-state! &loops 0)
                (change-state! &sleepInterval $n)
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)))))
@@ -99,12 +98,24 @@
    ;; greets the next waking (WOKE_FROM_REST), and tells anyone thinking
    ;; who wakes the agent what the rest is for.
    (let $n (max 1 (py-call (int $seconds)))
-        (progn (change-state! &loops 0)
+        (progn (py-call (loop_modes.pause_autonomy))
+               (change-state! &loops 0)
                (change-state! &sleepInterval $n)
                (py-call (helper.intent_save (py-call (helper.decode_safe_text $why))))
                (RESTING loops-left (get-state &loops)
                         sleep-interval-seconds (get-state &sleepInterval)
                         intent (py-call (helper.decode_safe_text $why))))))
+
+;; A claw23 burst ends either at its step bound or explicitly via nop. Unlike
+;; rest, nop leaves autonomous renewal armed for the next idle boundary.
+(= (nop)
+   (progn (py-call (loop_modes.resume_autonomy))
+          (change-state! &loops 0)
+          (BURST_COMPLETE loops-left (get-state &loops))))
+
+(= (mode) (py-call (loop_modes.mode_view)))
+(= (modes) (py-call (loop_modes.modes_view)))
+(= (mode-set $name) (py-call (loop_modes.set_mode $name)))
 
 ;; Telegram file/image delivery. The result string says what happened —
 ;; "sent <name> (<n> bytes) to chat <id>" or the actual failure reason.
@@ -121,9 +132,6 @@
 ;; uniqueness enforced, bounded tree/search. Result strings are the
 ;; verification — no blind writes, no re-reading to check what landed.
 (= (read-lines $f $start $count) (py-call (fsops.read_lines $f $start $count)))
-(= (edit-file $f $old $new)
-   (py-call (fsops.edit_file $f (py-call (helper.decode_safe_text $old))
-                                (py-call (helper.decode_safe_text $new)))))
 (= (ls-tree $dir $depth) (py-call (fsops.ls_tree $dir $depth)))
 (= (grep-files $pat $dir)
    (py-call (fsops.grep_files (py-call (helper.decode_safe_text $pat)) $dir)))
@@ -135,9 +143,9 @@
    (py-call (goals.goal_write (py-call (helper.decode_safe_text $atom)))))
 (= (goal-drop $name $reason) (py-call (goals.goal_drop $name $reason)))
 
-;; Claude Code bridge + tmux interface. The authorization flag is Zar's
-;; (/claude_code_authorization in Telegram); it gates claude-code and
-;; tmux-send, and is re-read on every call so revocation is immediate.
+;; Claude Code bridge + tmux interface. Headless claude-code remains gated by
+;; the operator toggle. Every window on this Unix user's tmux server is shared
+;; agent workspace, so tmux-send needs no separate authorization layer.
 (= (claude-code $prompt)
    (py-call (claude_bridge.ask (py-call (helper.decode_safe_text $prompt)))))
 (= (tmux-windows) (py-call (tmux_bridge.windows)))

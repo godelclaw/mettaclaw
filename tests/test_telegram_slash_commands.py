@@ -1,8 +1,10 @@
-"""Deterministic slash commands (/model, /models, /quota, /wake) are answered in the
+"""Deterministic slash commands (/model, /mode, /quota, /wake) are answered in the
 poll thread with zero LLM involvement and are never queued for the agent."""
 import os
 import sys
+import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -10,10 +12,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "channels"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import telegram  # noqa: E402
 import synthetic_llm  # noqa: E402
+import loop_modes  # noqa: E402
 
 
 class SlashCommandTest(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.previous_mode_path = os.environ.get("METTACLAW_LOOP_MODE_PATH")
+        self.previous_health_path = os.environ.get(
+            "METTACLAW_TELEGRAM_HEALTH_PATH")
+        os.environ["METTACLAW_LOOP_MODE_PATH"] = os.path.join(
+            self.tmp.name, "loop_mode.json")
+        os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = os.path.join(
+            self.tmp.name, "telegram-health.json")
+        telegram._health_state.clear()
+        telegram._health_last_write = 0.0
         self.sent = []
         self.p1 = mock.patch.object(
             telegram, "send_message_to_chat",
@@ -37,6 +50,16 @@ class SlashCommandTest(unittest.TestCase):
     def tearDown(self):
         for p in (self.p1, self.p2, self.p3, self.p4, self.p5):
             p.stop()
+        if self.previous_mode_path is None:
+            os.environ.pop("METTACLAW_LOOP_MODE_PATH", None)
+        else:
+            os.environ["METTACLAW_LOOP_MODE_PATH"] = self.previous_mode_path
+        if self.previous_health_path is None:
+            os.environ.pop("METTACLAW_TELEGRAM_HEALTH_PATH", None)
+        else:
+            os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = \
+                self.previous_health_path
+        self.tmp.cleanup()
 
     def handle(self, text, sender=None):
         return telegram._handle_slash_command(
@@ -85,6 +108,14 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(self.handle("/quota"), "slash_command:/quota")
         self.assertIn("weekly=ok", self.sent[-1][1])
 
+    def test_health_is_deterministic_and_does_not_call_model(self):
+        with mock.patch("runtime_health.report", return_value="runtime ok"), \
+             mock.patch.object(synthetic_llm, "current_model") as model:
+            self.assertEqual(self.handle("/health"),
+                             "slash_command:/health")
+        model.assert_not_called()
+        self.assertEqual(self.sent[-1][1], "runtime ok")
+
     def test_model_bare_shows_current(self):
         self.assertEqual(self.handle("/model"), "slash_command:/model")
         self.assertIn("syn:large:text", self.sent[-1][1])
@@ -93,6 +124,89 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(self.handle("/model claude-fable-5"),
                          "slash_command:/model")
         self.assertIn("claude-fable-5", self.sent[-1][1])
+
+    def test_mode_bare_shows_current(self):
+        self.assertEqual(self.handle("/mode"), "slash_command:/mode")
+        self.assertIn("active mode: generic", self.sent[-1][1])
+
+    def test_mode_switch_persists_and_wakes_loop(self):
+        telegram._wake_event.clear()
+        try:
+            self.assertEqual(self.handle("/mode claw23"),
+                             "slash_command:/mode")
+            self.assertEqual(loop_modes.current_mode(), "claw23")
+            self.assertTrue(telegram._wake_event.is_set())
+            self.assertIn("persists", self.sent[-1][1])
+        finally:
+            telegram._wake_event.clear()
+
+    def test_modes_sends_keyboard(self):
+        posts = []
+        with mock.patch.object(telegram.requests, "post",
+                               lambda url, json=None, timeout=None:
+                               posts.append((url, json)) or mock.Mock()):
+            self.assertEqual(self.handle("/modes"), "slash_command:/modes")
+        payload = posts[-1][1]
+        callbacks = [row[0]["callback_data"]
+                     for row in payload["reply_markup"]["inline_keyboard"]]
+        self.assertEqual(callbacks, ["mode:generic", "mode:coding",
+                                     "mode:claw23"])
+
+    def test_command_menu_registers_mode_controls(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"ok": True, "result": True}
+        with mock.patch.object(telegram.requests, "post",
+                               return_value=response) as post:
+            telegram._register_menu_commands()
+        payload = post.call_args.kwargs["json"]
+        names = [item["command"] for item in payload["commands"]]
+        self.assertIn("mode", names)
+        self.assertIn("modes", names)
+        self.assertIn("health", names)
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_command_menu_failure_does_not_raise(self):
+        with mock.patch.object(telegram.requests, "post",
+                               side_effect=RuntimeError("offline")):
+            telegram._register_menu_commands()
+
+    def test_health_file_has_liveness_but_no_credentials(self):
+        telegram._health_update(force=True, poll_status="ok",
+                                last_poll_ok_at=123.0)
+        with open(os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"],
+                  encoding="utf-8") as fh:
+            health = fh.read()
+        self.assertIn('"poll_status": "ok"', health)
+        self.assertNotIn("token", health.lower())
+        self.assertNotIn("chat_id", health.lower())
+
+    def test_rest_deadline_is_externally_observable(self):
+        with mock.patch.object(telegram, "_health_update") as health, \
+             mock.patch.object(telegram._wake_event, "wait",
+                               return_value=True):
+            telegram.sleep_until_message(30)
+        updates = [call.kwargs for call in health.call_args_list]
+        self.assertTrue(any(item.get("loop_status") == "waiting"
+                            and item.get("waiting_until", 0) > time.time()
+                            for item in updates))
+        self.assertEqual(updates[-1]["loop_status"], "awake")
+
+    def test_callback_switches_mode(self):
+        posts = []
+        cq = {"id": "88", "data": "mode:claw23",
+              "from": {"id": 111000111},
+              "message": {"message_id": 6, "chat": {"id": -4321}}}
+        with mock.patch.object(telegram, "_chat_is_allowed",
+                               lambda chat: True), \
+             mock.patch.object(telegram.requests, "post",
+                               lambda url, json=None, timeout=None:
+                               posts.append((url, json)) or mock.Mock()):
+            note = telegram._handle_callback_query(cq)
+        self.assertEqual(note, "callback_mode_switch")
+        self.assertEqual(loop_modes.current_mode(), "claw23")
+        self.assertTrue(any("answerCallbackQuery" in u for u, _ in posts))
+        self.assertTrue(any("editMessageText" in u for u, _ in posts))
 
     def test_wake_is_poll_fast_path(self):
         self.assertEqual(
@@ -191,6 +305,24 @@ class SlashCommandTest(unittest.TestCase):
         finally:
             telegram._bot_username = None
 
+    def test_poll_fast_path_uses_configured_identity_without_network(self):
+        telegram._bot_username = None
+        previous = os.environ.get("METTACLAW_TELEGRAM_BOT_USERNAME")
+        os.environ["METTACLAW_TELEGRAM_BOT_USERNAME"] = "SomeBot"
+        try:
+            with mock.patch.object(telegram.requests, "get") as get:
+                self.assertEqual(
+                    telegram._peek_slash_command(
+                        "/mode@SomeBot", self.operator),
+                    "slash_command:/mode")
+            get.assert_not_called()
+        finally:
+            telegram._bot_username = None
+            if previous is None:
+                os.environ.pop("METTACLAW_TELEGRAM_BOT_USERNAME", None)
+            else:
+                os.environ["METTACLAW_TELEGRAM_BOT_USERNAME"] = previous
+
     def test_botname_suffix_for_other_bot_is_consumed(self):
         telegram._bot_username = "SomeBot"
         try:
@@ -215,7 +347,7 @@ class SlashCommandTest(unittest.TestCase):
 
 class CrossBotAddressingTests(unittest.TestCase):
     def setUp(self):
-        telegram._bot_username = "LilaTestBot"
+        telegram._bot_username = "PrimaryTestBot"
 
     def tearDown(self):
         telegram._bot_username = None

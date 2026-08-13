@@ -67,6 +67,15 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertNotIn(
             "($msgnew (prog1 (!= $msg (get-state &prevmsg))", loop)
 
+    def test_claw23_renews_only_after_an_idle_wait(self):
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+        self.assertIn("(mettaclaw 1 0)", loop)
+        self.assertIn("(== $autonomousReady 1)", loop)
+        self.assertIn("loop_modes.wait_seconds", loop)
+        self.assertIn("loop_modes.autonomous_ready", loop)
+        self.assertIn("CLAW23_AUTONOMOUS_BURST", loop)
+        self.assertNotIn("telegram.getMode", loop)
+
 
 if __name__ == "__main__":
     unittest.main()
