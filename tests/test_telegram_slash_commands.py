@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -18,8 +19,14 @@ class SlashCommandTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.previous_mode_path = os.environ.get("METTACLAW_LOOP_MODE_PATH")
+        self.previous_health_path = os.environ.get(
+            "METTACLAW_TELEGRAM_HEALTH_PATH")
         os.environ["METTACLAW_LOOP_MODE_PATH"] = os.path.join(
             self.tmp.name, "loop_mode.json")
+        os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = os.path.join(
+            self.tmp.name, "telegram-health.json")
+        telegram._health_state.clear()
+        telegram._health_last_write = 0.0
         self.sent = []
         self.p1 = mock.patch.object(
             telegram, "send_message_to_chat",
@@ -47,6 +54,11 @@ class SlashCommandTest(unittest.TestCase):
             os.environ.pop("METTACLAW_LOOP_MODE_PATH", None)
         else:
             os.environ["METTACLAW_LOOP_MODE_PATH"] = self.previous_mode_path
+        if self.previous_health_path is None:
+            os.environ.pop("METTACLAW_TELEGRAM_HEALTH_PATH", None)
+        else:
+            os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = \
+                self.previous_health_path
         self.tmp.cleanup()
 
     def handle(self, text, sender=None):
@@ -131,6 +143,45 @@ class SlashCommandTest(unittest.TestCase):
                      for row in payload["reply_markup"]["inline_keyboard"]]
         self.assertEqual(callbacks, ["mode:generic", "mode:coding",
                                      "mode:claw23"])
+
+    def test_command_menu_registers_mode_controls(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"ok": True, "result": True}
+        with mock.patch.object(telegram.requests, "post",
+                               return_value=response) as post:
+            telegram._register_menu_commands()
+        payload = post.call_args.kwargs["json"]
+        names = [item["command"] for item in payload["commands"]]
+        self.assertIn("mode", names)
+        self.assertIn("modes", names)
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_command_menu_failure_does_not_raise(self):
+        with mock.patch.object(telegram.requests, "post",
+                               side_effect=RuntimeError("offline")):
+            telegram._register_menu_commands()
+
+    def test_health_file_has_liveness_but_no_credentials(self):
+        telegram._health_update(force=True, poll_status="ok",
+                                last_poll_ok_at=123.0)
+        with open(os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"],
+                  encoding="utf-8") as fh:
+            health = fh.read()
+        self.assertIn('"poll_status": "ok"', health)
+        self.assertNotIn("token", health.lower())
+        self.assertNotIn("chat_id", health.lower())
+
+    def test_rest_deadline_is_externally_observable(self):
+        with mock.patch.object(telegram, "_health_update") as health, \
+             mock.patch.object(telegram._wake_event, "wait",
+                               return_value=True):
+            telegram.sleep_until_message(30)
+        updates = [call.kwargs for call in health.call_args_list]
+        self.assertTrue(any(item.get("loop_status") == "waiting"
+                            and item.get("waiting_until", 0) > time.time()
+                            for item in updates))
+        self.assertEqual(updates[-1]["loop_status"], "awake")
 
     def test_callback_switches_mode(self):
         posts = []

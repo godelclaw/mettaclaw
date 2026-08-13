@@ -34,11 +34,69 @@ _wake_event = threading.Event()
 _wake_lock = threading.Lock()
 _wake_reason = ""
 _rest_notice_sent = False
+_health_lock = threading.RLock()
+_health_state = {}
+_health_last_write = 0.0
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/quota", "/wake",
     "/energy", "/claude_code_authorization",
 )
+
+_MENU_COMMANDS = (
+    ("mode", "Show or switch the cognitive loop mode"),
+    ("modes", "List cognitive loop modes"),
+    ("model", "Show or switch the language model"),
+    ("models", "List language models"),
+    ("energy", "Show per-sender arming energy"),
+    ("quota", "Show model budget"),
+    ("wake", "End the current rest"),
+)
+
+
+def _health_path():
+    configured = os.environ.get("METTACLAW_TELEGRAM_HEALTH_PATH", "")
+    if configured:
+        return configured
+    state_home = os.environ.get(
+        "XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
+    instance = os.environ.get("METTACLAW_INSTANCE", "default")
+    return os.path.join(state_home, "pettaclaw", instance,
+                        "telegram-health.json")
+
+
+def _health_update(force=False, **fields):
+    """Atomically publish non-secret liveness facts for an external monitor."""
+    global _health_last_write
+    now = time.time()
+    with _health_lock:
+        _health_state.update(fields)
+        _health_state["observed_at"] = now
+        if not force and now - _health_last_write < 15:
+            return
+        path = _health_path()
+        directory = os.path.dirname(path) or "."
+        try:
+            os.makedirs(directory, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".telegram-health-",
+                                       dir=directory, text=True)
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(_health_state, fh, sort_keys=True)
+                    fh.write("\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, path)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            _health_last_write = now
+        except OSError as exc:
+            print("[telegram] health write failed:", type(exc).__name__)
 
 
 def _api_base():
@@ -993,6 +1051,7 @@ def _poll_loop():
                 _api("getUpdates"), params=params, timeout=request_timeout)
             resp.raise_for_status()
             data = resp.json()
+            _health_update(poll_status="ok", last_poll_ok_at=time.time())
             for update in data.get("result", []):
                 update_id = int(update["update_id"])
                 if "callback_query" in update:
@@ -1065,8 +1124,43 @@ def _poll_loop():
                         _tier_for_sender(sender),
                     )
         except Exception as exc:
-            print("[telegram] poll error:", exc)
+            _health_update(force=True, poll_status="error",
+                           last_poll_error_at=time.time(),
+                           poll_error_type=type(exc).__name__)
+            # Request exceptions can include the token-bearing API URL. Never
+            # echo their full text into a persistent service journal.
+            print("[telegram] poll error:", type(exc).__name__)
             time.sleep(5)
+
+
+def _register_menu_commands():
+    """Publish the deterministic controls to Telegram's slash-command menu."""
+    try:
+        response = requests.post(
+            _api("setMyCommands"),
+            json={
+                "commands": [
+                    {"command": command, "description": description}
+                    for command, description in _MENU_COMMANDS
+                ]
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not payload.get("ok", False):
+            raise RuntimeError("Telegram rejected the command menu")
+        _health_update(force=True, menu_status="ok",
+                       menu_registered_at=time.time())
+    except Exception as exc:
+        # Menu discoverability is not allowed to take down message polling;
+        # typed slash commands continue to work and the health watch records
+        # registration failures from the service journal.
+        _health_update(force=True, menu_status="error",
+                       menu_error_at=time.time(),
+                       menu_error_type=type(exc).__name__)
+        print("[telegram] command menu registration failed:",
+              type(exc).__name__)
 
 
 def start_telegram(token="", chat_id=""):
@@ -1106,6 +1200,9 @@ def start_telegram(token="", chat_id=""):
         return _thread
     _load_offset()
     _running = True
+    _health_update(force=True, running=True, started_at=time.time(),
+                   menu_status="pending", poll_status="starting")
+    threading.Thread(target=_register_menu_commands, daemon=True).start()
     _thread = threading.Thread(target=_poll_loop, daemon=True)
     _thread.start()
     return _thread
@@ -1114,6 +1211,7 @@ def start_telegram(token="", chat_id=""):
 def stop_telegram():
     global _running
     _running = False
+    _health_update(force=True, running=False, stopped_at=time.time())
 
 
 def _reply_target(chat_id=""):
@@ -1212,7 +1310,7 @@ def send_message(text, chat_id=""):
     except requests.exceptions.RequestException as exc:
         # A transient network failure on send must never cross Janus and kill the
         # loop (the same failure class as a provider exception crossing Janus).
-        print(f"[telegram] send failed ({type(exc).__name__}): {exc}")
+        print(f"[telegram] send failed ({type(exc).__name__})")
 
 
 def sleep_until_message(seconds):
@@ -1236,6 +1334,8 @@ def sleep_until_message(seconds):
         _wake_reason = ""
         _rest_notice_sent = False
         _sleep_until = deadline
+    _health_update(force=True, loop_status="waiting",
+                   waiting_since=time.time(), waiting_until=deadline)
     try:
         while True:
             remaining = deadline - time.time()
@@ -1250,6 +1350,8 @@ def sleep_until_message(seconds):
             _sleep_until = 0.0
             _wake_event.clear()
             _wake_reason = ""
+        _health_update(force=True, loop_status="awake", waiting_until=0.0,
+                       last_wait_completed_at=time.time())
 
 
 def rest_status():

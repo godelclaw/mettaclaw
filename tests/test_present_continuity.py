@@ -94,8 +94,11 @@ class LoopWiringTests(unittest.TestCase):
         self.assertIn("(helper.working_boot)", self.loop)
         self.assertIn('(helper.boot_int "loops" (maxLoops))', self.loop)
         self.assertIn('(helper.boot_str "lastresults" ""', self.loop)
-        # the only unconditional full re-arm left is the heartbeat's own
-        self.assertEqual(self.loop.count("(change-state! &loops (maxLoops))"), 1)
+        # Boot itself must restore rather than blindly re-arm. The two later
+        # re-arms are conditional: heartbeat and an earned claw23 idle burst.
+        init_loop = self.loop.split("(= (heartbeatInterval)", 1)[0]
+        self.assertNotIn("(change-state! &loops (maxLoops))", init_loop)
+        self.assertEqual(self.loop.count("(change-state! &loops (maxLoops))"), 2)
 
     def test_every_turn_boundary_persists(self):
         self.assertIn("(helper.working_set_save", self.loop)
