@@ -39,7 +39,9 @@ class RuntimeHealthTest(unittest.TestCase):
         with mock.patch.object(runtime_health.memory_health, "drift",
                                return_value=(100, 95, 5)), \
              mock.patch.object(runtime_health.memory_health, "threshold",
-                               return_value=20):
+                               return_value=20), \
+             mock.patch.object(runtime_health, "_generation",
+                               return_value="abcdef012345"):
             value = runtime_health.status(now=1000)
         self.assertEqual(value["state"], "ok")
         self.assertEqual(value["generation"], "abcdef012345")
