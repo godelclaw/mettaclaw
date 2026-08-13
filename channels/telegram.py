@@ -1042,14 +1042,14 @@ def _poll_loop():
         try:
             try:
                 poll_timeout = min(30, max(1, int(os.environ.get(
-                    "METTACLAW_TELEGRAM_POLL_TIMEOUT", "5"))))
+                    "METTACLAW_TELEGRAM_POLL_TIMEOUT", "20"))))
             except ValueError:
-                poll_timeout = 5
+                poll_timeout = 20
             try:
                 request_timeout = max(poll_timeout + 2, int(os.environ.get(
-                    "METTACLAW_TELEGRAM_REQUEST_TIMEOUT", "10")))
+                    "METTACLAW_TELEGRAM_REQUEST_TIMEOUT", "30")))
             except ValueError:
-                request_timeout = max(poll_timeout + 2, 10)
+                request_timeout = max(poll_timeout + 2, 30)
             params = {"timeout": poll_timeout}
             if _offset is not None:
                 params["offset"] = _offset

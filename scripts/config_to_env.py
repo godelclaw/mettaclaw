@@ -15,6 +15,10 @@ def expand(value, root):
     env.setdefault("HOME", os.path.expanduser("~"))
     env.setdefault("USER", os.environ.get("USER", ""))
     env["ROOT"] = root
+    env["STATE_HOME"] = os.environ.get(
+        "XDG_STATE_HOME", os.path.join(env["HOME"], ".local", "state"))
+    env["INSTANCE"] = os.environ.get(
+        "METTACLAW_INSTANCE", os.path.basename(root))
     old = os.environ.copy()
     try:
         os.environ.clear()
