@@ -108,6 +108,14 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(self.handle("/quota"), "slash_command:/quota")
         self.assertIn("weekly=ok", self.sent[-1][1])
 
+    def test_health_is_deterministic_and_does_not_call_model(self):
+        with mock.patch("runtime_health.report", return_value="runtime ok"), \
+             mock.patch.object(synthetic_llm, "current_model") as model:
+            self.assertEqual(self.handle("/health"),
+                             "slash_command:/health")
+        model.assert_not_called()
+        self.assertEqual(self.sent[-1][1], "runtime ok")
+
     def test_model_bare_shows_current(self):
         self.assertEqual(self.handle("/model"), "slash_command:/model")
         self.assertIn("syn:large:text", self.sent[-1][1])
@@ -155,6 +163,7 @@ class SlashCommandTest(unittest.TestCase):
         names = [item["command"] for item in payload["commands"]]
         self.assertIn("mode", names)
         self.assertIn("modes", names)
+        self.assertIn("health", names)
         self.assertEqual(len(names), len(set(names)))
 
     def test_command_menu_failure_does_not_raise(self):
