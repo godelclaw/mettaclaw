@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -10,6 +11,24 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class ConfigPrivacyTest(unittest.TestCase):
+    def test_default_transport_state_is_outside_checkout(self):
+        environment = os.environ.copy()
+        environment["XDG_STATE_HOME"] = "/tmp/pettaclaw-state"
+        environment["METTACLAW_INSTANCE"] = "test-claw"
+        result = subprocess.run(
+            ["python3", str(ROOT / "scripts" / "config_to_env.py"),
+             str(ROOT / "config" / "default.toml"), str(ROOT)],
+            check=True, capture_output=True, text=True, env=environment)
+
+        self.assertIn(
+            "METTACLAW_TELEGRAM_OFFSET_PATH='/tmp/pettaclaw-state/test-claw/telegram/offset'",
+            result.stdout)
+        self.assertIn(
+            "METTACLAW_TELEGRAM_LOG_PATH='/tmp/pettaclaw-state/test-claw/telegram/updates.jsonl'",
+            result.stdout)
+        self.assertNotIn(str(ROOT / "telegram_offset.txt"), result.stdout)
+        self.assertNotIn(str(ROOT / "telegram_updates.jsonl"), result.stdout)
+
     def test_identity_bearing_telegram_values_are_not_generated(self):
         config = textwrap.dedent("""
             [paths]

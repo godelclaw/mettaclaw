@@ -11,10 +11,11 @@ petta_py_env = "$HOME/miniforge3/envs/petta"
 # installed in petta_py_env; do not inject another venv into PYTHONPATH.
 session_memory_tools = ""
 
-# Live state defaults stay under this checkout.
+# Mutable transport state lives outside the checkout. This keeps atomic
+# offset updates working when the deployed program tree is mounted read-only.
 chroma_dir = "$ROOT/chroma_db"
-telegram_offset_path = "$ROOT/telegram_offset.txt"
-telegram_log_path = "$ROOT/telegram_updates.jsonl"
+telegram_offset_path = "$STATE_HOME/$INSTANCE/telegram/offset"
+telegram_log_path = "$STATE_HOME/$INSTANCE/telegram/updates.jsonl"
 prompt_path = "$ROOT/memory/prompt.txt"
 history_path = "$ROOT/memory/history.metta"
 memory_log_dir = "$ROOT/memory/remembered"
