@@ -41,8 +41,8 @@ class LoopModeTests(unittest.TestCase):
 
     def test_explicit_longer_rest_is_preserved_and_blocks_renewal(self):
         loop_modes.set_mode("claw23")
-        self.assertEqual(loop_modes.wait_seconds(0, 600), 600)
         self.assertEqual(loop_modes.pause_autonomy(), 1)
+        self.assertEqual(loop_modes.wait_seconds(0, 600), 600)
         self.assertEqual(loop_modes.autonomous_ready(0, "rested 600s"), 0)
         self.assertEqual(loop_modes.resume_autonomy(), 1)
         self.assertEqual(loop_modes.autonomous_ready(0, "rested 60s"), 1)
