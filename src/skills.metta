@@ -15,10 +15,10 @@
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
     "- Read file to string: (read-file \"filename\")"
-    "- Write string to file: (write-file \"filename\" \"string\")"
-    "- Append line to file: (append-file \"filename\" \"string\")"
+    "- Propose an exact protected-file replacement: (write-file \"filename\" \"string\")"
+    "- Propose appending one line to a protected file: (append-file \"filename\" \"string\")"
     "- Read a numbered window of a file: (read-lines \"filename\" start count)"
-    "- Edit a file by exact unique string replacement — no full rewrite; the result confirms success or explains exactly what to fix: (edit-file \"filename\" \"old-string\" \"new-string\")"
+    "- Propose an exact unique-string edit to protected code: (edit-file \"filename\" \"old-string\" \"new-string\")"
     "- Compact directory tree, dirs first with file sizes: (ls-tree \"dir\" depth)"
     "- Search text across files under a dir, bounded output: (grep-files \"pattern\" \"dir\")",
 	    ;COMMUNICATION CHANNELS:
@@ -63,18 +63,13 @@
    (py-call (fsops.read_file $file)))
 
 (= (write-file $file $str)
-   (progn (translatePredicate (open $file write $Out))
-          (translatePredicate (write $Out $str))
-          (translatePredicate (close $Out))
-          True))
+   (py-call (ggb_bridge_ext.ggbProposeWrite $file $str)))
+
+(= (edit-file $file $old $new)
+   (py-call (ggb_bridge_ext.ggbProposeEdit $file $old $new)))
 
 (= (append-file $file $str)
-   (progn (translatePredicate (exists_file $file))
-          (translatePredicate (open $file append $Out))
-          (translatePredicate (write $Out $str))
-          (translatePredicate (nl $Out)),
-          (translatePredicate (close $Out))
-          True))
+   (py-call (ggb_bridge_ext.ggbProposeAppend $file $str)))
 
 !(import_prolog_functions_from_file ./src/skills.pl (shell first_char))
 
@@ -137,9 +132,6 @@
 ;; uniqueness enforced, bounded tree/search. Result strings are the
 ;; verification — no blind writes, no re-reading to check what landed.
 (= (read-lines $f $start $count) (py-call (fsops.read_lines $f $start $count)))
-(= (edit-file $f $old $new)
-   (py-call (fsops.edit_file $f (py-call (helper.decode_safe_text $old))
-                                (py-call (helper.decode_safe_text $new)))))
 (= (ls-tree $dir $depth) (py-call (fsops.ls_tree $dir $depth)))
 (= (grep-files $pat $dir)
    (py-call (fsops.grep_files (py-call (helper.decode_safe_text $pat)) $dir)))

@@ -136,3 +136,28 @@ Shell output of the actual invocation of the generated MeTTa code:
 System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
+
+## Protected self-modification
+
+The file tools create immutable proposals instead of rewriting the running
+agent. A proposal contains the exact candidate bytes, their SHA-256 digest,
+the prior target digest, and provenance. MeTTa candidates are parsed by PeTTa's
+`top_forms` and `sread` without calling `process_form`. Optional semantic
+evaluation runs without network, secrets, a writable host tree, or ambient
+home-directory access.
+
+Promotion is a separate operation for a supervisor that has a writable view of
+the protected root. The agent runtime should see that root read-only:
+
+```sh
+python3 scripts/selfmod_supervisor.py verify PROPOSAL_ID \
+  --root PROTECTED_ROOT --store PROPOSAL_STORE
+python3 scripts/selfmod_supervisor.py promote PROPOSAL_ID \
+  --root PROTECTED_ROOT --store PROPOSAL_STORE
+```
+
+Add `--semantic` to require sandboxed PeTTa evaluation. Configure locations
+with `METTACLAW_PROTECTED_ROOT`, `METTACLAW_SELFMOD_PROPOSAL_STORE`, and
+`PETTA_ROOT`. Optional external governance is enabled only when
+`METTACLAW_SELFMOD_REQUIRE_GOVERNANCE=1`; its executable is supplied through
+`METTACLAW_GGB_SELFMOD_CLI`.
