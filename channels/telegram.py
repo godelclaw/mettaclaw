@@ -40,7 +40,7 @@ _health_last_write = 0.0
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/quota", "/wake",
-    "/energy", "/claude_code_authorization",
+    "/energy", "/health", "/claude_code_authorization",
 )
 
 _MENU_COMMANDS = (
@@ -49,6 +49,7 @@ _MENU_COMMANDS = (
     ("model", "Show or switch the language model"),
     ("models", "List language models"),
     ("energy", "Show per-sender arming energy"),
+    ("health", "Show runtime, channel, and memory health"),
     ("quota", "Show model budget"),
     ("wake", "End the current rest"),
 )
@@ -989,6 +990,11 @@ def _handle_slash_command(chat, sender, text):
                 "reply_markup": _energy_keyboard(),
             }, timeout=15)
             return "slash_command:/energy"
+        if cmd == "/health":
+            import runtime_health
+            send_message_to_chat(str(chat.get("id", "")),
+                                 runtime_health.report())
+            return "slash_command:/health"
         if cmd in ("/mode", "/modes"):
             import loop_modes
             if cmd == "/modes":
