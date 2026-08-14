@@ -105,7 +105,7 @@
                        ($_expect (if (> (get-state &loops) 0)
                                     (py-call (cognitive_health.expect_turn $mode))
                                     _)))
-                      (if (and (> (get-state &loops) 0) (== (py-call (ggb_bridge_ext.ggbGovernanceGate tick)) (quote PASS)))
+                      (if (and (> (get-state &loops) 0) (== (py-call (ggb_bridge_ext.ggbGovernancePassed tick)) 1))
                           (let* (($prompt (getContext))
                                  ($lastmessage (if $autonomous
                                                    (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
