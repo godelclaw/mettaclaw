@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -63,17 +64,46 @@ class RecycleRequestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             request = Path(tmp) / "recycle.requested"
             safe = Path(tmp) / "recycle.safe"
+            events = Path(tmp) / "events.jsonl"
             request.write_text("request\n", encoding="utf-8")
-            safe.write_text("safe\n", encoding="utf-8")
+            request_digest = helper._file_sha256(request)
+            safe.write_text(
+                "request_sha256=%s\nsafe\n" % request_digest,
+                encoding="utf-8")
             with mock.patch.dict(
                 os.environ,
                 {"METTACLAW_RECYCLE_REQUEST_PATH": str(request),
-                 "METTACLAW_RECYCLE_SAFE_PATH": str(safe)},
+                 "METTACLAW_RECYCLE_SAFE_PATH": str(safe),
+                 "METTACLAW_EVENT_LOG_PATH": str(events)},
                 clear=False,
             ):
                 self.assertEqual(helper.recycle_ack(), 1)
             self.assertFalse(request.exists())
             self.assertFalse(safe.exists())
+            payload = json.loads(events.read_text().splitlines()[-1])["payload"]
+            self.assertTrue(payload["matched"])
+            self.assertEqual(payload["request_digest"], request_digest)
+
+    def test_ack_breaks_stale_pair_and_records_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            request = Path(tmp) / "recycle.requested"
+            safe = Path(tmp) / "recycle.safe"
+            events = Path(tmp) / "events.jsonl"
+            request.write_text("new request\n", encoding="utf-8")
+            safe.write_text("request_sha256=%s\n" % ("0" * 64),
+                            encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {"METTACLAW_RECYCLE_REQUEST_PATH": str(request),
+                 "METTACLAW_RECYCLE_SAFE_PATH": str(safe),
+                 "METTACLAW_EVENT_LOG_PATH": str(events)},
+                clear=False,
+            ):
+                self.assertEqual(helper.recycle_ack(), 1)
+            self.assertFalse(request.exists())
+            self.assertFalse(safe.exists())
+            payload = json.loads(events.read_text().splitlines()[-1])["payload"]
+            self.assertFalse(payload["matched"])
 
     def test_exit_receipt_requires_successful_persistence(self):
         with mock.patch.object(helper, "_recycle_mark_safe") as mark, \

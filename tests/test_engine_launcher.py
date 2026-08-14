@@ -43,7 +43,10 @@ class EngineLauncherTests(unittest.TestCase):
             ': >"$METTACLAW_RECYCLE_REQUEST_PATH"; fi; '
             'if [ "${CETTA_SAFE_RECYCLE:-0}" = 1 ]; then '
             'printf "petta\\n" >"$METTACLAW_ENGINE_STATE_PATH"; '
-            ': >"$METTACLAW_RECYCLE_SAFE_PATH"; fi; '
+            'if [ "${CETTA_STALE_SAFE:-0}" = 1 ]; then '
+            'digest=0000000000000000000000000000000000000000000000000000000000000000; '
+            'else digest=$(sha256sum "$METTACLAW_RECYCLE_REQUEST_PATH" | cut -d" " -f1); fi; '
+            'printf "request_sha256=%s\\n" "$digest" >"$METTACLAW_RECYCLE_SAFE_PATH"; fi; '
             'exit "${CETTA_EXIT_CODE:-0}"')
         self.env = os.environ.copy()
         for name in (
@@ -131,6 +134,17 @@ class EngineLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("safely wrapped", result.stderr)
         self.assertIn("restoring stable engine 'petta'", result.stderr)
+
+    def test_stale_safe_receipt_does_not_fast_relaunch(self):
+        self.select("cetta")
+        result = self.launch(CETTA_REQUEST_RECYCLE=1,
+                             CETTA_SAFE_RECYCLE=1,
+                             CETTA_STALE_SAFE=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line.split(":", 1)[0]
+                          for line in self.result_lines()], ["cetta"])
+        self.assertNotIn("safely wrapped", result.stderr)
+        self.assertIn("does not match live request", result.stderr)
 
     def test_clean_unrequested_cetta_stop_falls_back(self):
         self.select("cetta")
