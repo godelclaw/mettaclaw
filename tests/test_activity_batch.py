@@ -100,10 +100,12 @@ class ActivityBatchTests(unittest.TestCase):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         response = loop.index("(RESPONSE: $sexpr)")
         commitment = loop.index("($_ (cut))", response)
-        commands = loop.index("($results (RESULTS:", response)
+        dispatcher = loop.index("(run-command-batch-once $k $sexpr)", response)
+        results = loop.index("($results (RESULTS:", response)
         self.assertLess(response, commitment)
-        self.assertLess(commitment, commands)
-        self.assertIn("(once (eval $s))", loop[commands:])
+        self.assertLess(commitment, dispatcher)
+        self.assertLess(dispatcher, results)
+        self.assertNotIn("(collapse (let $s (superpose $sexpr)", loop)
         self.assertIn("(telegram.begin_effect_turn $k)", loop)
 
 

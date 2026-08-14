@@ -51,6 +51,62 @@ shell(Cmd, Out) :-
 
 first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
 
+%% External commands live on the deterministic side of the MeTTa/Prolog
+%% boundary.  The non-backtrackable turn cache is the commitment record: if
+%% the surrounding MeTTa reduction revisits this call, return the first result
+%% without performing any command again.
+'run-command-batch-once'(Turn, Commands, Records) :-
+    ( nb_current(mettaclaw_command_batch_cache,
+                 command_batch(CachedTurn, CachedCommands,
+                               CachedRecords, _CachedErrors)),
+      CachedTurn == Turn
+    -> ( CachedCommands =@= Commands
+       -> copy_term(CachedRecords, Records)
+       ;  Records = [['COMMAND_BATCH_REJECTED:',
+                      "different commands proposed after turn commitment"]]
+       )
+    ; run_command_list_once(Commands, Records, Errors),
+      nb_setval(mettaclaw_command_batch_cache,
+                command_batch(Turn, Commands, Records, Errors))
+    ), !.
+
+'command-batch-errors'(Turn, Errors) :-
+    ( nb_current(mettaclaw_command_batch_cache,
+                 command_batch(CachedTurn, _Commands, _Records, CachedErrors)),
+      CachedTurn == Turn
+    -> copy_term(CachedErrors, Errors)
+    ; Errors = []
+    ), !.
+
+run_command_list_once([], [], []).
+run_command_list_once([Command|Rest], [Record|Records], Errors) :-
+    run_command_once(Command, Record, CommandErrors),
+    run_command_list_once(Rest, Records, RestErrors),
+    append(CommandErrors, RestErrors, Errors).
+
+run_command_once(Command, ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-
+    catch(( once(eval(Command, Raw)) -> Status = ok(Raw)
+                                    ; Status = failed ),
+          Exception,
+          Status = exception(Exception)),
+    command_status(Status, Command, Value, Errors),
+    normalize_command_value(Value, Normalized).
+
+command_status(ok(Value), _Command, Value, []).
+command_status(failed, Command, ['Error', command_failed],
+               [['command_format_error_nothing_ran', Command,
+                 "command returned no result"]]).
+command_status(exception(Exception), Command, ['Error', Message],
+               [['command_format_error_nothing_ran', Command, Message]]) :-
+    message_to_string(Exception, Message).
+
+normalize_command_value(Value, Normalized) :-
+    ( catch('py-call'(['helper.normalize_string', Value], Normalized), _, fail)
+    -> true
+    ; with_output_to(string(Normalized),
+                     write_term(Value, [quoted(true)]))
+    ).
+
 gc(true) :-
     garbage_collect,
     garbage_collect_atoms,

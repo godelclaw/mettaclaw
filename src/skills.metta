@@ -71,7 +71,8 @@
 (= (append-file $file $str)
    (py-call (ggb_bridge_ext.ggbProposeAppend $file $str)))
 
-!(import_prolog_functions_from_file ./src/skills.pl (shell first_char))
+!(import_prolog_functions_from_file ./src/skills.pl
+                                    (shell first_char run-command-batch-once command-batch-errors))
 
 (= (metta $str)
    (let $code (sread $str)

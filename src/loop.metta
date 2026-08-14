@@ -139,10 +139,15 @@
                                            ($valid $valid))))
                                  ($_ (println! (RESPONSE: $sexpr)))
                                  ;; Parsing is pure and may explore alternatives.
-                                 ;; Crossing into commands commits that choice; each
-                                 ;; command itself exposes only its first result.
+                                 ;; Crossing into commands commits the whole batch in
+                                 ;; a non-backtrackable turn cache. Re-entry returns
+                                 ;; records without performing external effects again.
                                  ($_ (cut))
-                                 ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (once (eval $s)) (py-call (helper.normalize_string $result)))))))))))
+                                 ($commandResults (run-command-batch-once $k $sexpr))
+                                 ($_ (change-state! &error
+                                      (append (get-state &error)
+                                              (command-batch-errors $k))))
+                                 ($results (RESULTS: $commandResults))
                                  ($_ (eval (attention-complete $k
                                            (if (== $sexpr ()) no-commands commands-parsed))))
                                  ($_ (println! $results)))
