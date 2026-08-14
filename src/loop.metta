@@ -103,7 +103,7 @@
                                   _)))
                        ($_expect (if (> (get-state &loops) 0)
                                     (py-call (cognitive_health.expect_turn $mode))
-                                    _)))
+                                    _))
                       ;; Governance protects mutation promotion.  Ordinary
                       ;; cognition must remain available when that optional
                       ;; external authority is absent.
