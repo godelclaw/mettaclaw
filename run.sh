@@ -66,9 +66,11 @@ else
     echo "warning: PETTA_PY_ENV ($PETTA_PY_ENV) not found; the Python bridge will likely fail. Set petta_py_env in config/local.toml." >&2
 fi
 
-# Keep py-call module resolution local and reproducible. This deliberately does
-# not inherit an external PYTHONPATH, which would mix venvs again.
-export PYTHONPATH="$ROOT/src:$ROOT/channels"
+# Keep py-call module resolution local and reproducible. Explicitly include the
+# checked-out semantic-memory bridge: SWI's library import discovers it during
+# evaluation, while CeTTa's explicit manifest does not alter Python's sys.path.
+# Do not inherit an external PYTHONPATH, which would mix venvs again.
+export PYTHONPATH="$ROOT/src:$ROOT/channels:$ROOT/repos/petta_lib_chromadb"
 
 export SYNTHETIC_MODEL="${SYNTHETIC_MODEL:-syn:large:text}"
 export METTACLAW_CHROMA_DIR="${METTACLAW_CHROMA_DIR:-$ROOT/chroma_db}"
