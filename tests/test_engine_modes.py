@@ -67,6 +67,14 @@ class EngineModeTests(unittest.TestCase):
         self.assertIn("unavailable", reply)
         self.assertFalse(os.path.exists(engine_modes._state_path()))
 
+    def test_pleatta_is_disabled_with_an_explicit_notice(self):
+        reply = engine_modes.set_engine("pleatta")
+        self.assertIn("temporarily disabled", reply)
+        self.assertFalse(os.path.exists(engine_modes._state_path()))
+        with mock.patch.object(engine_modes, "engine_available",
+                               return_value=True):
+            self.assertIn("pleatta [disabled]", engine_modes.engines_view())
+
     def test_recycle_request_is_atomic_and_private(self):
         self.assertTrue(engine_modes.request_recycle())
         path = os.environ["METTACLAW_RECYCLE_REQUEST_PATH"]
