@@ -254,6 +254,40 @@ class AgentKernelTests(unittest.TestCase):
         self.assertIn("(pending-input True)",
                       agent_kernel.attention_view_text())
 
+    def _complete_sample(self, turn, proposal, observation, error=False):
+        receipt = self.issue(
+            "chat:a", "context-%s" % turn, "controller", proposal)
+        agent_kernel.begin_turn(turn, "continuation-tick", False, {})
+        agent_kernel.complete_turn(
+            turn, "commands-parsed", receipt, observation, error)
+
+    def test_four_identical_action_observations_are_suspicious(self):
+        for turn in range(4):
+            self._complete_sample(turn, "same", "same result")
+        self.assertEqual(agent_kernel.stuck_status(), {
+            "suspicious": True, "kind": "repeated-action", "count": 4,
+        })
+
+    def test_three_identical_errors_are_suspicious(self):
+        for turn in range(3):
+            self._complete_sample(turn, "same", "same error", True)
+        self.assertEqual(agent_kernel.stuck_status(), {
+            "suspicious": True, "kind": "repeated-error", "count": 3,
+        })
+
+    def test_alternation_is_observed_without_claiming_semantic_failure(self):
+        for turn in range(6):
+            value = "a" if turn % 2 == 0 else "b"
+            self._complete_sample(turn, value, value)
+        self.assertEqual(agent_kernel.stuck_status()["kind"], "ping-pong")
+        self.assertIn("syntactic signal only", agent_kernel.stuck_view())
+
+    def test_novel_observation_keeps_detector_clear(self):
+        for turn in range(5):
+            self._complete_sample(turn, "proposal-%d" % turn,
+                                  "result-%d" % turn)
+        self.assertEqual(agent_kernel.stuck_status()["kind"], "clear")
+
 
 class WorkingCapsuleReplayTests(unittest.TestCase):
     def setUp(self):

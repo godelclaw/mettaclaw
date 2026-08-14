@@ -119,11 +119,13 @@ class ActivityBatchTests(unittest.TestCase):
     def test_attention_is_projected_from_the_causal_ledger(self):
         graph = (ROOT / "src" / "attention_graph.metta").read_text(
             encoding="utf-8")
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         self.assertNotIn("new-space", graph)
         self.assertNotIn("&attention", graph)
         self.assertIn("agent_kernel.begin_turn", graph)
         self.assertIn("agent_kernel.complete_turn", graph)
         self.assertIn("agent_kernel.attention_view_text", graph)
+        self.assertIn("agent_kernel.stuck_view", loop)
 
     def test_model_call_is_committed_before_response_parsing(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")

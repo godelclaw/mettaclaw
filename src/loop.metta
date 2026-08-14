@@ -54,6 +54,7 @@
                          " ACTIVE_MODE: " (py-call (loop_modes.current_mode))
                          " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
                          " ATTENTION_DAG: " (repr (attention-view))
+                         " STUCK_SIGNAL: " (py-call (agent_kernel.stuck_view))
                          " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
                          " GOAL_STACK: " (py-call (goals.goals_view))
                          " PINNED: " (py-call (pins.view))
@@ -172,13 +173,16 @@
                                    (run-command-batch-at-frontier
                                      $decisionReceipt $controllerRevision
                                      $k $sexpr))
+                                 ($commandErrors (command-batch-errors $k))
                                  ($_ (change-state! &error
                                       (append (get-state &error)
-                                              (command-batch-errors $k))))
+                                              $commandErrors)))
                                  ($results (RESULTS: $commandResults))
                                  ($_ (eval (attention-complete $k
                                            (if (== $sexpr ()) no-commands commands-parsed)
-                                           $decisionReceipt)))
+                                           $decisionReceipt
+                                           (repr $results)
+                                           (not (== $commandErrors ())))))
                                  ($_ (println! $results)))
                                 (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                        (change-state! &lastresults (string-safe (repr $results))))) _))
