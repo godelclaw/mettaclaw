@@ -144,7 +144,8 @@ def set_engine(name):
     alias = " (from alias '%s')" % requested if requested != name else ""
     if name == active_engine():
         return "engine '%s' is already active%s" % (name, alias)
-    return "engine set to '%s'%s; recycling into it" % (name, alias)
+    return ("engine switch accepted: '%s'%s; "
+            "safely wrapping current turn") % (name, alias)
 
 
 def request_recycle():

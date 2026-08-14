@@ -184,20 +184,16 @@
                                        (change-state! &lastresults (string-safe (repr $results))))) _))
                 ;; PresentMoment.persist: snapshot the working self at every
                 ;; turn boundary — the write half of the continuity invariant.
-                (py-call (helper.working_set_save (get-state &loops) (get-state &sleepInterval) (get-state &lastresults) (get-state &last-heartbeat)))
-                ;; Recycling is cooperative: finish the current turn and its
-                ;; bookkeeping, then exit the PROCESS so the service manager
-                ;; starts a fresh heap. The exit must be a hard process exit:
-                ;; merely returning from the recursion lands in engine
-                ;; backtracking, which re-enters the loop from scratch in the
-                ;; same process and re-arms a fresh budget every cycle (the
-                ;; 2026-08-06 boot-loop storm). The new process consumes the
-                ;; flag at boot (helper.recycle_ack in initLoop).
-                (if (== (py-call (helper.recycle_requested)) 1)
-                    (progn (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
-                           (py-call (helper.recycle_exit)))
-                    (progn
-                      (let $wait (py-call (loop_modes.wait_seconds (get-state &loops) (get-state &sleepInterval)))
-                           (let $waitResult (py-call (telegram.sleep_until_message $wait))
-                                (mettaclaw (+ 1 $k)
-                                           (py-call (loop_modes.autonomous_ready (get-state &loops) $waitResult))))))))))
+                (let $persisted
+                     (py-call (helper.working_set_save (get-state &loops) (get-state &sleepInterval) (get-state &lastresults) (get-state &last-heartbeat)))
+                  ;; Recycling is cooperative: finish and persist this turn,
+                  ;; then hard-exit. Only a successful snapshot earns the
+                  ;; safe-boundary receipt used for immediate relaunch.
+                  (if (== (py-call (helper.recycle_requested)) 1)
+                      (progn (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k persisted $persisted))
+                             (py-call (helper.recycle_exit $persisted)))
+                      (progn
+                        (let $wait (py-call (loop_modes.wait_seconds (get-state &loops) (get-state &sleepInterval)))
+                             (let $waitResult (py-call (telegram.sleep_until_message $wait))
+                                  (mettaclaw (+ 1 $k)
+                                             (py-call (loop_modes.autonomous_ready (get-state &loops) $waitResult)))))))))))

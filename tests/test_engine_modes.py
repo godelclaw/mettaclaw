@@ -55,7 +55,8 @@ class EngineModeTests(unittest.TestCase):
         with mock.patch.object(engine_modes, "engine_available",
                                return_value=True):
             reply = engine_modes.set_engine("cetta")
-        self.assertIn("recycling", reply)
+        self.assertIn("switch accepted", reply)
+        self.assertIn("safely wrapping current turn", reply)
         self.assertEqual(engine_modes.selected_engine(), "cetta")
         self.assertEqual(engine_modes.active_engine(), "petta")
         self.assertIn("requested cetta", engine_modes.engine_view())

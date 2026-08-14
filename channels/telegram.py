@@ -918,18 +918,24 @@ def _handle_callback_query(cq):
                 return "callback_not_operator"
             import engine_modes
             reply = engine_modes.set_engine(data[len("engine:"):])
+            changing = (not str(reply).startswith("engine-set failed:")
+                        and engine_modes.selected_engine()
+                        != engine_modes.active_engine())
+            accepted = ("switch accepted: %s; safely wrapping current turn"
+                        % engine_modes.selected_engine()
+                        if changing else str(reply))
+            # The selection is already durable. Acknowledge it before the old
+            # process is asked to leave its safe turn boundary.
             requests.post(_api("answerCallbackQuery"), json={
-                "callback_query_id": cq.get("id"), "text": str(reply)[:190],
+                "callback_query_id": cq.get("id"), "text": accepted[:190],
             }, timeout=15)
             requests.post(_api("editMessageText"), json={
                 "chat_id": chat.get("id"),
                 "message_id": message.get("message_id"),
-                "text": engine_modes.engines_view(),
+                "text": accepted + "\n\n" + engine_modes.engines_view(),
                 "reply_markup": _engines_keyboard(),
             }, timeout=15)
-            if (not str(reply).startswith("engine-set failed:")
-                    and engine_modes.selected_engine()
-                    != engine_modes.active_engine()):
+            if changing:
                 engine_modes.request_recycle()
                 _request_wake("engine switch")
             return "callback_engine_switch"
