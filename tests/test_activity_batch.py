@@ -77,6 +77,14 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertIn("cognitive_health.expect_turn", loop)
         self.assertNotIn("telegram.getMode", loop)
 
+    def test_attention_graph_brackets_the_model_action(self):
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+        begin = loop.index("(attention-begin")
+        model = loop.index("(synthetic_llm.chat")
+        complete = loop.index("(attention-complete")
+        self.assertLess(begin, model)
+        self.assertLess(model, complete)
+
 
 if __name__ == "__main__":
     unittest.main()

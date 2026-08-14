@@ -67,13 +67,17 @@ class GovernanceGateBoundaryTests(unittest.TestCase):
             ):
                 self.assertEqual(ggb_bridge_ext.ggbGovernancePassed("tick"), 0)
 
-    def test_loop_uses_numeric_boundary_not_string_or_symbol(self):
+    def test_governance_does_not_gate_ordinary_cognition(self):
         source = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
-        self.assertIn(
-            "(== (py-call (ggb_bridge_ext.ggbGovernancePassed tick)) 1)",
-            source,
+        self.assertNotIn("ggbGovernancePassed tick", source)
+        self.assertIn("(if (> (get-state &loops) 0)", source)
+
+    def test_governance_remains_at_selfmod_boundary(self):
+        source = (ROOT / "src" / "ggb_bridge_ext.py").read_text(
+            encoding="utf-8"
         )
-        self.assertNotIn("(quote PASS)", source)
+        self.assertIn("METTACLAW_SELFMOD_REQUIRE_GOVERNANCE", source)
+        self.assertIn("policy=_proposal_policy", source)
 
 
 if __name__ == "__main__":

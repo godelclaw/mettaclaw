@@ -127,7 +127,7 @@ class SlashCommandTest(unittest.TestCase):
 
     def test_mode_bare_shows_current(self):
         self.assertEqual(self.handle("/mode"), "slash_command:/mode")
-        self.assertIn("active mode: generic", self.sent[-1][1])
+        self.assertIn("active mode: default", self.sent[-1][1])
 
     def test_mode_switch_persists_and_wakes_loop(self):
         telegram._wake_event.clear()
@@ -149,7 +149,7 @@ class SlashCommandTest(unittest.TestCase):
         payload = posts[-1][1]
         callbacks = [row[0]["callback_data"]
                      for row in payload["reply_markup"]["inline_keyboard"]]
-        self.assertEqual(callbacks, ["mode:generic", "mode:coding",
+        self.assertEqual(callbacks, ["mode:default", "mode:coding",
                                      "mode:claw23"])
 
     def test_command_menu_registers_mode_controls(self):

@@ -69,7 +69,7 @@ def status(now=None):
         loops = max(0, int(working.get("loops", 0) or 0))
     except (TypeError, ValueError):
         loops = 0
-    active_mode = str(mode.get("mode", "generic")).strip().lower()
+    active_mode = str(mode.get("mode", "default")).strip().lower()
     autonomous = (active_mode == "claw23"
                   and not bool(mode.get("autonomy_paused", False)))
     cognition_required = bool(pending_at or loops > 0 or autonomous)
