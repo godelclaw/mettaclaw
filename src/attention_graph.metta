@@ -6,8 +6,9 @@
    (py-call (agent_kernel.begin_turn
               $turn $source $hasPriorReceipt $frontiers)))
 
-(= (attention-complete $turn $outcome $receipt)
-   (py-call (agent_kernel.complete_turn $turn $outcome $receipt)))
+(= (attention-complete $turn $outcome $receipt $observation $hadErrors)
+   (py-call (agent_kernel.complete_turn
+              $turn $outcome $receipt $observation $hadErrors)))
 
 (= (attention-view)
    (sread (py-call (agent_kernel.attention_view_text))))

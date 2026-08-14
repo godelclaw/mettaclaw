@@ -160,6 +160,9 @@ def _projection(events):
                     "completed_event": event["id"],
                     "outcome": payload.get("outcome", ""),
                     "receipt_id": payload.get("receipt_id", ""),
+                    "observation_digest": payload.get(
+                        "observation_digest", ""),
+                    "had_errors": bool(payload.get("had_errors", False)),
                 })
     return result
 
@@ -222,6 +225,9 @@ def _extend_projection(projection, event):
                 "completed_event": event["id"],
                 "outcome": payload.get("outcome", ""),
                 "receipt_id": payload.get("receipt_id", ""),
+                "observation_digest": payload.get(
+                    "observation_digest", ""),
+                "had_errors": bool(payload.get("had_errors", False)),
             })
     return updated
 
@@ -504,19 +510,71 @@ def begin_turn(turn, source, has_prior_receipt=False, frontiers=None):
     return 1 if result["status"] in ("appended", "duplicate") else 0
 
 
-def complete_turn(turn, outcome, receipt_id=""):
+def complete_turn(turn, outcome, receipt_id="", observation="",
+                  had_errors=False):
     """Record completion without creating a second mutable attention store."""
     payload = {
         "episode": _PROCESS_EPISODE,
         "turn": str(turn),
         "outcome": str(outcome),
         "receipt_id": str(receipt_id or ""),
+        "observation_digest": digest(str(observation or "")),
+        "had_errors": _truthy(had_errors),
     }
     result = append(
         "turn.completed", payload,
         idempotency_key="turn-completed:%s:%s" % (_PROCESS_EPISODE, turn),
     )
     return 1 if result["status"] in ("appended", "duplicate") else 0
+
+
+def stuck_status(path=None):
+    """Derive narrow syntactic non-progress signals from completed turns.
+
+    This detector observes repetition only. It does not decide that a hard
+    problem should be abandoned or that repeated work lacks semantic value.
+    """
+    projection = project(path)
+    samples = []
+    for event in read_events(path):
+        if event.get("kind") != "turn.completed":
+            continue
+        payload = event.get("payload") or {}
+        receipt = projection["receipts"].get(
+            str(payload.get("receipt_id", "")), {})
+        signature = (
+            str(receipt.get("proposal_digest", "")),
+            str(payload.get("observation_digest", "")),
+            str(payload.get("outcome", "")),
+        )
+        samples.append({
+            "signature": signature,
+            "had_errors": bool(payload.get("had_errors", False)),
+        })
+    if len(samples) >= 3:
+        tail = samples[-3:]
+        if (all(sample["had_errors"] for sample in tail)
+                and len({sample["signature"] for sample in tail}) == 1):
+            return {"suspicious": True, "kind": "repeated-error", "count": 3}
+    if len(samples) >= 4:
+        tail = samples[-4:]
+        if len({sample["signature"] for sample in tail}) == 1:
+            return {"suspicious": True, "kind": "repeated-action", "count": 4}
+    if len(samples) >= 6:
+        signatures = [sample["signature"] for sample in samples[-6:]]
+        if (signatures[0] != signatures[1]
+                and signatures[0::2] == [signatures[0]] * 3
+                and signatures[1::2] == [signatures[1]] * 3):
+            return {"suspicious": True, "kind": "ping-pong", "count": 6}
+    return {"suspicious": False, "kind": "clear", "count": len(samples)}
+
+
+def stuck_view():
+    status = stuck_status()
+    if not status["suspicious"]:
+        return "clear (syntactic signal only)"
+    return "suspicious:%s:%d (syntactic signal only)" % (
+        status["kind"], status["count"])
 
 
 def _sexpr_string(value):
