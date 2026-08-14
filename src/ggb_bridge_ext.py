@@ -23,8 +23,11 @@ def ggbGovernanceGate(action='tick'):
             return 'BLOCK'
         r = subprocess.run([_python_executable(), GOV_CLI, 'gate', str(action)],
                            capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return 'BLOCK'
         data = json.loads(r.stdout.strip())
-        return data.get('gate', 'BLOCK')
+        verdict = data.get('gate', 'BLOCK')
+        return verdict if verdict in {'PASS', 'BLOCK'} else 'BLOCK'
     except Exception:
         return 'BLOCK'
 
