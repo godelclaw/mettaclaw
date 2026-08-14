@@ -6,7 +6,6 @@ import pathlib
 import sys
 import tempfile
 import threading
-import threading
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -20,9 +19,11 @@ def load_telegram():
 
 
 class FakeResponse:
-    def __init__(self, payload=None, chunks=()):
+    def __init__(self, payload=None, chunks=(), ok=True, status_code=200):
         self.payload = payload
         self.chunks = chunks
+        self.ok = ok
+        self.status_code = status_code
 
     def raise_for_status(self):
         return None
@@ -418,6 +419,38 @@ def test_delete_my_recent_advances_past_tombstoned_sends():
         assert deleted == [11, 10]
 
 
+def test_model_effect_send_is_at_most_once_per_turn():
+    tg = load_telegram()
+    posts = []
+
+    def fake_post(url, json=None, timeout=None):
+        posts.append((url, json, timeout))
+        return FakeResponse({
+            "ok": True,
+            "result": {"message_id": 100 + len(posts)},
+        })
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tg.requests.post = fake_post
+        tg._token = "fake-token"
+        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+
+        tg.begin_effect_turn("turn-1")
+        tg.send_effect_message_to_chat("-1", "same message")
+        tg.begin_effect_turn("turn-1")
+        assert tg.send_effect_message_to_chat(
+            "-1", "same message") == "duplicate send suppressed"
+        assert len(posts) == 1
+
+        tg.begin_effect_turn("turn-2")
+        tg.send_effect_message_to_chat("-1", "same message")
+        assert len(posts) == 2
+
+        # Control-plane replies do not share the model-effect receipt set.
+        tg.send_message_to_chat("-1", "same message")
+        assert len(posts) == 3
+
+
 def test_energy_updates_are_atomic_across_threads():
     tg = load_telegram()
     with tempfile.TemporaryDirectory() as tmp:
@@ -475,6 +508,7 @@ if __name__ == "__main__":
     test_attachment_download_is_atomic_and_sanitized()
     test_oversized_attachment_leaves_no_partial_file()
     test_callback_log_records_actual_allowlist_decision()
+    test_model_effect_send_is_at_most_once_per_turn()
     test_energy_updates_are_atomic_across_threads()
     test_delete_my_recent_advances_past_tombstoned_sends()
     test_energy_updates_are_atomic_across_threads()
