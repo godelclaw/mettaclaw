@@ -6,6 +6,7 @@ import tempfile
 import re
 import threading
 import time
+import uuid
 
 import requests
 
@@ -40,6 +41,7 @@ _health_last_write = 0.0
 _effect_lock = threading.RLock()
 _effect_turn = None
 _effect_sends = set()
+_effect_episode = uuid.uuid4().hex
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/engine", "/engines",
@@ -397,6 +399,43 @@ def _append_update_log(update, kind, message, allowed, queued, note=""):
     except Exception as exc:
         print("[telegram] update log error:", exc)
         return False
+
+
+def _agent_kernel():
+    try:
+        import agent_kernel
+    except ImportError:
+        from src import agent_kernel
+    return agent_kernel
+
+
+def _kernel_conversation(message):
+    message = message or {}
+    chat_id = str((message.get("chat") or {}).get("id", ""))
+    thread_id = str(message.get("message_thread_id") or "root")
+    return "telegram:%s:%s" % (chat_id, thread_id)
+
+
+def _record_kernel_input(update, kind, message, content, queued, note):
+    """Record an accepted transport event at the causal intake boundary."""
+    try:
+        sender = (message or {}).get("from") or {}
+        return _agent_kernel().record_input(
+            "telegram:update:%s" % update.get("update_id"),
+            _kernel_conversation(message),
+            content or "",
+            {
+                "channel": "telegram",
+                "kind": str(kind),
+                "message_id": (message or {}).get("message_id"),
+                "from_is_bot": bool(sender.get("is_bot")),
+                "queued_for_model": bool(queued),
+                "note": str(note or ""),
+            },
+        )
+    except Exception as exc:
+        print("[agent-kernel] input record failed:", type(exc).__name__)
+        return None
 
 
 # ---- arming energy ---------------------------------------------------------
@@ -1135,11 +1174,17 @@ def _poll_loop():
                                      args=(cq,), daemon=True).start()
                     cb_note = "callback_dispatched"
                     cb_msg = cq.get("message") or {}
+                    cb_allowed = _chat_is_allowed(cb_msg.get("chat") or {})
                     # log the real allowlist verdict; the outcome is cb_note
                     # (a False here on a successful switch is a lying record)
                     _append_update_log(update, "callback_query", cb_msg,
-                                       _chat_is_allowed(cb_msg.get("chat") or {}),
+                                       cb_allowed,
                                        False, cb_note)
+                    if cb_allowed:
+                        _record_kernel_input(
+                            update, "callback_query", cb_msg,
+                            "callback:" + str(cq.get("data") or ""),
+                            False, cb_note)
                     _offset = update_id + 1
                     _save_offset()
                     continue
@@ -1187,6 +1232,13 @@ def _poll_loop():
                                 queued = True
                 if not _append_update_log(update, kind, message, allowed, queued, note):
                     print("[telegram] continuing after update log failure")
+                rendered = (
+                    _format_message(update, kind, message, text)
+                    if allowed and queued else (text or "")
+                )
+                if allowed:
+                    _record_kernel_input(
+                        update, kind, message, rendered, queued, note)
                 _offset = update_id + 1
                 _save_offset()
                 if queued:
@@ -1194,7 +1246,7 @@ def _poll_loop():
                     sender = message.get("from") or {}
                     _set_last(
                         chat.get("id", ""),
-                        _format_message(update, kind, message, text),
+                        rendered,
                         bool(sender.get("is_bot")),
                         _tier_for_sender(sender),
                     )
@@ -1296,7 +1348,7 @@ def _reply_target(chat_id=""):
         return _reply_chat_id or _last_chat_id
 
 
-def _log_outbound(chat_id, text, message_id=None):
+def _log_outbound(chat_id, text, message_id=None, effect_key=None):
     """Record the agent's own send in the local update log so the short-term
     memory (recent_activity) shows both sides of the conversation.
 
@@ -1305,29 +1357,39 @@ def _log_outbound(chat_id, text, message_id=None):
     so if the id is not captured here it is lost, and `deleteMessage` has
     nothing to aim at. That gap is why a "clean up the test message" request
     turned into a long hunt for an id that was never stored."""
-    if not _log_path:
-        return
+    if _log_path:
+        try:
+            record = {
+                "received_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "kind": "outbound",
+                "allowed": True,
+                "queued": False,
+                "note": "own_send",
+                "chat_id": str(chat_id),
+                "chat_title": _chat_titles.get(str(chat_id), str(chat_id)),
+                "from": "me",
+                "from_is_bot": True,
+                "message_id": message_id,
+                "text": str(text),
+            }
+            line = json.dumps(record, ensure_ascii=False,
+                              separators=(",", ":")) + "\n"
+            with _log_lock:
+                with open(_log_path, "a", encoding="utf-8") as f:
+                    f.write(line)
+        except Exception as exc:
+            print("[telegram] outbound log error:", exc)
     try:
-        record = {
-            "received_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "kind": "outbound",
-            "allowed": True,
-            "queued": False,
-            "note": "own_send",
-            "chat_id": str(chat_id),
-            "chat_title": _chat_titles.get(str(chat_id), str(chat_id)),
-            "from": "me",
-            "from_is_bot": True,
-            "message_id": message_id,
-            "text": str(text),
-        }
-        line = json.dumps(record, ensure_ascii=False,
-                          separators=(",", ":")) + "\n"
-        with _log_lock:
-            with open(_log_path, "a", encoding="utf-8") as f:
-                f.write(line)
+        key = effect_key or "telegram:delivery:%s:%s" % (
+            str(chat_id), str(message_id or uuid.uuid4().hex))
+        _agent_kernel().record_effect(
+            key,
+            "telegram:%s:root" % str(chat_id),
+            str(text),
+            {"channel": "telegram", "message_id": message_id},
+        )
     except Exception as exc:
-        print("[telegram] outbound log error:", exc)
+        print("[agent-kernel] effect record failed:", type(exc).__name__)
 
 
 def _log_own_delete(chat_id, message_id, note="own_delete"):
@@ -1356,7 +1418,7 @@ def _log_own_delete(chat_id, message_id, note="own_delete"):
         print("[telegram] delete tombstone log error:", exc)
 
 
-def send_message(text, chat_id=""):
+def send_message(text, chat_id="", _effect_key=None):
     chat_id = _reply_target(chat_id)
     if not _token or not chat_id:
         print("[telegram] cannot send: missing token or chat id")
@@ -1379,7 +1441,7 @@ def send_message(text, chat_id=""):
         if delivered:
             # STM records only what Telegram actually accepted — with the id,
             # so the agent can delete its own message later.
-            _log_outbound(chat_id, body, message_id)
+            _log_outbound(chat_id, body, message_id, _effect_key)
         else:
             print(f"[telegram] send rejected (HTTP {resp.status_code})")
     except requests.exceptions.RequestException as exc:
@@ -1413,7 +1475,10 @@ def send_effect_message(text, chat_id=""):
         if key in _effect_sends:
             return "duplicate send suppressed"
         _effect_sends.add(key)
-    return send_message(body, chat_id=target)
+        turn = _effect_turn
+    semantic_key = "telegram:model:%s:%s:%s:%s" % (
+        _effect_episode, str(turn), str(target), _agent_kernel().digest(body))
+    return send_message(body, chat_id=target, _effect_key=semantic_key)
 
 
 def send_effect_message_to_chat(chat_id, text):

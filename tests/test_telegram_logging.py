@@ -71,6 +71,9 @@ def test_poll_logs_before_advancing_offset_and_queues_allowed_message():
         return FakeResponse({"ok": True, "result": updates})
 
     with tempfile.TemporaryDirectory() as tmp:
+        previous_events = os.environ.get("METTACLAW_EVENT_LOG_PATH")
+        os.environ["METTACLAW_EVENT_LOG_PATH"] = str(
+            pathlib.Path(tmp) / "agent_events.jsonl")
         tg.requests.get = fake_get
         tg._token = "fake-token"
         tg._allowed_chat_ids = {"-1"}
@@ -123,6 +126,17 @@ def test_poll_logs_before_advancing_offset_and_queues_allowed_message():
 
         assert tg.getLastMessage() == ""
         assert tg.lastMessageIsHuman() == 0
+
+        from src import agent_kernel
+        events = agent_kernel.read_events()
+        assert len(events) == 1
+        assert events[0]["kind"] == "input.accepted"
+        assert events[0]["conversation"] == "telegram:-1:root"
+        assert events[0]["payload"]["metadata"]["queued_for_model"] is True
+        if previous_events is None:
+            os.environ.pop("METTACLAW_EVENT_LOG_PATH", None)
+        else:
+            os.environ["METTACLAW_EVENT_LOG_PATH"] = previous_events
 
 
 def test_poll_defaults_use_robust_long_poll_window():
@@ -431,6 +445,9 @@ def test_model_effect_send_is_at_most_once_per_turn():
         })
 
     with tempfile.TemporaryDirectory() as tmp:
+        previous_events = os.environ.get("METTACLAW_EVENT_LOG_PATH")
+        os.environ["METTACLAW_EVENT_LOG_PATH"] = str(
+            pathlib.Path(tmp) / "agent_events.jsonl")
         tg.requests.post = fake_post
         tg._token = "fake-token"
         tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
@@ -449,6 +466,14 @@ def test_model_effect_send_is_at_most_once_per_turn():
         # Control-plane replies do not share the model-effect receipt set.
         tg.send_message_to_chat("-1", "same message")
         assert len(posts) == 3
+
+        from src import agent_kernel
+        projection = agent_kernel.project()
+        assert len(projection["effects"]) == 3
+        if previous_events is None:
+            os.environ.pop("METTACLAW_EVENT_LOG_PATH", None)
+        else:
+            os.environ["METTACLAW_EVENT_LOG_PATH"] = previous_events
 
 
 def test_energy_updates_are_atomic_across_threads():

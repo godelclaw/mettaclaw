@@ -24,10 +24,13 @@ class WorkingSetTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["METTACLAW_WORKING_SET_PATH"] = os.path.join(
             self.tmp.name, "working_set.json")
+        os.environ["METTACLAW_EVENT_LOG_PATH"] = os.path.join(
+            self.tmp.name, "agent_events.jsonl")
         importlib.reload(helper)
 
     def tearDown(self):
         os.environ.pop("METTACLAW_WORKING_SET_PATH", None)
+        os.environ.pop("METTACLAW_EVENT_LOG_PATH", None)
         self.tmp.cleanup()
 
     def test_roundtrip_restores_the_present_moment(self):

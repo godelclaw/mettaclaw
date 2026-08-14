@@ -106,6 +106,14 @@ _WORKING_CAP = 50000  # mirrors (maxFeedback)
 _working_boot_cache = {}
 
 
+def _agent_kernel():
+    try:
+        import agent_kernel
+    except ImportError:
+        from src import agent_kernel
+    return agent_kernel
+
+
 def _working_set_path():
     return os.environ.get("METTACLAW_WORKING_SET_PATH",
                           "./memory/working_set.json")
@@ -128,6 +136,16 @@ def _working_write(data):
     os.replace(tmp, path)
 
 
+def _record_working_set(data):
+    """Mirror the capsule into the causal ledger without risking continuity."""
+    try:
+        _agent_kernel().record_working_set(data)
+        return True
+    except Exception as exc:
+        print("[agent-kernel] working-set record failed:", type(exc).__name__)
+        return False
+
+
 def working_set_save(loops, sleep, lastresults, hb_clock):
     """persist: snapshot the working self at a turn boundary."""
     try:
@@ -140,6 +158,7 @@ def working_set_save(loops, sleep, lastresults, hb_clock):
             "saved_at": time.time(),
         })
         _working_write(data)
+        _record_working_set(data)
         return 1
     except Exception:
         return 0
@@ -151,7 +170,9 @@ def intent_save(why):
     try:
         data = _working_read()
         data["intent"] = str(why)[:500]
+        data["saved_at"] = time.time()
         _working_write(data)
+        _record_working_set(data)
         return 1
     except Exception:
         return 0
@@ -164,6 +185,17 @@ def working_boot():
     once. First-ever boot (no snapshot) leaves fresh-start defaults."""
     global _working_boot_cache
     data = _working_read()
+    try:
+        logged = _agent_kernel().latest_working_set()
+        if logged and (
+                not data
+                or float(logged.get("saved_at", 0))
+                > float(data.get("saved_at", 0))):
+            data = logged
+    except Exception as exc:
+        # Keep the last-known-good capsule alive when the ledger is unavailable
+        # or corrupt; the infrastructure failure remains observable.
+        print("[agent-kernel] working-set replay failed:", type(exc).__name__)
     cache = dict(data)
     if data:
         intent = data.pop("intent", None)
@@ -178,8 +210,10 @@ def working_boot():
             if prior else marker
         if intent is not None:
             try:
+                data["saved_at"] = time.time()
                 _working_write(data)  # consume the intention on disk
-            except OSError:
+                _record_working_set(data)
+            except Exception:
                 pass
     _working_boot_cache = cache
     return 1
