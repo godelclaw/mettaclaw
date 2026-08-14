@@ -37,9 +37,12 @@ class ProviderRoutingTest(unittest.TestCase):
             "SYNTHETIC_API_KEY": "syn-key",
             "SYNTHETIC_RETRIES": "0",
             "SYNTHETIC_TIMEOUT": "5",
+            "SYNTHETIC_EMPTY_BACKOFF": "0",
             "ANTHROPIC_ENABLED_FLAG": self.flag,
             "METTACLAW_MODEL_STATE_PATH": os.path.join(
                 self.flag_dir, "active-model.txt"),
+            "METTACLAW_COGNITIVE_HEALTH_PATH": os.path.join(
+                self.flag_dir, "cognitive-health.json"),
         }, clear=False)
         self.env.start()
         os.environ.pop("SYNTHETIC_MODEL", None)
@@ -74,6 +77,9 @@ class ProviderRoutingTest(unittest.TestCase):
             "https://api.synthetic.new/openai/v1/chat/completions")
         self.assertEqual(seen["auth"], "Bearer syn-key")
         self.assertEqual(seen["body"]["model"], "syn:large:text")
+        health = synthetic_llm.cognitive_health.snapshot()
+        self.assertEqual(health["completed_count"], 1)
+        self.assertEqual(health["pending_since"], 0)
 
     def test_claude_model_routes_to_native_messages_api(self):
         self.enable_flag()

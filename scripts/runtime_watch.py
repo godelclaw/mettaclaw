@@ -69,6 +69,9 @@ def observe(args, deployment, now=None):
     now = time.time() if now is None else float(now)
     os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = str(args.health)
     os.environ["METTACLAW_WORKING_SET_PATH"] = str(args.working_set)
+    if getattr(args, "cognitive_health", None):
+        os.environ["METTACLAW_COGNITIVE_HEALTH_PATH"] = str(
+            args.cognitive_health)
     os.environ["METTACLAW_CHROMA_DIR"] = str(args.chroma)
     facts = runtime_health.status(now=now)
     problems = list(facts["problems"])
@@ -170,6 +173,7 @@ def parser():
     result.add_argument("--service", required=True)
     result.add_argument("--health", required=True, type=pathlib.Path)
     result.add_argument("--working-set", required=True, type=pathlib.Path)
+    result.add_argument("--cognitive-health", type=pathlib.Path)
     result.add_argument("--canonical-memory", required=True, type=pathlib.Path)
     result.add_argument("--chroma", required=True, type=pathlib.Path)
     result.add_argument("--deployment", required=True, type=pathlib.Path)
