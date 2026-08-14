@@ -86,6 +86,15 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertLess(begin, model)
         self.assertLess(model, complete)
 
+    def test_model_call_is_committed_before_response_parsing(self):
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+        model = loop.index("(synthetic_llm.chat")
+        commitment = loop.index("($_ (cut))", model)
+        parse = loop.index("(sread", model)
+        self.assertLess(model, commitment)
+        self.assertLess(commitment, parse)
+        self.assertIn("((Error $a $b) ())", loop)
+
 
 if __name__ == "__main__":
     unittest.main()
