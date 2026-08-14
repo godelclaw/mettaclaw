@@ -5,7 +5,6 @@ ROOT="$(cd -- "$(dirname -- "$0")" && pwd)"
 PETTA_ROOT="${PETTA_ROOT:-${HOME:-}/repos/PeTTa}"
 PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
 CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/CeTTa}"
-PLEATTA_ROOT="${PLEATTA_ROOT:-${HOME:-}/repos/LeaTTa-petta}"
 STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
 
@@ -32,14 +31,21 @@ fi
 export METTACLAW_ENGINE_STATE_PATH="${METTACLAW_ENGINE_STATE_PATH:-$STATE_HOME/$INSTANCE/engine}"
 ENGINE_DEFAULT="${METTACLAW_ENGINE:-petta}"
 SELECTED_ENGINE="$ENGINE_DEFAULT"
+HEAL_ENGINE_SELECTION=0
 if [ -f "$METTACLAW_ENGINE_STATE_PATH" ]; then
     IFS= read -r SELECTED_ENGINE <"$METTACLAW_ENGINE_STATE_PATH" || true
 fi
 case "$SELECTED_ENGINE" in
-    petta|cetta|pleatta) ;;
+    petta|cetta) ;;
+    pleatta)
+        echo "PLeaTTa is temporarily disabled because its current integration is not functional; using petta" >&2
+        SELECTED_ENGINE=petta
+        HEAL_ENGINE_SELECTION=1
+        ;;
     *)
         echo "invalid persisted engine '$SELECTED_ENGINE'; using petta" >&2
         SELECTED_ENGINE=petta
+        HEAL_ENGINE_SELECTION=1
         ;;
 esac
 export METTACLAW_ENGINE="$SELECTED_ENGINE"
@@ -91,6 +97,14 @@ mkdir -p \
     "$(dirname "$METTACLAW_TELEGRAM_OFFSET_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_LOG_PATH")" \
     "$(dirname "$METTACLAW_COGNITIVE_HEALTH_PATH")"
+
+if [ "$HEAL_ENGINE_SELECTION" = 1 ]; then
+    temporary="${METTACLAW_ENGINE_STATE_PATH}.tmp.$$"
+    umask 077
+    printf '%s\n' petta >"$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$METTACLAW_ENGINE_STATE_PATH"
+fi
 
 mkdir -p "$METTACLAW_CHROMA_DIR" "$METTACLAW_MEMORY_LOG_DIR" "$ROOT/chat" "$ROOT/episodes"
 
@@ -184,45 +198,6 @@ case "$METTACLAW_ENGINE" in
             fallback_to_petta "$status" "CeTTa stopped without a recycle request"
         fi
         fallback_to_petta "$status" "CeTTa process exited"
-        ;;
-    pleatta)
-        PLEATTA_BIN="${PLEATTA_BIN:-$PLEATTA_ROOT/.lake/build/bin/pleatta}"
-        PLEATTA_PY_WORKER="${PLEATTA_PY_WORKER:-$PLEATTA_ROOT/scripts/pleatta-python-worker.py}"
-        if [ ! -x "$PLEATTA_BIN" ]; then
-            fallback_to_petta 2 "PLeaTTa executable unavailable"
-        fi
-        if [ ! -f "$PLEATTA_PY_WORKER" ]; then
-            fallback_to_petta 2 "PLeaTTa Python worker unavailable"
-        fi
-        if [ -x "$PETTA_PY_ENV/bin/python3" ]; then
-            export PLEATTA_PYTHON="${PLEATTA_PYTHON:-$PETTA_PY_ENV/bin/python3}"
-        else
-            export PLEATTA_PYTHON="${PLEATTA_PYTHON:-$(command -v python3)}"
-        fi
-        export PLEATTA_PY_WORKER
-        export PETTA_LIB_ROOT="${PETTA_LIB_ROOT:-$PETTA_ROOT/lib}"
-        export PLEATTA_LIBRARY_PATH="${PLEATTA_LIBRARY_PATH:-$ROOT:$ROOT/repos/petta_lib_chromadb}"
-        # Host confinement and maximum sleep are optional operator policies.
-        # Do not silently change native PeTTa semantics when they are unset.
-        unset PLEATTA_CALL_FIXTURE
-
-        TRANSCRIPT_DIR="${METTACLAW_TRANSCRIPT_DIR:-$STATE_HOME/$INSTANCE/pleatta-transcripts}"
-        umask 077
-        mkdir -p "$TRANSCRIPT_DIR"
-        TRANSCRIPT="$TRANSCRIPT_DIR/$(date -u '+%Y%m%dT%H%M%SZ')-$$.json"
-        set +e
-        "$PLEATTA_BIN" --host-live "$TARGET" "$TRANSCRIPT" \
-            "${PLEATTA_FUEL:-4000000}" -- default
-        status=$?
-        set -e
-        if [ "$status" -eq 0 ] && [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ]; then
-            exit 0
-        fi
-        if [ "$status" -eq 0 ]; then
-            status=1
-            fallback_to_petta "$status" "PLeaTTa stopped without a recycle request"
-        fi
-        fallback_to_petta "$status" "PLeaTTa process exited"
         ;;
     *)
         echo "unknown METTACLAW_ENGINE: $METTACLAW_ENGINE" >&2
