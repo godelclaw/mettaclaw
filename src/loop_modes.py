@@ -6,12 +6,12 @@ import threading
 
 
 MODES = {
-    "generic": {
-        "description": "current event-armed loop; no automatic idle bursts",
+    "default": {
+        "description": "bounded event-armed bursts; no claw23 idle renewal",
         "reasoning": None,
     },
     "coding": {
-        "description": "generic timing with high reasoning effort",
+        "description": "default cadence with high reasoning effort",
         "reasoning": "high",
     },
     "claw23": {
@@ -20,11 +20,20 @@ MODES = {
     },
 }
 
+# Old installations stored ``generic``.  Keep it as an input alias while
+# presenting one canonical, unsurprising name to operators and the loop.
+ALIASES = {"generic": "default"}
+
 _lock = threading.RLock()
 
 
 def _path():
     return os.environ.get("METTACLAW_LOOP_MODE_PATH", "memory/loop_mode.json")
+
+
+def _canonical(name):
+    name = str(name or "").strip().lower()
+    return ALIASES.get(name, name)
 
 
 def _load():
@@ -35,9 +44,9 @@ def _load():
             raise ValueError("mode state is not an object")
     except (OSError, TypeError, ValueError):
         data = {}
-    mode = str(data.get("mode", "generic")).strip().lower()
+    mode = _canonical(data.get("mode", "default"))
     if mode not in MODES:
-        mode = "generic"
+        mode = "default"
     return {
         "mode": mode,
         "autonomy_paused": bool(data.get("autonomy_paused", False)),
@@ -80,9 +89,11 @@ def modes_view():
 
 
 def set_mode(name):
-    name = str(name or "").strip().lower()
+    requested = str(name or "").strip().lower()
+    name = _canonical(requested)
     if name not in MODES:
-        return "mode-set failed: choose one of %s" % ", ".join(MODES)
+        choices = list(MODES) + list(ALIASES)
+        return "mode-set failed: choose one of %s" % ", ".join(choices)
     with _lock:
         data = _load()
         data["mode"] = name
@@ -91,7 +102,8 @@ def set_mode(name):
         data["autonomy_paused"] = False
         if not _save(data):
             return "mode-set failed: could not persist"
-    return "mode set to '%s'; persists across restarts" % name
+    alias = " (from alias '%s')" % requested if requested != name else ""
+    return "mode set to '%s'%s; persists across restarts" % (name, alias)
 
 
 def reasoning_mode(default):

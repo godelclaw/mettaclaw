@@ -25,10 +25,17 @@ class LoopModeTests(unittest.TestCase):
             os.environ["METTACLAW_LOOP_MODE_PATH"] = self.previous
         self.tmp.cleanup()
 
-    def test_default_is_generic(self):
-        self.assertEqual(loop_modes.current_mode(), "generic")
+    def test_default_is_clean_event_armed_mode(self):
+        self.assertEqual(loop_modes.current_mode(), "default")
         self.assertEqual(loop_modes.wait_seconds(0, 1), 1)
         self.assertEqual(loop_modes.autonomous_ready(0, "rested 1s"), 0)
+
+    def test_generic_state_and_command_are_compatibility_aliases(self):
+        self.path.write_text('{"mode": "generic"}\n')
+        self.assertEqual(loop_modes.current_mode(), "default")
+        self.assertIn("alias 'generic'", loop_modes.set_mode("generic"))
+        self.assertEqual(json.loads(self.path.read_text())["mode"], "default")
+        self.assertNotIn("generic", loop_modes.MODES)
 
     def test_claw23_persists_and_renews_after_sixty_second_wait(self):
         self.assertIn("persists", loop_modes.set_mode("claw23"))

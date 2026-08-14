@@ -30,15 +30,16 @@
 (= (maybeHeartbeat)
    (if (or (<= (heartbeatInterval) 0)
            (== (py-call (loop_modes.autonomy_paused)) 1))
-       _
+       False
        (let $now (get_time)
             (if (>= (- $now (get-state &last-heartbeat)) (heartbeatInterval))
                 (progn (println! (HEARTBEAT_REARM at (get_time_as_string) loops (maxLoops)))
                        (change-state! &loops (maxLoops))
                        (change-state! &sleepInterval (sleepInterval))
                        (change-state! &last-heartbeat $now)
-                       (println! (py-call (goals.kernel_pass))))
-                _))))
+                       (println! (py-call (goals.kernel_pass)))
+                       True)
+                False))))
 
 ;; Static context (prompt, skills, format) leads and dynamic fields trail so an
 ;; exact-prefix provider cache can reuse the unchanging head across turns.
@@ -51,6 +52,7 @@
                          " SLEEP_INTERVAL_SECONDS: " (get-state &sleepInterval)
                          " ACTIVE_MODE: " (py-call (loop_modes.current_mode))
                          " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
+                         " ATTENTION_DAG: " (repr (attention-view))
                          " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
                          " GOAL_STACK: " (py-call (goals.goals_view))
                          " PINNED: " (py-call (pins.view))
@@ -88,7 +90,7 @@
                                           (println! (py-call (goals.kernel_pass))))
                                    _)
                                _))
-                       ($_hb (maybeHeartbeat))
+                       ($heartbeat (maybeHeartbeat))
                        ($mode (py-call (loop_modes.current_mode)))
                        ($autonomous (and (and (== $mode (quote claw23))
                                                (== $autonomousReady 1))
@@ -99,17 +101,23 @@
                                          (change-state! &sleepInterval (sleepInterval))
                                          (println! (CLAW23_AUTONOMOUS_BURST at (get_time_as_string))))
                                   _)))
-                       ;; Record the obligation before the governance gate: a
-                       ;; live loop whose gate never admits a model call is a
-                       ;; cognitive stall, not a healthy idle process.
                        ($_expect (if (> (get-state &loops) 0)
                                     (py-call (cognitive_health.expect_turn $mode))
                                     _)))
-                      (if (and (> (get-state &loops) 0) (== (py-call (ggb_bridge_ext.ggbGovernancePassed tick)) 1))
-                          (let* (($prompt (getContext))
-                                 ($lastmessage (if $autonomous
+                      ;; Governance protects mutation promotion.  Ordinary
+                      ;; cognition must remain available when that optional
+                      ;; external authority is absent.
+                      (if (> (get-state &loops) 0)
+                          (let* (($lastmessage (if $autonomous
                                                    (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
                                                    (NEW_ACTIVITY: $msg)))
+                                 ($source (if $autonomous autonomous-trigger
+                                              (if $msgnew
+                                                  (if $humanmsg operator-event channel-event)
+                                                  (if $heartbeat heartbeat-event continuation-tick))))
+                                 ($_graph (attention-begin $k $source
+                                           (> (string_length (get-state &lastresults)) 0)))
+                                 ($prompt (getContext))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
                                  ($_ (println! (CHARS_SENT: (string_length $send) $send)))
@@ -122,6 +130,8 @@
                                  ($_ (HandleError multi_command_parse_error_nothing_ran $response $sexpr))
                                  ($_ (println! (RESPONSE: $sexpr)))
                                  ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
+                                 ($_graph_done (attention-complete $k
+                                                (if (== $sexpr ()) no-commands commands-parsed)))
                                  ($_ (println! $results)))
                                 (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                        (change-state! &lastresults (string-safe (repr $results))))) _))

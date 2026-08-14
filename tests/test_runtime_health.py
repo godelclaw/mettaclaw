@@ -119,14 +119,14 @@ class RuntimeHealthTest(unittest.TestCase):
         self.assertNotIn("model-turn-stale", value["problems"])
         self.assertNotIn("model-turn-overdue", value["problems"])
 
-    def test_intentional_generic_idle_needs_no_model_receipt(self):
+    def test_intentional_default_idle_needs_no_model_receipt(self):
         self.write(self.channel, {
             "menu_status": "ok", "last_poll_ok_at": 999,
             "loop_status": "waiting", "waiting_until": 1200,
             "started_at": 1,
         })
         self.write(self.working, {"saved_at": 999, "loops": 0})
-        self.write(self.mode, {"mode": "generic", "autonomy_paused": False})
+        self.write(self.mode, {"mode": "default", "autonomy_paused": False})
         with mock.patch.object(runtime_health.memory_health, "drift",
                                return_value=(100, 100, 0)), \
              mock.patch.object(runtime_health.memory_health, "threshold",
