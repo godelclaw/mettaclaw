@@ -27,6 +27,7 @@ class LoopModeTests(unittest.TestCase):
 
     def test_default_is_clean_event_armed_mode(self):
         self.assertEqual(loop_modes.current_mode(), "default")
+        self.assertEqual(loop_modes.burst_budget(), 50)
         self.assertEqual(loop_modes.wait_seconds(0, 1), 1)
         self.assertEqual(loop_modes.autonomous_ready(0, "rested 1s"), 0)
 
@@ -57,7 +58,19 @@ class LoopModeTests(unittest.TestCase):
     def test_coding_changes_reasoning_but_not_timing(self):
         loop_modes.set_mode("coding")
         self.assertEqual(loop_modes.reasoning_mode("medium"), "high")
+        self.assertEqual(loop_modes.burst_budget(), 50)
         self.assertEqual(loop_modes.wait_seconds(0, 1), 1)
+
+    def test_lifecycle_behavior_is_selected_only_from_policy_coordinates(self):
+        required = {
+            "burst_budget", "idle_wait", "autonomous_renewal", "reasoning",
+        }
+        for policy in loop_modes.MODES.values():
+            self.assertTrue(required.issubset(policy))
+        loop_modes.set_mode("claw23")
+        self.assertTrue(loop_modes.MODES["claw23"]["autonomous_renewal"])
+        self.assertEqual(loop_modes.wait_seconds(0, 1),
+                         loop_modes.MODES["claw23"]["idle_wait"])
 
     def test_unknown_mode_does_not_change_state(self):
         loop_modes.set_mode("claw23")

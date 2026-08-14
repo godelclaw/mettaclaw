@@ -26,6 +26,7 @@
 ;; measured from the last human-armed turn. 1800 s = 30 min; 0 disables it.
 ;; Overridable via METTACLAW_HEARTBEAT_INTERVAL_SECONDS (tests shrink it).
 (= (heartbeatInterval) (py-call (helper.int_env "METTACLAW_HEARTBEAT_INTERVAL_SECONDS" 1800)))
+(= (renewalBudget) (py-call (loop_modes.burst_budget (maxLoops))))
 
 (= (maybeHeartbeat)
    (if (or (<= (heartbeatInterval) 0)
@@ -33,8 +34,8 @@
        False
        (let $now (get_time)
             (if (>= (- $now (get-state &last-heartbeat)) (heartbeatInterval))
-                (progn (println! (HEARTBEAT_REARM at (get_time_as_string) loops (maxLoops)))
-                       (change-state! &loops (maxLoops))
+                (progn (println! (HEARTBEAT_REARM at (get_time_as_string) loops (renewalBudget)))
+                       (change-state! &loops (renewalBudget))
                        (change-state! &sleepInterval (sleepInterval))
                        (change-state! &last-heartbeat $now)
                        (println! (py-call (goals.kernel_pass)))
@@ -97,14 +98,14 @@
                                _))
                        ($heartbeat (maybeHeartbeat))
                        ($mode (py-call (loop_modes.current_mode)))
-                       ($autonomous (and (and (== $mode (quote claw23))
-                                               (== $autonomousReady 1))
-                                          (and (not $msgnew)
-                                               (== (py-call (loop_modes.autonomy_paused)) 0))))
+                       ;; autonomousReady already embodies the selected data
+                       ;; policy; the loop contains no mode-specific branch.
+                       ($autonomous (and (== $autonomousReady 1)
+                                          (not $msgnew)))
                        ($_auto (if $autonomous
-                                  (progn (change-state! &loops (maxLoops))
+                                  (progn (change-state! &loops (renewalBudget))
                                          (change-state! &sleepInterval (sleepInterval))
-                                         (println! (CLAW23_AUTONOMOUS_BURST at (get_time_as_string))))
+                                         (println! (AUTONOMOUS_BURST at (get_time_as_string) mode $mode)))
                                   _))
                        ($_expect (if (> (get-state &loops) 0)
                                     (py-call (cognitive_health.expect_turn $mode))
@@ -122,7 +123,8 @@
                                                   (if $heartbeat heartbeat-event continuation-tick))))
                                  ($priorResults (get-state &lastresults))
                                  ($_ (eval (attention-begin $k $source
-                                           (== (py-call (helper.text_nonempty $priorResults)) 1))))
+                                           (== (py-call (helper.text_nonempty $priorResults)) 1)
+                                           $contextFrontiers)))
                                  ($prompt (getContext))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
@@ -175,7 +177,8 @@
                                               (command-batch-errors $k))))
                                  ($results (RESULTS: $commandResults))
                                  ($_ (eval (attention-complete $k
-                                           (if (== $sexpr ()) no-commands commands-parsed))))
+                                           (if (== $sexpr ()) no-commands commands-parsed)
+                                           $decisionReceipt)))
                                  ($_ (println! $results)))
                                 (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                        (change-state! &lastresults (string-safe (repr $results))))) _))
