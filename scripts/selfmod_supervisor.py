@@ -18,6 +18,23 @@ sys.path.insert(0, str(ROOT / "src"))
 import selfmod  # noqa: E402
 
 
+def _require_external_authority(protected_root):
+    """The verifier/promoter must not be code from the tree it can replace."""
+    protected = pathlib.Path(protected_root).resolve(strict=True)
+    authority_files = (
+        pathlib.Path(__file__).resolve(strict=True),
+        pathlib.Path(selfmod.__file__).resolve(strict=True),
+    )
+    for authority in authority_files:
+        try:
+            authority.relative_to(protected)
+        except ValueError:
+            continue
+        raise selfmod.SelfModError(
+            "supervisor authority must be installed outside the protected root"
+        )
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("verify", "promote"))
@@ -27,6 +44,7 @@ def main(argv=None):
     parser.add_argument("--semantic", action="store_true")
     args = parser.parse_args(argv)
     try:
+        _require_external_authority(args.root)
         settings = selfmod.Settings.from_env(root=args.root, store=args.store)
         verified = selfmod.verify_proposal(
             args.proposal_id, settings=settings, semantic=args.semantic
