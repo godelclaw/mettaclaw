@@ -137,18 +137,77 @@ def _recycle_safe_path():
     return request + ".safe" if request else ""
 
 
+def _file_sha256(path):
+    hasher = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(65536), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
+
+
+def _safe_receipt_request_digest(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            first = stream.readline().strip()
+    except OSError:
+        return ""
+    prefix = "request_sha256="
+    value = first[len(prefix):] if first.startswith(prefix) else ""
+    return value if re.fullmatch(r"[0-9a-f]{64}", value) else ""
+
+
 def recycle_ack():
-    """Consume the boundary flag: the NEW process clears it at boot, so a
-    pending request can fire at most one process exit. Before this
-    existed, the flag was immortal — nothing anywhere removed it."""
-    paths = (os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", ""),
-             _recycle_safe_path())
-    for path in paths:
+    """Atomically break a completed recycle pair and record its consumption.
+
+    Moving the safe receipt first is the linearization point: after that
+    rename, a crash cannot leave a request/receipt pair able to relaunch again.
+    """
+    request = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
+    safe = _recycle_safe_path()
+    if not request and not safe:
+        return 1
+    claim = "%s.consuming.%d" % (safe, os.getpid()) if safe else ""
+    safe_was_present = False
+    if safe and os.path.isfile(safe):
         try:
-            if path and os.path.isfile(path):
-                os.remove(path)
+            os.replace(safe, claim)
+            safe_was_present = True
         except OSError:
-            pass
+            claim = safe
+            safe_was_present = os.path.isfile(safe)
+    request_digest = ""
+    if request and os.path.isfile(request):
+        try:
+            request_digest = _file_sha256(request)
+        except OSError:
+            request_digest = ""
+    receipt_digest = (
+        _safe_receipt_request_digest(claim) if safe_was_present else "")
+    matched = bool(request_digest and request_digest == receipt_digest)
+    try:
+        if request and os.path.isfile(request):
+            os.remove(request)
+    except OSError:
+        pass
+    try:
+        _agent_kernel().append(
+            "recycle.consumed",
+            {
+                "request_digest": request_digest,
+                "receipt_request_digest": receipt_digest,
+                "matched": matched,
+                "safe_receipt_present": safe_was_present,
+            },
+            idempotency_key="recycle-consumed:" + (
+                request_digest or receipt_digest or str(time.time_ns())),
+        )
+    except Exception as exc:
+        print("[recycle] consumption record failed:", type(exc).__name__)
+    try:
+        if claim and os.path.isfile(claim):
+            os.remove(claim)
+    except OSError:
+        pass
     return 1
 
 
@@ -161,8 +220,10 @@ def _recycle_mark_safe():
     parent = os.path.dirname(path) or "."
     temporary = "%s.tmp.%d" % (path, os.getpid())
     try:
+        request_digest = _file_sha256(request)
         os.makedirs(parent, exist_ok=True)
         with open(temporary, "w", encoding="utf-8") as stream:
+            stream.write("request_sha256=%s\n" % request_digest)
             stream.write("safely_wrapped_up=%.6f pid=%d\n" %
                          (time.time(), os.getpid()))
             stream.flush()

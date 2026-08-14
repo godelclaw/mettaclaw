@@ -123,10 +123,22 @@ cd "$ROOT"
 TARGET="${1:-run.metta}"
 case "$TARGET" in /*) ;; *) TARGET="$ROOT/$TARGET" ;; esac
 
-# Only the real agent process acknowledges a request. Test and utility targets
-# must not clear a flag intended for a concurrently running service.
+# Only the real agent process acknowledges a request. Moving the safe receipt
+# first atomically breaks the relaunch conjunction; the helper then removes the
+# request and appends a replayable recycle.consumed fact before loop entry.
 if [ "$TARGET" = "$ROOT/run.metta" ]; then
-    rm -f "$METTACLAW_RECYCLE_REQUEST_PATH" "$METTACLAW_RECYCLE_SAFE_PATH"
+    if ! "$PETTA_PY_ENV/bin/python3" -c \
+        'import helper; raise SystemExit(0 if helper.recycle_ack() == 1 else 1)'; then
+        echo "recycle acknowledgement infrastructure failed; clearing markers" >&2
+        rm -f "$METTACLAW_RECYCLE_REQUEST_PATH" "$METTACLAW_RECYCLE_SAFE_PATH"
+    fi
+    # A broken interpreter must not leave the conjunction armed even if it
+    # exits zero without running the helper (covered by the launcher tests).
+    if [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ] ||
+       [ -f "$METTACLAW_RECYCLE_SAFE_PATH" ]; then
+        echo "recycle acknowledgement incomplete; clearing markers" >&2
+        rm -f "$METTACLAW_RECYCLE_REQUEST_PATH" "$METTACLAW_RECYCLE_SAFE_PATH"
+    fi
 fi
 
 fast_recycle_if_safe() {
@@ -134,6 +146,13 @@ fast_recycle_if_safe() {
     if [ "$TARGET" = "$ROOT/run.metta" ] && [ "$status" -eq 0 ] &&
        [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ] &&
        [ -f "$METTACLAW_RECYCLE_SAFE_PATH" ]; then
+        local request_digest safe_binding
+        request_digest="$(sha256sum "$METTACLAW_RECYCLE_REQUEST_PATH" | awk '{print $1}')"
+        IFS= read -r safe_binding <"$METTACLAW_RECYCLE_SAFE_PATH" || true
+        if [ "$safe_binding" != "request_sha256=$request_digest" ]; then
+            echo "safe recycle receipt does not match live request" >&2
+            return 1
+        fi
         rm -f "$METTACLAW_RECYCLE_SAFE_PATH"
         echo "engine transition safely wrapped; relaunching immediately" >&2
         exec "$ROOT/run.sh" "$TARGET"
