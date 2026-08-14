@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "$0")" && pwd)"
 PETTA_ROOT="${PETTA_ROOT:-${HOME:-}/repos/PeTTa}"
 PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
-METTACLAW_ENGINE="${METTACLAW_ENGINE:-petta}"
+CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/CeTTa}"
 PLEATTA_ROOT="${PLEATTA_ROOT:-${HOME:-}/repos/LeaTTa-petta}"
 STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
@@ -24,6 +24,26 @@ if [ -f "$ROOT/config/secrets.env" ]; then
     . "$ROOT/config/secrets.env"
     set +a
 fi
+
+# The persisted selection is deliberately tiny: one validated engine name.
+# With no state, SWI-PeTTa remains the stable default. The active value is
+# exported separately so the Telegram UI can distinguish this process from a
+# newly requested engine that will take effect after recycling.
+export METTACLAW_ENGINE_STATE_PATH="${METTACLAW_ENGINE_STATE_PATH:-$STATE_HOME/$INSTANCE/engine}"
+ENGINE_DEFAULT="${METTACLAW_ENGINE:-petta}"
+SELECTED_ENGINE="$ENGINE_DEFAULT"
+if [ -f "$METTACLAW_ENGINE_STATE_PATH" ]; then
+    IFS= read -r SELECTED_ENGINE <"$METTACLAW_ENGINE_STATE_PATH" || true
+fi
+case "$SELECTED_ENGINE" in
+    petta|cetta|pleatta) ;;
+    *)
+        echo "invalid persisted engine '$SELECTED_ENGINE'; using petta" >&2
+        SELECTED_ENGINE=petta
+        ;;
+esac
+export METTACLAW_ENGINE="$SELECTED_ENGINE"
+export METTACLAW_ACTIVE_ENGINE="$SELECTED_ENGINE"
 
 if [ -d "$PETTA_PY_ENV" ]; then
     export LD_LIBRARY_PATH="$PETTA_PY_ENV/lib:${LD_LIBRARY_PATH:-}"
@@ -67,6 +87,7 @@ export METTACLAW_EMBED_ENDPOINT="${METTACLAW_EMBED_ENDPOINT:-http://127.0.0.1:88
 export METTACLAW_RECYCLE_REQUEST_PATH="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/recycle.requested}"
 mkdir -p \
     "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")" \
+    "$(dirname "$METTACLAW_ENGINE_STATE_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_OFFSET_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_LOG_PATH")" \
     "$(dirname "$METTACLAW_COGNITIVE_HEALTH_PATH")"
@@ -90,6 +111,29 @@ if [ "$TARGET" = "$ROOT/run.metta" ]; then
     rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
 fi
 
+persist_engine_selection() {
+    local engine="$1"
+    local temporary="${METTACLAW_ENGINE_STATE_PATH}.tmp.$$"
+    umask 077
+    printf '%s\n' "$engine" >"$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$METTACLAW_ENGINE_STATE_PATH"
+}
+
+fallback_to_petta() {
+    local status="$1"
+    local reason="$2"
+    echo "engine '$METTACLAW_ENGINE' failed ($reason, status $status)" >&2
+    if [ "$TARGET" != "$ROOT/run.metta" ]; then
+        exit "$status"
+    fi
+    echo "restoring stable engine 'petta'" >&2
+    persist_engine_selection petta
+    export METTACLAW_ENGINE=petta
+    export METTACLAW_ACTIVE_ENGINE=petta
+    exec "$PETTA_ROOT/run.sh" "$TARGET" default
+}
+
 # Memory-index startup diagnostic and best-effort hard-drift recovery.
 # Chroma flushes its HNSW index only every sync_threshold writes; an index far
 # behind the write-ahead log segfaults the process when the backlog is replayed
@@ -103,16 +147,52 @@ case "$METTACLAW_ENGINE" in
     petta)
         exec "$PETTA_ROOT/run.sh" "$TARGET" default
         ;;
+    cetta)
+        CETTA_BIN="${CETTA_BIN:-$CETTA_ROOT/cetta}"
+        if [ ! -x "$CETTA_BIN" ]; then
+            fallback_to_petta 2 "CeTTa executable unavailable"
+        fi
+        if [ "$TARGET" != "$ROOT/run.metta" ]; then
+            exec "$CETTA_BIN" --lang petta "$TARGET"
+        fi
+        set +e
+        "$CETTA_BIN" --lang petta \
+            "$ROOT/cetta_bootstrap.metta" \
+            "$PETTA_ROOT/lib/lib_import.metta" \
+            "$PETTA_ROOT/lib/lib_patrick.metta" \
+            "$PETTA_ROOT/lib/lib_llm.metta" \
+            "$PETTA_ROOT/lib/lib_vector.metta" \
+            "$PETTA_ROOT/lib/lib_combinatorics.metta" \
+            "$ROOT/lib_nal.metta" \
+            "$ROOT/lib_nal7.metta" \
+            "$ROOT/src/utils.metta" \
+            "$ROOT/config/channel.metta" \
+            "$ROOT/src/channels.metta" \
+            "$ROOT/src/skills.metta" \
+            "$ROOT/src/memory.metta" \
+            "$ROOT/src/attention_graph.metta" \
+            "$ROOT/src/loop.metta" \
+            "$ROOT/cetta_run.metta" \
+            default
+        status=$?
+        set -e
+        if [ "$status" -eq 0 ] && [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ]; then
+            exit 0
+        fi
+        if [ "$status" -eq 0 ]; then
+            status=1
+            fallback_to_petta "$status" "CeTTa stopped without a recycle request"
+        fi
+        fallback_to_petta "$status" "CeTTa process exited"
+        ;;
     pleatta)
         PLEATTA_BIN="${PLEATTA_BIN:-$PLEATTA_ROOT/.lake/build/bin/pleatta}"
         PLEATTA_PY_WORKER="${PLEATTA_PY_WORKER:-$PLEATTA_ROOT/scripts/pleatta-python-worker.py}"
         if [ ! -x "$PLEATTA_BIN" ]; then
-            echo "PLeaTTa executable is unavailable; build it or set PLEATTA_BIN" >&2
-            exit 2
+            fallback_to_petta 2 "PLeaTTa executable unavailable"
         fi
         if [ ! -f "$PLEATTA_PY_WORKER" ]; then
-            echo "PLeaTTa Python worker is unavailable; set PLEATTA_PY_WORKER" >&2
-            exit 2
+            fallback_to_petta 2 "PLeaTTa Python worker unavailable"
         fi
         if [ -x "$PETTA_PY_ENV/bin/python3" ]; then
             export PLEATTA_PYTHON="${PLEATTA_PYTHON:-$PETTA_PY_ENV/bin/python3}"
@@ -130,8 +210,19 @@ case "$METTACLAW_ENGINE" in
         umask 077
         mkdir -p "$TRANSCRIPT_DIR"
         TRANSCRIPT="$TRANSCRIPT_DIR/$(date -u '+%Y%m%dT%H%M%SZ')-$$.json"
-        exec "$PLEATTA_BIN" --host-live "$TARGET" "$TRANSCRIPT" \
+        set +e
+        "$PLEATTA_BIN" --host-live "$TARGET" "$TRANSCRIPT" \
             "${PLEATTA_FUEL:-4000000}" -- default
+        status=$?
+        set -e
+        if [ "$status" -eq 0 ] && [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ]; then
+            exit 0
+        fi
+        if [ "$status" -eq 0 ]; then
+            status=1
+            fallback_to_petta "$status" "PLeaTTa stopped without a recycle request"
+        fi
+        fallback_to_petta "$status" "PLeaTTa process exited"
         ;;
     *)
         echo "unknown METTACLAW_ENGINE: $METTACLAW_ENGINE" >&2

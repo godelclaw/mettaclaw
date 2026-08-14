@@ -1,5 +1,4 @@
-"""Deterministic slash commands (/model, /mode, /quota, /wake) are answered in the
-poll thread with zero LLM involvement and are never queued for the agent."""
+"""Deterministic controls are answered without entering the agent loop."""
 import os
 import sys
 import tempfile
@@ -13,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import telegram  # noqa: E402
 import synthetic_llm  # noqa: E402
 import loop_modes  # noqa: E402
+import engine_modes  # noqa: E402
 
 
 class SlashCommandTest(unittest.TestCase):
@@ -21,10 +21,22 @@ class SlashCommandTest(unittest.TestCase):
         self.previous_mode_path = os.environ.get("METTACLAW_LOOP_MODE_PATH")
         self.previous_health_path = os.environ.get(
             "METTACLAW_TELEGRAM_HEALTH_PATH")
+        self.previous_engine_env = {
+            name: os.environ.get(name) for name in (
+                "METTACLAW_ENGINE_STATE_PATH",
+                "METTACLAW_RECYCLE_REQUEST_PATH",
+                "METTACLAW_ACTIVE_ENGINE",
+            )
+        }
         os.environ["METTACLAW_LOOP_MODE_PATH"] = os.path.join(
             self.tmp.name, "loop_mode.json")
         os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = os.path.join(
             self.tmp.name, "telegram-health.json")
+        os.environ["METTACLAW_ENGINE_STATE_PATH"] = os.path.join(
+            self.tmp.name, "engine")
+        os.environ["METTACLAW_RECYCLE_REQUEST_PATH"] = os.path.join(
+            self.tmp.name, "recycle.requested")
+        os.environ["METTACLAW_ACTIVE_ENGINE"] = "petta"
         telegram._health_state.clear()
         telegram._health_last_write = 0.0
         self.sent = []
@@ -41,14 +53,16 @@ class SlashCommandTest(unittest.TestCase):
             lambda name: f"model set to '{name}'")
         self.p5 = mock.patch.object(
             synthetic_llm, "current_model", lambda: "syn:large:text")
-        for p in (self.p2, self.p3, self.p4, self.p5):
+        self.p6 = mock.patch.object(
+            engine_modes, "engine_available", lambda name: True)
+        for p in (self.p2, self.p3, self.p4, self.p5, self.p6):
             p.start()
         self.chat = {"id": -4321}
         self.operator = {"id": 111000111}
         os.environ["METTACLAW_TELEGRAM_OPERATOR_IDS"] = "111000111"
 
     def tearDown(self):
-        for p in (self.p1, self.p2, self.p3, self.p4, self.p5):
+        for p in (self.p1, self.p2, self.p3, self.p4, self.p5, self.p6):
             p.stop()
         if self.previous_mode_path is None:
             os.environ.pop("METTACLAW_LOOP_MODE_PATH", None)
@@ -59,6 +73,11 @@ class SlashCommandTest(unittest.TestCase):
         else:
             os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = \
                 self.previous_health_path
+        for name, value in self.previous_engine_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         self.tmp.cleanup()
 
     def handle(self, text, sender=None):
@@ -152,6 +171,57 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(callbacks, ["mode:default", "mode:coding",
                                      "mode:claw23"])
 
+    def test_engine_bare_shows_active_engine(self):
+        self.assertEqual(self.handle("/engine"), "slash_command:/engine")
+        self.assertIn("active engine: petta", self.sent[-1][1])
+
+    def test_engine_switch_persists_and_requests_recycle(self):
+        telegram._wake_event.clear()
+        try:
+            self.assertEqual(self.handle("/engine cetta"),
+                             "slash_command:/engine")
+            self.assertEqual(engine_modes.selected_engine(), "cetta")
+            self.assertTrue(os.path.isfile(
+                os.environ["METTACLAW_RECYCLE_REQUEST_PATH"]))
+            self.assertTrue(telegram._wake_event.is_set())
+            self.assertIn("recycling", self.sent[-1][1])
+        finally:
+            telegram._wake_event.clear()
+
+    def test_engines_sends_keyboard(self):
+        posts = []
+        with mock.patch.object(telegram.requests, "post",
+                               lambda url, json=None, timeout=None:
+                               posts.append((url, json)) or mock.Mock()):
+            self.assertEqual(self.handle("/engines"),
+                             "slash_command:/engines")
+        payload = posts[-1][1]
+        callbacks = [row[0]["callback_data"]
+                     for row in payload["reply_markup"]["inline_keyboard"]]
+        self.assertEqual(callbacks,
+                         ["engine:petta", "engine:cetta", "engine:pleatta"])
+
+    def test_callback_switches_engine(self):
+        posts = []
+        cq = {"id": "89", "data": "engine:cetta",
+              "from": {"id": 111000111},
+              "message": {"message_id": 7, "chat": {"id": -4321}}}
+        telegram._wake_event.clear()
+        try:
+            with mock.patch.object(telegram, "_chat_is_allowed",
+                                   lambda chat: True), \
+                 mock.patch.object(telegram.requests, "post",
+                                   lambda url, json=None, timeout=None:
+                                   posts.append((url, json)) or mock.Mock()):
+                note = telegram._handle_callback_query(cq)
+            self.assertEqual(note, "callback_engine_switch")
+            self.assertEqual(engine_modes.selected_engine(), "cetta")
+            self.assertTrue(telegram._wake_event.is_set())
+            self.assertTrue(any("answerCallbackQuery" in u for u, _ in posts))
+            self.assertTrue(any("editMessageText" in u for u, _ in posts))
+        finally:
+            telegram._wake_event.clear()
+
     def test_command_menu_registers_mode_controls(self):
         response = mock.Mock()
         response.raise_for_status.return_value = None
@@ -163,6 +233,8 @@ class SlashCommandTest(unittest.TestCase):
         names = [item["command"] for item in payload["commands"]]
         self.assertIn("mode", names)
         self.assertIn("modes", names)
+        self.assertIn("engine", names)
+        self.assertIn("engines", names)
         self.assertIn("health", names)
         self.assertEqual(len(names), len(set(names)))
 
