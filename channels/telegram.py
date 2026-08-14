@@ -42,11 +42,14 @@ _effect_turn = None
 _effect_sends = set()
 
 _CONTROL_COMMANDS = (
-    "/model", "/models", "/mode", "/modes", "/quota", "/wake",
-    "/energy", "/health", "/claude_code_authorization",
+    "/model", "/models", "/mode", "/modes", "/engine", "/engines",
+    "/quota", "/wake", "/energy", "/health",
+    "/claude_code_authorization",
 )
 
 _MENU_COMMANDS = (
+    ("engine", "Show or switch the evaluator engine"),
+    ("engines", "List evaluator engines"),
     ("mode", "Show or switch the cognitive loop mode"),
     ("modes", "List cognitive loop modes"),
     ("model", "Show or switch the language model"),
@@ -762,10 +765,25 @@ def _modes_keyboard():
     return {"inline_keyboard": rows}
 
 
+def _engines_keyboard():
+    """Inline keyboard for the persisted evaluator selection."""
+    import engine_modes
+    active = engine_modes.active_engine()
+    selected = engine_modes.selected_engine()
+    rows = []
+    for name in engine_modes.ENGINES:
+        mark = "● " if name == active else ("◌ " if name == selected else "")
+        unavailable = " (unavailable)" if not engine_modes.engine_available(name) else ""
+        rows.append([{
+            "text": mark + name + unavailable,
+            "callback_data": "engine:" + name,
+        }])
+    return {"inline_keyboard": rows}
+
+
 def _handle_callback_query(cq):
     """A tapped, namespaced model button (callback_data 'model:<id>') from an
     operator: switch, acknowledge, update the menu message."""
-    import synthetic_llm
     data = str(cq.get("data") or "")
     message = cq.get("message") or {}
     chat = message.get("chat") or {}
@@ -813,6 +831,32 @@ def _handle_callback_query(cq):
                 "reply_markup": _modes_keyboard(),
             }, timeout=15)
             return "callback_mode_switch"
+        if data.startswith("engine:"):
+            if not _chat_is_allowed(chat):
+                return "callback_disallowed_chat"
+            if not _is_operator(cq.get("from")):
+                requests.post(_api("answerCallbackQuery"), json={
+                    "callback_query_id": cq.get("id"),
+                    "text": "engine switching is operator-only",
+                }, timeout=15)
+                return "callback_not_operator"
+            import engine_modes
+            reply = engine_modes.set_engine(data[len("engine:"):])
+            requests.post(_api("answerCallbackQuery"), json={
+                "callback_query_id": cq.get("id"), "text": str(reply)[:190],
+            }, timeout=15)
+            requests.post(_api("editMessageText"), json={
+                "chat_id": chat.get("id"),
+                "message_id": message.get("message_id"),
+                "text": engine_modes.engines_view(),
+                "reply_markup": _engines_keyboard(),
+            }, timeout=15)
+            if (not str(reply).startswith("engine-set failed:")
+                    and engine_modes.selected_engine()
+                    != engine_modes.active_engine()):
+                engine_modes.request_recycle()
+                _request_wake("engine switch")
+            return "callback_engine_switch"
         if not data.startswith("model:"):
             return "callback_ignored"
         if not _chat_is_allowed(chat):
@@ -830,6 +874,7 @@ def _handle_callback_query(cq):
         requests.post(_api("answerCallbackQuery"), json={
             "callback_query_id": cq.get("id"), "text": "switching…",
         }, timeout=15)
+        import synthetic_llm
         reply = synthetic_llm.set_model(data[len("model:"):])
         print("[telegram] model switch handled in %.2fs" % (time.time() - started))
         requests.post(_api("editMessageText"), json={
@@ -998,6 +1043,27 @@ def _handle_slash_command(chat, sender, text):
             send_message_to_chat(str(chat.get("id", "")),
                                  runtime_health.report())
             return "slash_command:/health"
+        if cmd in ("/engine", "/engines"):
+            import engine_modes
+            if cmd == "/engines":
+                requests.post(_api("sendMessage"), json={
+                    "chat_id": chat.get("id"),
+                    "text": engine_modes.engines_view(),
+                    "reply_markup": _engines_keyboard(),
+                }, timeout=15)
+                return "slash_command:/engines"
+            if arg:
+                reply = engine_modes.set_engine(arg)
+            else:
+                reply = (engine_modes.engine_view()
+                         + " — /engine <name> to switch, /engines to list")
+            send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
+            if (arg and not str(reply).startswith("engine-set failed:")
+                    and engine_modes.selected_engine()
+                    != engine_modes.active_engine()):
+                engine_modes.request_recycle()
+                _request_wake("engine switch")
+            return "slash_command:/engine"
         if cmd in ("/mode", "/modes"):
             import loop_modes
             if cmd == "/modes":
