@@ -124,11 +124,18 @@
                                  ($_ (println! (CHARS_SENT: (string_length $send) $send)))
                                  ($rmode (py-call (loop_modes.reasoning_mode (reasoningMode))))
                                  ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) $rmode $send)))
+                                 ;; External calls are observations, not search
+                                 ;; branches: never repeat one while recovering
+                                 ;; from a malformed response.
+                                 ($_ (cut))
                                  ($resp (py-call (helper.balance_parentheses $respi)))
                                  ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (no_commands_parsed)))))
-                                 ($sexpr (catch (sread (py-call (helper.decode_safe_text $response)))))
+                                 ($parsed (catch (sread (py-call (helper.decode_safe_text $response)))))
                                  ($_ (change-state! &error ()))
-                                 ($_ (HandleError multi_command_parse_error_nothing_ran $response $sexpr))
+                                 ($_ (HandleError multi_command_parse_error_nothing_ran $response $parsed))
+                                 ($sexpr (case $parsed
+                                          (((Error $a $b) ())
+                                           ($valid $valid))))
                                  ($_ (println! (RESPONSE: $sexpr)))
                                  ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
                                  ($_ (eval (attention-complete $k
