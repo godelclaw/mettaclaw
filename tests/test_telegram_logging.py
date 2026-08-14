@@ -133,6 +133,8 @@ def test_poll_logs_before_advancing_offset_and_queues_allowed_message():
         assert events[0]["kind"] == "input.accepted"
         assert events[0]["conversation"] == "telegram:-1:root"
         assert events[0]["payload"]["metadata"]["queued_for_model"] is True
+        assert json.loads(tg.context_frontiers_json()) == {
+            "telegram:-1:root": events[0]["id"]}
         if previous_events is None:
             os.environ.pop("METTACLAW_EVENT_LOG_PATH", None)
         else:
@@ -451,15 +453,39 @@ def test_model_effect_send_is_at_most_once_per_turn():
         tg.requests.post = fake_post
         tg._token = "fake-token"
         tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+        tg._reply_chat_id = "-1"
+        tg._current_controller_revision = lambda: "revision"
 
-        tg.begin_effect_turn("turn-1")
+        from src import agent_kernel
+        agent_kernel.record_input("source:turn-1", "telegram:-1:root", "one")
+        invocation1 = agent_kernel.begin_invocation(
+            "telegram:-1:root", "context-1", "revision")
+        receipt1 = agent_kernel.issue_decision(invocation1, "proposal-1")
+
+        tg.begin_effect_turn(receipt1, "revision")
         tg.send_effect_message_to_chat("-1", "same message")
-        tg.begin_effect_turn("turn-1")
+        tg.begin_effect_turn(receipt1, "revision")
         assert tg.send_effect_message_to_chat(
             "-1", "same message") == "duplicate send suppressed"
         assert len(posts) == 1
 
-        tg.begin_effect_turn("turn-2")
+        # A syntactically different proposal at the same frontier is still the
+        # same externally visible effect and must not send again.
+        invocation2 = agent_kernel.begin_invocation(
+            "telegram:-1:root", "context-2", "revision")
+        receipt2 = agent_kernel.issue_decision(invocation2, "proposal-2")
+        tg.begin_effect_turn(receipt2, "revision")
+        assert tg.send_effect_message_to_chat(
+            "-1", "same message") == "duplicate send suppressed"
+        assert len(posts) == 1
+
+        # A genuinely new input frontier authorizes a new reply with the same
+        # text.
+        agent_kernel.record_input("source:turn-2", "telegram:-1:root", "two")
+        invocation3 = agent_kernel.begin_invocation(
+            "telegram:-1:root", "context-3", "revision")
+        receipt3 = agent_kernel.issue_decision(invocation3, "proposal-3")
+        tg.begin_effect_turn(receipt3, "revision")
         tg.send_effect_message_to_chat("-1", "same message")
         assert len(posts) == 2
 
@@ -467,7 +493,6 @@ def test_model_effect_send_is_at_most_once_per_turn():
         tg.send_message_to_chat("-1", "same message")
         assert len(posts) == 3
 
-        from src import agent_kernel
         projection = agent_kernel.project()
         assert len(projection["effects"]) == 3
         if previous_events is None:

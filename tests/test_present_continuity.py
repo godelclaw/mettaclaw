@@ -10,7 +10,9 @@ import importlib
 import os
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -74,6 +76,37 @@ class WorkingSetTests(unittest.TestCase):
         self.assertEqual(helper.text_nonempty(None), 0)
         self.assertEqual(helper.text_nonempty([]), 0)
         self.assertEqual(helper.text_nonempty("activity"), 1)
+
+    def test_controller_revision_binds_policy_model_engine_and_source(self):
+        first = helper.controller_revision("default", "model-a", "petta")
+        self.assertEqual(len(first), 64)
+        self.assertEqual(
+            first, helper.controller_revision("default", "model-a", "petta"))
+        self.assertNotEqual(
+            first, helper.controller_revision("coding", "model-a", "petta"))
+        self.assertNotEqual(
+            first, helper.controller_revision("default", "model-b", "petta"))
+        self.assertNotEqual(
+            first, helper.controller_revision("default", "model-a", "cetta"))
+
+    def test_receipt_gate_recomputes_live_controller_revision(self):
+        kernel = mock.Mock()
+        kernel.digest.side_effect = helper._agent_kernel().digest
+        kernel.receipt_current.return_value = 1
+        modules = {
+            "loop_modes": types.SimpleNamespace(current_mode=lambda: "coding"),
+            "synthetic_llm": types.SimpleNamespace(
+                current_model=lambda: "model-live"),
+            "engine_modes": types.SimpleNamespace(
+                active_engine=lambda: "engine-live"),
+        }
+        with mock.patch.dict(sys.modules, modules), \
+                mock.patch.object(helper, "_agent_kernel", return_value=kernel):
+            self.assertEqual(helper.receipt_current("receipt-1"), 1)
+        kernel.receipt_current.assert_called_once_with(
+            "receipt-1",
+            helper.controller_revision("coding", "model-live", "engine-live"),
+        )
 
 
 class LoudEmptyReadTests(unittest.TestCase):

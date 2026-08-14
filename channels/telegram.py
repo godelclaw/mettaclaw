@@ -21,6 +21,7 @@ _last_message_is_human = False
 _last_from_bot = False
 _last_arm_tier = "full"
 _pending_messages = []
+_context_frontiers = {}
 _offset = None
 _offset_path = ""
 _log_path = ""
@@ -41,7 +42,6 @@ _health_last_write = 0.0
 _effect_lock = threading.RLock()
 _effect_turn = None
 _effect_sends = set()
-_effect_episode = uuid.uuid4().hex
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/engine", "/engines",
@@ -409,6 +409,14 @@ def _agent_kernel():
     return agent_kernel
 
 
+def _current_controller_revision():
+    try:
+        import helper
+    except ImportError:
+        from src import helper
+    return helper.current_controller_revision()
+
+
 def _kernel_conversation(message):
     message = message or {}
     chat_id = str((message.get("chat") or {}).get("id", ""))
@@ -588,13 +596,30 @@ def energy_set(who, tier):
                 if ok else "energy-set failed: could not persist")
 
 
-def _set_last(chat_id, text, from_bot=False, arm_tier="full"):
+def _pending_fields(item):
+    """Read every historical pending-tuple shape plus the causal form."""
+    chat, text = item[:2]
+    from_bot = item[2] if len(item) >= 3 else False
+    tier = item[3] if len(item) >= 4 else "full"
+    conversation = item[4] if len(item) >= 5 else ""
+    frontier = item[5] if len(item) >= 6 else ""
+    return chat, text, bool(from_bot), str(tier), str(conversation), str(frontier)
+
+
+def _set_last_unlocked(chat_id, text, from_bot=False, arm_tier="full",
+                       conversation="", frontier=""):
     global _last_chat_id
+    _last_chat_id = str(chat_id)
+    _pending_messages.append(
+        (_last_chat_id, str(text), bool(from_bot), str(arm_tier),
+         str(conversation), str(frontier)))
+
+
+def _set_last(chat_id, text, from_bot=False, arm_tier="full",
+              conversation="", frontier=""):
     with _msg_lock:
-        _last_chat_id = str(chat_id)
-        _pending_messages.append(
-            (_last_chat_id, str(text), bool(from_bot), str(arm_tier)))
-        del _pending_messages[:-50]
+        _set_last_unlocked(
+            chat_id, text, from_bot, arm_tier, conversation, frontier)
 
 
 def getLastMessage():
@@ -606,15 +631,10 @@ def getLastMessage():
             _last_arm_tier = "full"
             return ""
         item = _pending_messages.pop(0)
-        # Tuples have grown over time; older queued entries stay readable.
-        tier = "full"
-        if len(item) == 2:
-            _reply_chat_id, msg = item
-            from_bot = False
-        elif len(item) == 3:
-            _reply_chat_id, msg, from_bot = item
-        else:
-            _reply_chat_id, msg, from_bot, tier = item
+        (_reply_chat_id, msg, from_bot, tier,
+         conversation, frontier) = _pending_fields(item)
+        if conversation and frontier:
+            _context_frontiers[conversation] = frontier
         _last_from_bot = bool(from_bot)
         _last_message_is_human = not _last_from_bot
         _last_arm_tier = str(tier) if _last_message_is_human else "full"
@@ -629,7 +649,7 @@ def getActivityBatch():
     Reply routing and energy accounting follow the NEWEST HUMAN message when
     present (existing tier machinery, unchanged), else the newest message."""
     global _reply_chat_id, _last_message_is_human, _last_from_bot
-    global _last_arm_tier
+    global _last_arm_tier, _context_frontiers
     with _msg_lock:
         if not _pending_messages:
             _last_message_is_human = False
@@ -640,19 +660,17 @@ def getActivityBatch():
     texts = []
     newest_human = None
     newest = None
+    consumed = dict(_context_frontiers)
     for item in items:
-        tier = "full"
-        if len(item) == 2:
-            chat, msg = item
-            from_bot = False
-        elif len(item) == 3:
-            chat, msg, from_bot = item
-        else:
-            chat, msg, from_bot, tier = item
+        chat, msg, from_bot, tier, conversation, frontier = \
+            _pending_fields(item)
         texts.append(str(msg))
         newest = (chat, from_bot, tier)
         if not from_bot:
             newest_human = (chat, from_bot, tier)
+        if conversation and frontier:
+            consumed[conversation] = frontier
+    _context_frontiers = consumed
     pick = newest_human or newest
     _reply_chat_id = str(pick[0])
     _last_from_bot = bool(pick[1])
@@ -667,6 +685,19 @@ def lastMessageIsHuman():
     return 1 if _last_message_is_human else 0
 
 
+def context_frontiers_json():
+    """Canonical causal inputs consumed into the current model context."""
+    with _msg_lock:
+        frontiers = dict(_context_frontiers)
+    if not frontiers:
+        try:
+            frontiers = _agent_kernel().latest_invocation_frontiers()
+        except Exception as exc:
+            print("[agent-kernel] frontier replay failed:", type(exc).__name__)
+    return json.dumps(frontiers, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"))
+
+
 def lastMessageArmLoops():
     """Loop count the last human message arms: the sender's energy tier."""
     tier = _last_arm_tier if _last_arm_tier in ENERGY_TIERS else "full"
@@ -675,6 +706,12 @@ def lastMessageArmLoops():
 
 def lastMessageFromBot():
     return _last_from_bot
+
+
+def current_conversation():
+    with _msg_lock:
+        chat_id = _reply_chat_id or _last_chat_id
+    return "telegram:%s:root" % str(chat_id or "")
 
 
 def _load_offset():
@@ -1237,19 +1274,29 @@ def _poll_loop():
                     if allowed and queued else (text or "")
                 )
                 if allowed:
-                    _record_kernel_input(
-                        update, kind, message, rendered, queued, note)
+                    if queued:
+                        # Ledger acceptance and queue visibility share one
+                        # lock. A batch drain therefore sees either both or
+                        # neither; it can never name an unseen newer frontier.
+                        with _msg_lock:
+                            accepted = _record_kernel_input(
+                                update, kind, message, rendered, queued, note)
+                            frontier = (
+                                accepted.get("id") if accepted
+                                else "UNRECORDED:%s" % update_id)
+                            chat = message.get("chat") or {}
+                            sender = message.get("from") or {}
+                            _set_last_unlocked(
+                                chat.get("id", ""), rendered,
+                                bool(sender.get("is_bot")),
+                                _tier_for_sender(sender),
+                                _kernel_conversation(message), frontier,
+                            )
+                    else:
+                        _record_kernel_input(
+                            update, kind, message, rendered, queued, note)
                 _offset = update_id + 1
                 _save_offset()
-                if queued:
-                    chat = message.get("chat") or {}
-                    sender = message.get("from") or {}
-                    _set_last(
-                        chat.get("id", ""),
-                        rendered,
-                        bool(sender.get("is_bot")),
-                        _tier_for_sender(sender),
-                    )
         except Exception as exc:
             _health_update(force=True, poll_status="error",
                            last_poll_error_at=time.time(),
@@ -1380,14 +1427,19 @@ def _log_outbound(chat_id, text, message_id=None, effect_key=None):
         except Exception as exc:
             print("[telegram] outbound log error:", exc)
     try:
-        key = effect_key or "telegram:delivery:%s:%s" % (
-            str(chat_id), str(message_id or uuid.uuid4().hex))
-        _agent_kernel().record_effect(
-            key,
-            "telegram:%s:root" % str(chat_id),
-            str(text),
-            {"channel": "telegram", "message_id": message_id},
-        )
+        if effect_key:
+            _agent_kernel().observe_effect(
+                effect_key, "delivered",
+                {"channel": "telegram", "message_id": message_id})
+        else:
+            key = "telegram:delivery:%s:%s" % (
+                str(chat_id), str(message_id or uuid.uuid4().hex))
+            _agent_kernel().record_effect(
+                key,
+                "telegram:%s:root" % str(chat_id),
+                str(text),
+                {"channel": "telegram", "message_id": message_id},
+            )
     except Exception as exc:
         print("[agent-kernel] effect record failed:", type(exc).__name__)
 
@@ -1443,14 +1495,31 @@ def send_message(text, chat_id="", _effect_key=None):
             # so the agent can delete its own message later.
             _log_outbound(chat_id, body, message_id, _effect_key)
         else:
+            if _effect_key:
+                try:
+                    _agent_kernel().observe_effect(
+                        _effect_key, "rejected",
+                        {"channel": "telegram",
+                         "http_status": resp.status_code})
+                except Exception as observe_exc:
+                    print("[agent-kernel] effect observation failed:",
+                          type(observe_exc).__name__)
             print(f"[telegram] send rejected (HTTP {resp.status_code})")
     except requests.exceptions.RequestException as exc:
+        if _effect_key:
+            try:
+                _agent_kernel().observe_effect(
+                    _effect_key, "transport-error",
+                    {"channel": "telegram", "error_type": type(exc).__name__})
+            except Exception as observe_exc:
+                print("[agent-kernel] effect observation failed:",
+                      type(observe_exc).__name__)
         # A transient network failure on send must never cross Janus and kill the
         # loop (the same failure class as a provider exception crossing Janus).
         print(f"[telegram] send failed ({type(exc).__name__})")
 
 
-def begin_effect_turn(turn):
+def begin_effect_turn(turn, _controller_revision=""):
     """Open the model-effect scope for one cognitive turn.
 
     Re-entering the same turn is deliberately a no-op: PeTTa may revisit a
@@ -1475,10 +1544,20 @@ def send_effect_message(text, chat_id=""):
         if key in _effect_sends:
             return "duplicate send suppressed"
         _effect_sends.add(key)
-        turn = _effect_turn
-    semantic_key = "telegram:model:%s:%s:%s:%s" % (
-        _effect_episode, str(turn), str(target), _agent_kernel().digest(body))
-    return send_message(body, chat_id=target, _effect_key=semantic_key)
+        receipt_id = _effect_turn
+    try:
+        prepared = _agent_kernel().prepare_effect(
+            receipt_id, _current_controller_revision(),
+            "telegram.send", target, body)
+    except Exception as exc:
+        print("[agent-kernel] effect preparation failed:", type(exc).__name__)
+        return "send blocked: causal ledger unavailable"
+    if prepared["status"] == "stale":
+        return "send deferred: stale causal frontier"
+    if prepared["status"] == "duplicate":
+        return "duplicate send suppressed"
+    return send_message(
+        body, chat_id=target, _effect_key=prepared["effect_key"])
 
 
 def send_effect_message_to_chat(chat_id, text):

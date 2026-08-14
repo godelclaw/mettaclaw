@@ -28,6 +28,11 @@ class AgentKernelTests(unittest.TestCase):
         agent_kernel._CACHE.clear()
         self.tmp.cleanup()
 
+    def issue(self, conversation, context, controller, proposal):
+        invocation = agent_kernel.begin_invocation(
+            conversation, context, controller)
+        return agent_kernel.issue_decision(invocation, proposal)
+
     def test_canonical_digest_ignores_mapping_insertion_order(self):
         self.assertEqual(
             agent_kernel.digest({"a": 1, "b": 2}),
@@ -67,6 +72,126 @@ class AgentKernelTests(unittest.TestCase):
             projection["frontier"]["telegram:42:root"], inbound["id"])
         self.assertEqual(projection["effects"], {"reply:8"})
         self.assertEqual(projection["working_set"], state)
+
+    def test_receipt_binds_current_frontier_context_controller_and_proposal(self):
+        inbound = agent_kernel.record_input("source:9", "chat:a", "hello")
+        receipt_id = self.issue(
+            "chat:a", "exact context", "controller-r1", "(send answer)")
+        receipt = agent_kernel.project()["receipts"][receipt_id]
+        self.assertEqual(receipt["frontiers"], {"chat:a": inbound["id"]})
+        self.assertEqual(receipt["context_digest"],
+                         agent_kernel.digest("exact context"))
+        self.assertEqual(receipt["proposal_digest"],
+                         agent_kernel.digest("(send answer)"))
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller-r1"), 1)
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller-r2"), 0)
+
+    def test_new_same_conversation_input_invalidates_receipt(self):
+        agent_kernel.record_input("source:10", "chat:a", "first")
+        receipt_id = self.issue(
+            "chat:a", "context", "controller", "proposal")
+        agent_kernel.record_input("source:11", "chat:a", "newer")
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller"), 0)
+
+    def test_other_conversation_does_not_invalidate_receipt(self):
+        agent_kernel.record_input("source:12", "chat:a", "first")
+        receipt_id = self.issue(
+            "chat:a", "context", "controller", "proposal")
+        agent_kernel.record_input("source:13", "chat:b", "unrelated")
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller"), 1)
+
+    def test_semantic_effect_attempt_is_durable_and_proposal_independent(self):
+        agent_kernel.record_input("source:14", "chat:a", "request")
+        first_receipt = self.issue(
+            "chat:a", "context one", "controller", "proposal one")
+        first = agent_kernel.prepare_effect(
+            first_receipt, "controller", "telegram.send", "target", "hello")
+        self.assertEqual(first["status"], "appended")
+        replay = agent_kernel.prepare_effect(
+            first_receipt, "controller", "telegram.send", "target", "hello")
+        self.assertEqual(replay["status"], "duplicate")
+
+        second_receipt = self.issue(
+            "chat:a", "context two", "controller", "different proposal")
+        semantic_replay = agent_kernel.prepare_effect(
+            second_receipt, "controller", "telegram.send", "target", "hello")
+        self.assertEqual(semantic_replay["status"], "duplicate")
+        self.assertEqual(semantic_replay["effect_key"], first["effect_key"])
+
+        observed = agent_kernel.observe_effect(
+            first["effect_key"], "delivered", {"message_id": 7})
+        self.assertEqual(observed["status"], "appended")
+        projection = agent_kernel.project()
+        self.assertIn(first["effect_key"], projection["effect_attempts"])
+        self.assertEqual(
+            projection["effect_observations"][first["effect_key"]]["status"],
+            "delivered")
+
+    def test_stale_receipt_cannot_prepare_effect(self):
+        agent_kernel.record_input("source:15", "chat:a", "request")
+        receipt_id = self.issue(
+            "chat:a", "context", "controller", "proposal")
+        agent_kernel.record_input("source:16", "chat:a", "new request")
+        self.assertEqual(
+            agent_kernel.prepare_effect(
+                receipt_id, "controller", "telegram.send", "target", "hello"),
+            {"status": "stale"},
+        )
+
+    def test_new_input_during_invocation_cannot_relabel_stale_answer(self):
+        first = agent_kernel.record_input("source:17", "chat:a", "first")
+        invocation = agent_kernel.begin_invocation(
+            "chat:a", "context containing first", "controller")
+        agent_kernel.record_input("source:18", "chat:a", "newer")
+        receipt_id = agent_kernel.issue_decision(invocation, "answer to first")
+        receipt = agent_kernel.project()["receipts"][receipt_id]
+        self.assertEqual(receipt["frontiers"], {"chat:a": first["id"]})
+        self.assertEqual(
+            receipt["context_digest"],
+            agent_kernel.digest("context containing first"),
+        )
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller"), 0)
+
+    def test_decision_requires_an_issued_invocation(self):
+        with self.assertRaises(agent_kernel.EventLogError):
+            agent_kernel.issue_decision("missing-invocation", "proposal")
+
+    def test_consumed_frontier_vector_never_adopts_later_live_frontier(self):
+        seen_a = agent_kernel.record_input("source:19", "chat:a", "seen a")
+        seen_b = agent_kernel.record_input("source:20", "chat:b", "seen b")
+        consumed = {"chat:b": seen_b["id"], "chat:a": seen_a["id"]}
+        newer = agent_kernel.record_input("source:21", "chat:a", "unseen")
+        invocation = agent_kernel.begin_invocation(
+            "chat:a", "context before unseen", "controller",
+            json.dumps(consumed),
+        )
+        receipt_id = agent_kernel.issue_decision(invocation, "old answer")
+        receipt = agent_kernel.project()["receipts"][receipt_id]
+        self.assertEqual(
+            list(receipt["frontiers"]), ["chat:a", "chat:b"])
+        self.assertEqual(receipt["frontiers"]["chat:a"], seen_a["id"])
+        self.assertNotEqual(receipt["frontiers"]["chat:a"], newer["id"])
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller"), 0)
+
+    def test_every_consumed_conversation_must_remain_current(self):
+        seen_a = agent_kernel.record_input("source:22", "chat:a", "seen a")
+        seen_b = agent_kernel.record_input("source:23", "chat:b", "seen b")
+        invocation = agent_kernel.begin_invocation(
+            "chat:a", "combined context", "controller",
+            {"chat:a": seen_a["id"], "chat:b": seen_b["id"]},
+        )
+        receipt_id = agent_kernel.issue_decision(invocation, "answer")
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller"), 1)
+        agent_kernel.record_input("source:24", "chat:b", "new b")
+        self.assertEqual(agent_kernel.receipt_current(
+            receipt_id, "controller"), 0)
 
     def test_truncated_tail_is_discarded_before_next_append(self):
         first = agent_kernel.record_input("source:1", "chat", "one")

@@ -105,7 +105,11 @@ def _projection(events):
         "event_ids": set(),
         "event_digests": {},
         "frontier": {},
+        "invocations": {},
+        "receipts": {},
         "effects": set(),
+        "effect_attempts": {},
+        "effect_observations": {},
         "working_set": {},
     }
     for event in events:
@@ -117,10 +121,20 @@ def _projection(events):
         conversation = event.get("conversation", "")
         if kind == "input.accepted" and conversation:
             result["frontier"][conversation] = event["id"]
-        elif kind == "effect.committed":
+        elif kind == "controller.invoked":
+            result["invocations"][event["id"]] = dict(event["payload"])
+        elif kind == "decision.issued":
+            result["receipts"][event["id"]] = dict(event["payload"])
+        elif kind in ("effect.attempted", "effect.committed"):
             key = event["payload"].get("effect_key")
             if key:
                 result["effects"].add(str(key))
+                if kind == "effect.attempted":
+                    result["effect_attempts"][str(key)] = dict(event["payload"])
+        elif kind == "effect.observed":
+            key = event["payload"].get("effect_key")
+            if key:
+                result["effect_observations"][str(key)] = dict(event["payload"])
         elif kind == "working_set.saved":
             state = event["payload"].get("state")
             if isinstance(state, dict):
@@ -138,7 +152,11 @@ def _extend_projection(projection, event):
         "event_ids": set(projection["event_ids"]),
         "event_digests": dict(projection["event_digests"]),
         "frontier": dict(projection["frontier"]),
+        "invocations": dict(projection["invocations"]),
+        "receipts": dict(projection["receipts"]),
         "effects": set(projection["effects"]),
+        "effect_attempts": dict(projection["effect_attempts"]),
+        "effect_observations": dict(projection["effect_observations"]),
         "working_set": dict(projection["working_set"]),
     }
     updated["event_ids"].add(event["id"])
@@ -147,10 +165,20 @@ def _extend_projection(projection, event):
     conversation = event.get("conversation", "")
     if kind == "input.accepted" and conversation:
         updated["frontier"][conversation] = event["id"]
-    elif kind == "effect.committed":
+    elif kind == "controller.invoked":
+        updated["invocations"][event["id"]] = dict(event["payload"])
+    elif kind == "decision.issued":
+        updated["receipts"][event["id"]] = dict(event["payload"])
+    elif kind in ("effect.attempted", "effect.committed"):
         key = event["payload"].get("effect_key")
         if key:
             updated["effects"].add(str(key))
+            if kind == "effect.attempted":
+                updated["effect_attempts"][str(key)] = dict(event["payload"])
+    elif kind == "effect.observed":
+        key = event["payload"].get("effect_key")
+        if key:
+            updated["effect_observations"][str(key)] = dict(event["payload"])
     elif kind == "working_set.saved":
         state = event["payload"].get("state")
         if isinstance(state, dict):
@@ -278,6 +306,142 @@ def record_effect(effect_key, conversation, content, receipt=None):
     return append(
         "effect.committed", payload, conversation,
         idempotency_key="effect:" + str(effect_key),
+    )
+
+
+def current_frontier(conversation):
+    return str(project()["frontier"].get(str(conversation), ""))
+
+
+def _frontier_map(value, conversation):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise EventLogError("invocation frontiers are not valid JSON") from exc
+    if value is None:
+        value = {str(conversation): current_frontier(conversation)}
+    if not isinstance(value, dict):
+        raise EventLogError("invocation frontiers are not a mapping")
+    return {
+        str(key): str(frontier)
+        for key, frontier in sorted(value.items())
+        if str(key)
+    }
+
+
+def latest_invocation_frontiers():
+    """Last context frontier, for a restart before the next batch drain."""
+    invocations = project()["invocations"]
+    if not invocations:
+        return {}
+    latest = next(reversed(invocations.values()))
+    return dict(latest.get("frontiers") or {})
+
+
+def begin_invocation(conversation, context, controller_revision,
+                     frontiers=None):
+    """Bind the request to causal inputs consumed while assembling context."""
+    conversation = str(conversation or "")
+    request = {
+        "conversation": conversation,
+        "frontiers": _frontier_map(frontiers, conversation),
+        "context_digest": digest(str(context or "")),
+        "controller_revision": str(controller_revision or ""),
+    }
+    identity = digest(request)
+    result = append(
+        "controller.invoked", request, conversation,
+        idempotency_key="invocation:" + identity,
+    )
+    return result["id"]
+
+
+def issue_decision(invocation_id, proposal):
+    """Bind a proposal to the immutable request supplied to its invocation."""
+    projection = project()
+    invocation = projection["invocations"].get(str(invocation_id))
+    if not invocation:
+        raise EventLogError("decision refers to an unissued invocation")
+    receipt = dict(invocation)
+    receipt.update({
+        "invocation_id": str(invocation_id),
+        "proposal_digest": digest(str(proposal or "")),
+    })
+    identity = digest(receipt)
+    result = append(
+        "decision.issued", receipt, invocation.get("conversation", ""),
+        idempotency_key="decision:" + identity,
+    )
+    return result["id"]
+
+
+def receipt_current(receipt_id, controller_revision=""):
+    """Whether an issued receipt still names the current causal frontier."""
+    projection = project()
+    receipt = projection["receipts"].get(str(receipt_id))
+    if not receipt:
+        return 0
+    for conversation, frontier in (receipt.get("frontiers") or {}).items():
+        if projection["frontier"].get(conversation, "") != frontier:
+            return 0
+    revision = str(controller_revision or "")
+    if revision and revision != receipt.get("controller_revision", ""):
+        return 0
+    return 1
+
+
+def _semantic_effect_key(receipt, effect_type, target, content):
+    # Proposal serialization is deliberately absent: different plans that
+    # encode the same externally visible effect must share one semantic key.
+    return digest({
+        "conversation": receipt.get("conversation", ""),
+        "frontiers": receipt.get("frontiers", {}),
+        "effect_type": str(effect_type),
+        "target": str(target),
+        "content": str(content),
+    })
+
+
+def prepare_effect(receipt_id, controller_revision, effect_type, target,
+                   content):
+    """Commit one durable at-most-once attempt before crossing the network."""
+    with _LOCK:
+        projection = project()
+        receipt = projection["receipts"].get(str(receipt_id))
+        if not receipt or not receipt_current(receipt_id, controller_revision):
+            return {"status": "stale"}
+        effect_key = _semantic_effect_key(
+            receipt, effect_type, target, content)
+        if effect_key in projection["effects"]:
+            return {"status": "duplicate", "effect_key": effect_key}
+        result = append(
+            "effect.attempted",
+            {
+                "effect_key": effect_key,
+                "receipt_id": str(receipt_id),
+                "effect_type": str(effect_type),
+                "target": str(target),
+                "content_digest": digest(str(content)),
+            },
+            receipt.get("conversation", ""),
+            idempotency_key="effect-attempt:" + effect_key,
+        )
+        return {
+            "status": result["status"],
+            "effect_key": effect_key,
+        }
+
+
+def observe_effect(effect_key, status, receipt=None):
+    payload = {
+        "effect_key": str(effect_key),
+        "status": str(status),
+        "receipt": dict(receipt or {}),
+    }
+    return append(
+        "effect.observed", payload,
+        idempotency_key="effect-observation:" + str(effect_key),
     )
 
 

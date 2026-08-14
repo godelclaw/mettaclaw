@@ -17,6 +17,7 @@ import telegram
 def _reset():
     with telegram._msg_lock:
         del telegram._pending_messages[:]
+        telegram._context_frontiers = {}
         telegram._reply_chat_id = ""
         telegram._last_message_is_human = False
         telegram._last_from_bot = False
@@ -35,6 +36,16 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertEqual(batch.splitlines(), ["first", "second", "third"])
         with telegram._msg_lock:
             self.assertFalse(telegram._pending_messages)
+
+    def test_intake_never_silently_drops_a_causal_predecessor(self):
+        for index in range(75):
+            telegram._set_last(
+                "1", "message-%d" % index, False, "full",
+                "telegram:1:root", "event-%d" % index)
+        batch = telegram.getActivityBatch().splitlines()
+        self.assertEqual(len(batch), 75)
+        self.assertEqual(batch[0], "message-0")
+        self.assertEqual(batch[-1], "message-74")
 
     def test_mixed_batch_routes_and_arms_from_newest_human(self):
         telegram._set_last("7", "human-early", from_bot=False,
@@ -60,6 +71,22 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertEqual(telegram.getActivityBatch(), "only")
         self.assertEqual(telegram.getActivityBatch(), "")
         self.assertEqual(telegram.lastMessageIsHuman(), 0)
+
+    def test_batch_exports_exact_consumed_frontier_vector(self):
+        telegram._set_last(
+            "1", "first", False, "full", "telegram:1:root", "event-a")
+        telegram._set_last(
+            "2", "second", False, "mid", "telegram:2:7", "event-b")
+        telegram.getActivityBatch()
+        self.assertEqual(
+            telegram.context_frontiers_json(),
+            '{"telegram:1:root":"event-a","telegram:2:7":"event-b"}',
+        )
+        self.assertEqual(telegram.getActivityBatch(), "")
+        self.assertEqual(
+            telegram.context_frontiers_json(),
+            '{"telegram:1:root":"event-a","telegram:2:7":"event-b"}',
+        )
 
     def test_loop_derives_newness_from_nonempty_batch(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
@@ -100,13 +127,23 @@ class ActivityBatchTests(unittest.TestCase):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         response = loop.index("(RESPONSE: $sexpr)")
         commitment = loop.index("($_ (cut))", response)
-        dispatcher = loop.index("(run-command-batch-once $k $sexpr)", response)
+        dispatcher = loop.index("(run-command-batch-at-frontier", response)
         results = loop.index("($results (RESULTS:", response)
         self.assertLess(response, commitment)
         self.assertLess(commitment, dispatcher)
         self.assertLess(dispatcher, results)
         self.assertNotIn("(collapse (let $s (superpose $sexpr)", loop)
-        self.assertIn("(telegram.begin_effect_turn $k)", loop)
+        invocation = loop.index("(agent_kernel.begin_invocation")
+        model_call = loop.index("(synthetic_llm.chat")
+        receipt = loop.index("(agent_kernel.issue_decision")
+        self.assertLess(invocation, model_call)
+        self.assertLess(model_call, receipt)
+        capture = loop.index("(telegram.context_frontiers_json)")
+        context = loop.index("($prompt (getContext))")
+        self.assertLess(capture, context)
+        self.assertIn("$contextFrontiers)))", loop)
+        self.assertIn("(agent_kernel.issue_decision", loop)
+        self.assertIn("$decisionReceipt $controllerRevision", loop)
 
 
 if __name__ == "__main__":

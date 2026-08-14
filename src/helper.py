@@ -3,12 +3,22 @@ import os
 import re
 import sys
 import time
+import hashlib
 
 
 SAFE_TEXT_REPLACEMENTS = (
     ("_newline_", "\n"),
     ("_quote_", '"'),
     ("_apostrophe_", "'"),
+)
+
+_SOURCE_REVISION = None
+_RUNTIME_SOURCES = (
+    "src/agent_kernel.py",
+    "src/loop.metta",
+    "src/skills.pl",
+    "src/channels.metta",
+    "channels/telegram.py",
 )
 
 
@@ -51,6 +61,55 @@ def int_env(name, default):
         return int(os.environ.get(str(name)) or default)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _source_revision():
+    global _SOURCE_REVISION
+    configured = os.environ.get("METTACLAW_RUNTIME_REVISION", "").strip()
+    if configured:
+        return configured
+    if _SOURCE_REVISION is not None:
+        return _SOURCE_REVISION
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    hasher = hashlib.sha256()
+    for relative in _RUNTIME_SOURCES:
+        hasher.update(relative.encode("utf-8") + b"\0")
+        try:
+            with open(os.path.join(root, relative), "rb") as stream:
+                for block in iter(lambda: stream.read(65536), b""):
+                    hasher.update(block)
+        except OSError:
+            hasher.update(b"<missing>")
+    _SOURCE_REVISION = hasher.hexdigest()
+    return _SOURCE_REVISION
+
+
+def controller_revision(mode, model, engine):
+    """Stable identity of the policy, model, engine, and running source."""
+    return _agent_kernel().digest({
+        "mode": str(mode),
+        "model": str(model),
+        "engine": str(engine),
+        "source": _source_revision(),
+    })
+
+
+def current_controller_revision():
+    """Compute controller identity from live policy selectors."""
+    import engine_modes
+    import loop_modes
+    import synthetic_llm
+    return controller_revision(
+        loop_modes.current_mode(),
+        synthetic_llm.current_model(),
+        engine_modes.active_engine(),
+    )
+
+
+def receipt_current(receipt_id):
+    """Recheck against live controller state, never a caller's old token."""
+    return _agent_kernel().receipt_current(
+        receipt_id, current_controller_revision())
 
 
 def text_nonempty(value):

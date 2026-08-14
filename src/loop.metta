@@ -73,6 +73,11 @@
                         (change-state! &loops (max 0 (- (get-state &loops) 1))))
          (progn (println! (---------iteration $k))
                 (let* (($msg (eval (receive)))
+                       ;; The channel drain supplies the exact accepted event
+                       ;; ids represented by this context. Never substitute a
+                       ;; later live-ledger frontier for these consumed inputs.
+                       ($contextFrontiers
+                         (py-call (telegram.context_frontiers_json)))
                        ($msgnew (== (py-call (helper.text_nonempty $msg)) 1))
                        ($humanmsg (eval (lastMessageIsHuman)))
                        ($_ (if $msgnew
@@ -118,10 +123,23 @@
                                  ($priorResults (get-state &lastresults))
                                  ($_ (eval (attention-begin $k $source
                                            (== (py-call (helper.text_nonempty $priorResults)) 1))))
-                                 ($_ (py-call (telegram.begin_effect_turn $k)))
                                  ($prompt (getContext))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
+                                 ($controllerRevision
+                                   (py-call (helper.controller_revision
+                                     $mode
+                                     (py-call (synthetic_llm.current_model))
+                                     (py-call (engine_modes.active_engine)))))
+                                 ($conversation
+                                   (py-call (telegram.current_conversation)))
+                                 ;; Capture exactly what the controller is about
+                                 ;; to see. A later input can only stale this
+                                 ;; invocation; it cannot relabel its answer.
+                                 ($invocationReceipt
+                                   (py-call (agent_kernel.begin_invocation
+                                     $conversation $send $controllerRevision
+                                     $contextFrontiers)))
                                  ($_ (println! (CHARS_SENT: (string_length $send) $send)))
                                  ($rmode (py-call (loop_modes.reasoning_mode (reasoningMode))))
                                  ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) $rmode $send)))
@@ -137,13 +155,21 @@
                                  ($sexpr (case $parsed
                                           (((Error $a $b) ())
                                            ($valid $valid))))
+                                 ($decisionReceipt
+                                   (py-call (agent_kernel.issue_decision
+                                     $invocationReceipt (repr $sexpr))))
+                                 ($_ (py-call (telegram.begin_effect_turn
+                                       $decisionReceipt $controllerRevision)))
                                  ($_ (println! (RESPONSE: $sexpr)))
                                  ;; Parsing is pure and may explore alternatives.
                                  ;; Crossing into commands commits the whole batch in
                                  ;; a non-backtrackable turn cache. Re-entry returns
                                  ;; records without performing external effects again.
                                  ($_ (cut))
-                                 ($commandResults (run-command-batch-once $k $sexpr))
+                                 ($commandResults
+                                   (run-command-batch-at-frontier
+                                     $decisionReceipt $controllerRevision
+                                     $k $sexpr))
                                  ($_ (change-state! &error
                                       (append (get-state &error)
                                               (command-batch-errors $k))))
