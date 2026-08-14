@@ -7,6 +7,8 @@ import time
 import urllib.error
 import urllib.request
 
+import cognitive_health
+
 
 _RETRIABLE_HTTP_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
@@ -52,6 +54,7 @@ def _empty_action(reason):
     """
     global _consecutive_empty
     _consecutive_empty += 1
+    cognitive_health.turn_failed(type(reason).__name__)
     base = _float_env("SYNTHETIC_EMPTY_BACKOFF", 15.0, 0.0)
     cap = _float_env("SYNTHETIC_EMPTY_BACKOFF_CAP", 300.0, 0.0)
     wait = min(cap, base * (2 ** (_consecutive_empty - 1))) if base else 0.0
@@ -301,11 +304,13 @@ def _extract_content(payload):
 def chat(model, max_tokens, effort, prompt):
     effective_model = os.environ.get("SYNTHETIC_MODEL", str(model))
     provider = _provider_for(effective_model)
+    cognitive_health.turn_started(provider["name"])
     key = provider["key"]
     if not key:
         if provider["name"] == "anthropic":
             # A session-switched provider must never crash the loop.
             return _empty_action("ANTHROPIC_API_KEY is not set")
+        cognitive_health.turn_failed("missing-api-key")
         raise RuntimeError("SYNTHETIC_API_KEY is not set")
     if provider["name"] == "anthropic":
         req = _anthropic_request(provider, effective_model, max_tokens, prompt)
@@ -338,10 +343,12 @@ def chat(model, max_tokens, effort, prompt):
             content = _extract_content(payload)
             if isinstance(content, str) and content.strip():
                 _note_answered()
+                cognitive_health.turn_completed(len(content.encode("utf-8")))
                 return content
             return _empty_action(_diagnose_empty(payload))
         except urllib.error.HTTPError as exc:
             if exc.code not in _RETRIABLE_HTTP_STATUS:
+                cognitive_health.turn_failed("HTTPError")
                 raise
             last_error = exc
             if exc.headers is not None:

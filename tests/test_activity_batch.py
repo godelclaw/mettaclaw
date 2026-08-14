@@ -74,6 +74,7 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertIn("loop_modes.wait_seconds", loop)
         self.assertIn("loop_modes.autonomous_ready", loop)
         self.assertIn("CLAW23_AUTONOMOUS_BURST", loop)
+        self.assertIn("cognitive_health.expect_turn", loop)
         self.assertNotIn("telegram.getMode", loop)
 
 

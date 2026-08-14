@@ -99,6 +99,12 @@
                                          (change-state! &sleepInterval (sleepInterval))
                                          (println! (CLAW23_AUTONOMOUS_BURST at (get_time_as_string))))
                                   _)))
+                       ;; Record the obligation before the governance gate: a
+                       ;; live loop whose gate never admits a model call is a
+                       ;; cognitive stall, not a healthy idle process.
+                       ($_expect (if (> (get-state &loops) 0)
+                                    (py-call (cognitive_health.expect_turn $mode))
+                                    _)))
                       (if (and (> (get-state &loops) 0) (== (py-call (ggb_bridge_ext.ggbGovernanceGate tick)) (quote PASS)))
                           (let* (($prompt (getContext))
                                  ($lastmessage (if $autonomous

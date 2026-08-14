@@ -5,6 +5,7 @@ import os
 import subprocess
 import time
 
+import cognitive_health
 import memory_health
 
 
@@ -38,11 +39,21 @@ def _generation():
         return os.environ.get("METTACLAW_DEPLOYED_COMMIT", "unknown")[:12]
 
 
+def _positive_seconds(name, default):
+    try:
+        return max(30, int(float(os.environ.get(name, default))))
+    except (TypeError, ValueError):
+        return default
+
+
 def status(now=None):
     now = time.time() if now is None else float(now)
     channel = _read_json(_health_path())
     working = _read_json(os.environ.get(
         "METTACLAW_WORKING_SET_PATH", "memory/working_set.json"))
+    mode = _read_json(os.environ.get(
+        "METTACLAW_LOOP_MODE_PATH", "memory/loop_mode.json"))
+    cognition = cognitive_health.snapshot()
     poll_at = float(channel.get("last_poll_ok_at", 0) or 0)
     saved_at = float(working.get("saved_at", 0) or 0)
     waiting_until = float(channel.get("waiting_until", 0) or 0)
@@ -50,6 +61,20 @@ def status(now=None):
                        and waiting_until >= now - 10)
     poll_age = None if not poll_at else max(0, int(now - poll_at))
     working_age = None if not saved_at else max(0, int(now - saved_at))
+    pending_at = float(cognition.get("pending_since", 0) or 0)
+    completed_at = float(cognition.get("last_completed_at", 0) or 0)
+    pending_age = None if not pending_at else max(0, int(now - pending_at))
+    turn_age = None if not completed_at else max(0, int(now - completed_at))
+    try:
+        loops = max(0, int(working.get("loops", 0) or 0))
+    except (TypeError, ValueError):
+        loops = 0
+    active_mode = str(mode.get("mode", "generic")).strip().lower()
+    autonomous = (active_mode == "claw23"
+                  and not bool(mode.get("autonomy_paused", False)))
+    cognition_required = bool(pending_at or loops > 0 or autonomous)
+    stale_after = _positive_seconds(
+        "METTACLAW_COGNITIVE_STALE_SECONDS", 900)
     problems = []
     if channel.get("menu_status") != "ok":
         problems.append("command-menu-not-registered")
@@ -58,6 +83,15 @@ def status(now=None):
     if (not legitimate_wait
             and (working_age is None or working_age > 900)):
         problems.append("cognitive-boundary-stale")
+    if pending_age is not None:
+        if pending_age > stale_after:
+            problems.append("model-turn-overdue")
+    elif cognition_required and turn_age is not None and turn_age > stale_after:
+        problems.append("model-turn-stale")
+    elif cognition_required and not cognition:
+        started_at = float(channel.get("started_at", 0) or saved_at or 0)
+        if started_at and now - started_at > stale_after:
+            problems.append("model-turn-receipt-missing")
     docs, _indexed, behind = memory_health.drift()
     threshold = memory_health.threshold()
     if docs and behind > threshold:
@@ -71,6 +105,14 @@ def status(now=None):
         "loop": "waiting" if legitimate_wait else channel.get(
             "loop_status", "unknown"),
         "working_set_age_seconds": working_age,
+        "cognition_required": cognition_required,
+        "model_turn_age_seconds": turn_age,
+        "model_turn_pending_age_seconds": pending_age,
+        "model_turn_expected_count": int(
+            cognition.get("expected_count", 0) or 0),
+        "model_turn_completed_count": int(
+            cognition.get("completed_count", 0) or 0),
+        "model_turn_last_outcome": cognition.get("last_outcome", "none"),
         "memories": docs,
         "memory_index_behind": behind,
         "memory_flush_threshold": threshold,
@@ -83,11 +125,14 @@ def report():
     return (
         "runtime-health: {state} | generation={generation} | menu={menu} | "
         "telegram-poll-age={poll}s | loop={loop} | working-set-age={working}s | "
+        "model-turn-age={turn}s | model-turn-pending={pending}s | "
         "memory={memories} ({behind}/{threshold} behind) | problems={problems}"
     ).format(
         state=value["state"], generation=value["generation"],
         menu=value["menu"], poll=value["telegram_poll_age_seconds"],
         loop=value["loop"], working=value["working_set_age_seconds"],
+        turn=value["model_turn_age_seconds"],
+        pending=value["model_turn_pending_age_seconds"],
         memories=value["memories"], behind=value["memory_index_behind"],
         threshold=value["memory_flush_threshold"], problems=problems,
     )
