@@ -10,7 +10,7 @@
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     "- Rest with a stated intention shown at your next waking: (rest seconds \"why\")"
-    "- Finish this fast burst without suspending autonomous renewal: (nop)"
+    "- Finish this burst without changing its future renewal policy: (nop)"
     "- Inspect/select the persistent cognitive loop policy: (mode) | (modes) | (mode-set \"name\")"
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
@@ -107,11 +107,11 @@
                         sleep-interval-seconds (get-state &sleepInterval)
                         intent (py-call (helper.decode_safe_text $why))))))
 
-;; A claw23 burst ends either at its step bound or explicitly via nop. Unlike
-;; rest, nop leaves autonomous renewal armed for the next idle boundary.
+;; Quiescent completion spends no further in-burst steps and does not rewrite
+;; lifecycle policy. In particular, it neither arms autonomy nor overrides a
+;; sovereign rest that occurred earlier in the same command batch.
 (= (nop)
-   (progn (py-call (loop_modes.resume_autonomy))
-          (change-state! &loops 0)
+   (progn (change-state! &loops 0)
           (BURST_COMPLETE loops-left (get-state &loops))))
 
 (= (mode) (py-call (loop_modes.mode_view)))

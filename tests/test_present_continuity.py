@@ -137,10 +137,11 @@ class LoopWiringTests(unittest.TestCase):
         self.assertIn('(helper.boot_int "loops" (maxLoops))', self.loop)
         self.assertIn('(helper.boot_str "lastresults" ""', self.loop)
         # Boot itself must restore rather than blindly re-arm. The two later
-        # re-arms are conditional: heartbeat and an earned claw23 idle burst.
+        # re-arms are conditional: heartbeat and a policy-earned idle burst.
         init_loop = self.loop.split("(= (heartbeatInterval)", 1)[0]
         self.assertNotIn("(change-state! &loops (maxLoops))", init_loop)
-        self.assertEqual(self.loop.count("(change-state! &loops (maxLoops))"), 2)
+        self.assertEqual(
+            self.loop.count("(change-state! &loops (renewalBudget))"), 2)
 
     def test_every_turn_boundary_persists(self):
         self.assertIn("(helper.working_set_save", self.loop)
@@ -148,6 +149,13 @@ class LoopWiringTests(unittest.TestCase):
     def test_rest_carries_intention(self):
         self.assertIn("(= (rest $seconds $why)", self.skills)
         self.assertIn("(helper.intent_save", self.skills)
+
+    def test_nop_ends_burst_without_rewriting_autonomy(self):
+        nop = self.skills.split("(= (nop)", 1)[1].split("(= (mode)", 1)[0]
+        self.assertIn("(change-state! &loops 0)", nop)
+        self.assertIn("(BURST_COMPLETE loops-left (get-state &loops))", nop)
+        self.assertNotIn("pause_autonomy", nop)
+        self.assertNotIn("resume_autonomy", nop)
 
 
 if __name__ == "__main__":

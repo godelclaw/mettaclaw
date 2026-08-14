@@ -225,6 +225,35 @@ class AgentKernelTests(unittest.TestCase):
         self.assertEqual([event["index"] for event in events],
                          list(range(1, 13)))
 
+    def test_attention_is_a_deterministic_projection_of_turn_events(self):
+        seen = agent_kernel.record_input("source:30", "chat:a", "hello")
+        self.assertEqual(agent_kernel.begin_turn(
+            7, "operator-event", True, {"chat:a": seen["id"]}), 1)
+        begun = agent_kernel.attention_view_text()
+        self.assertIn('(node (event "7") event "operator-event")', begun)
+        self.assertIn("(node prior-receipt receipt)", begun)
+        self.assertIn("(frontier-fresh True)", begun)
+        receipt_id = self.issue(
+            "chat:a", "context", "controller", "proposal")
+        self.assertEqual(agent_kernel.complete_turn(
+            7, "commands-parsed", receipt_id), 1)
+        completed = agent_kernel.attention_view_text()
+        self.assertIn(agent_kernel.digest("proposal"), completed)
+        self.assertIn(receipt_id, completed)
+        self.assertIn('"commands-parsed"', completed)
+
+    def test_attention_freshness_is_derived_not_stored(self):
+        seen = agent_kernel.record_input("source:31", "chat:a", "first")
+        agent_kernel.begin_turn(
+            8, "operator-event", False, {"chat:a": seen["id"]})
+        self.assertIn("(pending-input False)",
+                      agent_kernel.attention_view_text())
+        agent_kernel.record_input("source:32", "chat:a", "newer")
+        self.assertIn("(frontier-fresh False)",
+                      agent_kernel.attention_view_text())
+        self.assertIn("(pending-input True)",
+                      agent_kernel.attention_view_text())
+
 
 class WorkingCapsuleReplayTests(unittest.TestCase):
     def setUp(self):

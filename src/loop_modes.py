@@ -7,15 +7,24 @@ import threading
 
 MODES = {
     "default": {
-        "description": "bounded event-armed bursts; no claw23 idle renewal",
+        "description": "bounded event-armed bursts",
+        "burst_budget": 50,
+        "idle_wait": None,
+        "autonomous_renewal": False,
         "reasoning": None,
     },
     "coding": {
         "description": "default cadence with high reasoning effort",
+        "burst_budget": 50,
+        "idle_wait": None,
+        "autonomous_renewal": False,
         "reasoning": "high",
     },
     "claw23": {
         "description": "50-step fast bursts separated by 60-second input waits",
+        "burst_budget": 50,
+        "idle_wait": 60,
+        "autonomous_renewal": True,
         "reasoning": None,
     },
 }
@@ -111,12 +120,24 @@ def reasoning_mode(default):
     return override or str(default)
 
 
+def burst_budget(default=50):
+    """Renewal budget selected by the current loop policy."""
+    try:
+        fallback = max(1, int(default))
+    except (TypeError, ValueError):
+        fallback = 50
+    try:
+        return max(1, int(MODES[current_mode()]["burst_budget"]))
+    except (KeyError, TypeError, ValueError):
+        return fallback
+
+
 def wait_seconds(loops_left, requested_seconds):
     """Return the wait before the next cognitive tick.
 
     Channel polling has its own thread and is deliberately not governed by
-    this value. In claw23, an exhausted burst waits 60 seconds for activity;
-    explicit longer rests remain longer.
+    this value. A policy may assign an idle wait after an exhausted burst;
+    explicit rest remains sovereign over that cadence.
     """
     try:
         loops_left = int(loops_left)
@@ -128,23 +149,25 @@ def wait_seconds(loops_left, requested_seconds):
         requested = 1
     with _lock:
         state = _load()
-    if state["mode"] == "claw23" and loops_left <= 0:
-        # A normal completed burst has the exact claw23 cadence. Explicit
-        # (rest N) sets autonomy_paused, preserving the agent's chosen N.
-        return requested if state["autonomy_paused"] else 60
+    policy = MODES[state["mode"]]
+    idle_wait = policy["idle_wait"]
+    if loops_left <= 0 and idle_wait is not None:
+        # Explicit rest sets autonomy_paused, preserving the agent's chosen N.
+        return requested if state["autonomy_paused"] else int(idle_wait)
     return requested
 
 
 def autonomous_ready(loops_left, wait_result):
-    """Whether a completed claw23 input wait should renew cognition."""
+    """Whether the selected policy renews cognition after an idle wait."""
     try:
         exhausted = int(loops_left) <= 0
     except (TypeError, ValueError):
         exhausted = True
     with _lock:
         state = _load()
+    policy = MODES[state["mode"]]
     timed_out = str(wait_result).startswith("rested ")
-    return 1 if (state["mode"] == "claw23" and exhausted and timed_out
+    return 1 if (policy["autonomous_renewal"] and exhausted and timed_out
                  and not state["autonomy_paused"]) else 0
 
 

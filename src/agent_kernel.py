@@ -20,6 +20,7 @@ import uuid
 SCHEMA_VERSION = 1
 _LOCK = threading.RLock()
 _CACHE = {}
+_PROCESS_EPISODE = uuid.uuid4().hex
 
 
 class EventLogError(RuntimeError):
@@ -111,6 +112,7 @@ def _projection(events):
         "effect_attempts": {},
         "effect_observations": {},
         "working_set": {},
+        "latest_turn": {},
     }
     for event in events:
         result["count"] += 1
@@ -142,6 +144,23 @@ def _projection(events):
                 saved_at = event["payload"].get("saved_at")
                 if isinstance(saved_at, (int, float)):
                     result["working_set"]["saved_at"] = saved_at
+        elif kind == "turn.began":
+            result["latest_turn"] = dict(event["payload"])
+            result["latest_turn"].update({
+                "began_event": event["id"],
+                "completed": False,
+            })
+        elif kind == "turn.completed":
+            payload = event["payload"]
+            latest = result["latest_turn"]
+            if (latest.get("episode") == payload.get("episode")
+                    and latest.get("turn") == payload.get("turn")):
+                latest.update({
+                    "completed": True,
+                    "completed_event": event["id"],
+                    "outcome": payload.get("outcome", ""),
+                    "receipt_id": payload.get("receipt_id", ""),
+                })
     return result
 
 
@@ -158,6 +177,7 @@ def _extend_projection(projection, event):
         "effect_attempts": dict(projection["effect_attempts"]),
         "effect_observations": dict(projection["effect_observations"]),
         "working_set": dict(projection["working_set"]),
+        "latest_turn": dict(projection["latest_turn"]),
     }
     updated["event_ids"].add(event["id"])
     updated["event_digests"][event["id"]] = event["payload_digest"]
@@ -186,6 +206,23 @@ def _extend_projection(projection, event):
             saved_at = event["payload"].get("saved_at")
             if isinstance(saved_at, (int, float)):
                 updated["working_set"]["saved_at"] = saved_at
+    elif kind == "turn.began":
+        updated["latest_turn"] = dict(event["payload"])
+        updated["latest_turn"].update({
+            "began_event": event["id"],
+            "completed": False,
+        })
+    elif kind == "turn.completed":
+        payload = event["payload"]
+        latest = updated["latest_turn"]
+        if (latest.get("episode") == payload.get("episode")
+                and latest.get("turn") == payload.get("turn")):
+            latest.update({
+                "completed": True,
+                "completed_event": event["id"],
+                "outcome": payload.get("outcome", ""),
+                "receipt_id": payload.get("receipt_id", ""),
+            })
     return updated
 
 
@@ -443,6 +480,90 @@ def observe_effect(effect_key, status, receipt=None):
         "effect.observed", payload,
         idempotency_key="effect-observation:" + str(effect_key),
     )
+
+
+def _truthy(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def begin_turn(turn, source, has_prior_receipt=False, frontiers=None):
+    """Record the minimal facts from which the current attention view derives."""
+    payload = {
+        "episode": _PROCESS_EPISODE,
+        "turn": str(turn),
+        "source": str(source),
+        "has_prior_receipt": _truthy(has_prior_receipt),
+        "frontiers": _frontier_map(frontiers, ""),
+    }
+    result = append(
+        "turn.began", payload,
+        idempotency_key="turn-began:%s:%s" % (_PROCESS_EPISODE, turn),
+    )
+    return 1 if result["status"] in ("appended", "duplicate") else 0
+
+
+def complete_turn(turn, outcome, receipt_id=""):
+    """Record completion without creating a second mutable attention store."""
+    payload = {
+        "episode": _PROCESS_EPISODE,
+        "turn": str(turn),
+        "outcome": str(outcome),
+        "receipt_id": str(receipt_id or ""),
+    }
+    result = append(
+        "turn.completed", payload,
+        idempotency_key="turn-completed:%s:%s" % (_PROCESS_EPISODE, turn),
+    )
+    return 1 if result["status"] in ("appended", "duplicate") else 0
+
+
+def _sexpr_string(value):
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def attention_view_text():
+    """Project the latest turn into the existing MeTTa S-expression view."""
+    projection = project()
+    turn = projection["latest_turn"]
+    if not turn:
+        return "()"
+    label = _sexpr_string(turn.get("turn", ""))
+    source = _sexpr_string(turn.get("source", ""))
+    frontiers = turn.get("frontiers") or {}
+    fresh = all(
+        projection["frontier"].get(str(conversation), "") == str(frontier)
+        for conversation, frontier in frontiers.items()
+    )
+    truth = "True" if fresh else "False"
+    atoms = [
+        "(node (event %s) event %s)" % (label, source),
+        "(node (task %s) task respond-to-foreground)" % label,
+        "(edge (event %s) foreground-of (task %s))" % (label, label),
+        "(frontier-fresh %s)" % truth,
+        "(pending-input %s)" % ("False" if fresh else "True"),
+    ]
+    if turn.get("has_prior_receipt"):
+        atoms.extend([
+            "(node prior-receipt receipt)",
+            "(edge prior-receipt evidence-for (task %s))" % label,
+        ])
+    if turn.get("completed"):
+        receipt_id = str(turn.get("receipt_id", ""))
+        receipt = projection["receipts"].get(receipt_id, {})
+        proposal = _sexpr_string(receipt.get("proposal_digest", ""))
+        outcome = _sexpr_string(turn.get("outcome", ""))
+        receipt_label = _sexpr_string(receipt_id)
+        atoms.extend([
+            "(node (proposal %s) proposal %s)" % (label, proposal),
+            "(edge (task %s) proposes (proposal %s))" % (label, label),
+            "(node (receipt %s) receipt %s %s)" % (
+                label, receipt_label, outcome),
+            "(edge (proposal %s) observed-as (receipt %s))" % (
+                label, label),
+        ])
+    return "(" + " ".join(atoms) + ")"
 
 
 def record_working_set(state):
