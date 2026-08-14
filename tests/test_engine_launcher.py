@@ -128,6 +128,15 @@ class EngineLauncherTests(unittest.TestCase):
         self.assertTrue(self.result_lines()[0].startswith("petta:petta:"))
         self.assertIn("invalid persisted engine", result.stderr)
 
+    def test_legacy_pleatta_selection_is_not_launched(self):
+        self.select("pleatta")
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.result_lines()[0].startswith("petta:petta:"))
+        self.assertEqual(self.state_path.read_text(encoding="utf-8"),
+                         "petta\n")
+        self.assertIn("PLeaTTa is temporarily disabled", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -198,8 +198,8 @@ class SlashCommandTest(unittest.TestCase):
         payload = posts[-1][1]
         callbacks = [row[0]["callback_data"]
                      for row in payload["reply_markup"]["inline_keyboard"]]
-        self.assertEqual(callbacks,
-                         ["engine:petta", "engine:cetta", "engine:pleatta"])
+        self.assertEqual(callbacks, ["engine:petta", "engine:cetta"])
+        self.assertIn("pleatta [disabled]", payload["text"])
 
     def test_callback_switches_engine(self):
         posts = []

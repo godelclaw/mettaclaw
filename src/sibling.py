@@ -20,7 +20,7 @@ import time
 _CLAWS = {
     "godel": {
         "body": os.path.expanduser("~/pettaclaw-godel"),
-        "unit": "pettaclaw-godel-pleatta.service",
+        "unit": "pettaclaw-godel.service",
         "label": "Gödel",
     },
     "lila": {

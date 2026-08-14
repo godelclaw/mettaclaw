@@ -8,7 +8,10 @@ import time
 ENGINES = {
     "petta": "SWI-PeTTa; stable default",
     "cetta": "CeTTa running the PeTTa language profile",
-    "pleatta": "PLeaTTa host runtime",
+}
+
+DISABLED_ENGINES = {
+    "pleatta": "PLeaTTa is temporarily disabled; its current integration is not functional",
 }
 
 ALIASES = {
@@ -42,15 +45,7 @@ def _engine_paths(name):
     if name == "cetta":
         root = os.environ.get("CETTA_ROOT", os.path.join(home, "repos", "CeTTa"))
         return (os.environ.get("CETTA_BIN", os.path.join(root, "cetta")),)
-    root = os.environ.get(
-        "PLEATTA_ROOT", os.path.join(home, "repos", "LeaTTa-petta"))
-    return (
-        os.environ.get(
-            "PLEATTA_BIN", os.path.join(root, ".lake", "build", "bin", "pleatta")),
-        os.environ.get(
-            "PLEATTA_PY_WORKER",
-            os.path.join(root, "scripts", "pleatta-python-worker.py")),
-    )
+    return ()
 
 
 def engine_available(name):
@@ -110,6 +105,8 @@ def engines_view():
         prefix = "● " if name == active else "  "
         state = " [%s]" % ", ".join(marks) if marks else ""
         lines.append(prefix + name + state + " — " + description)
+    for name, notice in DISABLED_ENGINES.items():
+        lines.append("  %s [disabled] — %s" % (name, notice))
     return "\n".join(lines)
 
 
@@ -135,6 +132,8 @@ def _save(name):
 def set_engine(name):
     requested = str(name or "").strip().lower()
     name = _canonical(requested)
+    if name in DISABLED_ENGINES:
+        return "engine-set failed: %s" % DISABLED_ENGINES[name]
     if name not in ENGINES:
         return "engine-set failed: choose one of %s" % ", ".join(ENGINES)
     if not engine_available(name):
