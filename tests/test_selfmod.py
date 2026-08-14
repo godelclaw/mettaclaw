@@ -161,6 +161,23 @@ class SelfModTests(unittest.TestCase):
         leftovers = list((self.root / "src").glob(".selfmod-*.tmp"))
         self.assertEqual(leftovers, [])
 
+    def test_supervisor_refuses_authority_from_protected_tree(self):
+        command = [
+            sys.executable,
+            str(ROOT / "scripts" / "selfmod_supervisor.py"),
+            "verify",
+            "0" * 64,
+            "--root",
+            str(ROOT),
+            "--store",
+            str(self.store),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 2)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["state"], "blocked")
+        self.assertIn("outside the protected root", receipt["reason"])
+
     def test_supervisor_rejects_tampered_candidate(self):
         manifest = self.propose_edit()
         proposal_dir = self.store / manifest["proposal_id"]
