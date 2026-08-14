@@ -11,16 +11,33 @@ import selfmod
 
 GOV_CLI = os.environ.get("METTACLAW_GGB_GOVERNANCE_CLI", "")
 
+def _python_executable():
+    # Under embedded PeTTa, sys.executable is SWI-Prolog, not Python.  Resolve
+    # Python explicitly; run.sh puts the configured PeTTa environment first on
+    # PATH, and operators may pin an absolute interpreter through the env.
+    return os.environ.get("METTACLAW_PYTHON_EXECUTABLE", "python3")
+
 def ggbGovernanceGate(action='tick'):
     try:
         if not GOV_CLI:
             return 'BLOCK'
-        r = subprocess.run([sys.executable, GOV_CLI, 'gate', str(action)],
+        r = subprocess.run([_python_executable(), GOV_CLI, 'gate', str(action)],
                            capture_output=True, text=True, timeout=10)
         data = json.loads(r.stdout.strip())
         return data.get('gate', 'BLOCK')
     except Exception:
         return 'BLOCK'
+
+def ggbGovernancePassed(action='tick'):
+    """Return a MeTTa-stable numeric gate verdict (1=pass, 0=block).
+
+    ``py-call`` preserves Python strings as MeTTa strings, not symbols.  The
+    loop previously compared the string returned by ``ggbGovernanceGate`` to
+    the quoted symbol ``PASS``, making the cognition branch unreachable even
+    when governance passed.  Keep the textual API for diagnostics and expose
+    this numeric predicate for control flow.
+    """
+    return 1 if ggbGovernanceGate(action) == 'PASS' else 0
 
 EV_CLI = os.environ.get("METTACLAW_GGB_EVIDENCE_CLI", "")
 
@@ -28,7 +45,7 @@ def ggbL3Share(agent, content, key, strength, confidence, goal, timestamp, origi
     try:
         if not EV_CLI:
             return 'error'
-        r = subprocess.run([sys.executable, EV_CLI, 'add', str(agent), str(content), str(key),
+        r = subprocess.run([_python_executable(), EV_CLI, 'add', str(agent), str(content), str(key),
                            str(strength), str(confidence), str(goal), str(timestamp), str(origin)],
                           capture_output=True, text=True, timeout=10)
         data = json.loads(r.stdout.strip())
@@ -40,7 +57,7 @@ def ggbL3Query(query_str, limit=5):
     try:
         if not EV_CLI:
             return []
-        r = subprocess.run([sys.executable, EV_CLI, 'query', str(query_str), str(limit)],
+        r = subprocess.run([_python_executable(), EV_CLI, 'query', str(query_str), str(limit)],
                           capture_output=True, text=True, timeout=10)
         data = json.loads(r.stdout.strip())
         return data.get('results', [])
@@ -51,7 +68,7 @@ def ggbL3Revise(agent):
     try:
         if not EV_CLI:
             return 'error'
-        r = subprocess.run([sys.executable, EV_CLI, 'by-agent', str(agent)],
+        r = subprocess.run([_python_executable(), EV_CLI, 'by-agent', str(agent)],
                           capture_output=True, text=True, timeout=10)
         data = json.loads(r.stdout.strip())
         return data.get('status', 'error')
@@ -64,7 +81,7 @@ def ggbSendToPeer(peer, sender, subject, body):
     try:
         if not PEER_CLI:
             return 'error'
-        r = subprocess.run([sys.executable, PEER_CLI, 'send', str(peer), str(sender), str(subject), str(body)],
+        r = subprocess.run([_python_executable(), PEER_CLI, 'send', str(peer), str(sender), str(subject), str(body)],
                           capture_output=True, text=True, timeout=10)
         data = json.loads(r.stdout.strip())
         return data.get('status', 'error')
@@ -76,7 +93,7 @@ SELFMOD_CLI = os.environ.get("METTACLAW_GGB_SELFMOD_CLI", "")
 def ggbSelfModGate(change_spec, harm=None, recip=None, unity=None):
     if not SELFMOD_CLI:
         return 'BLOCK'
-    args = [sys.executable, SELFMOD_CLI, str(change_spec)]
+    args = [_python_executable(), SELFMOD_CLI, str(change_spec)]
     if harm is not None: args.append(str(harm))
     if recip is not None: args.append(str(recip))
     if unity is not None: args.append(str(unity))
