@@ -37,6 +37,9 @@ _rest_notice_sent = False
 _health_lock = threading.RLock()
 _health_state = {}
 _health_last_write = 0.0
+_effect_lock = threading.RLock()
+_effect_turn = None
+_effect_sends = set()
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/quota", "/wake",
@@ -1317,6 +1320,38 @@ def send_message(text, chat_id=""):
         # A transient network failure on send must never cross Janus and kill the
         # loop (the same failure class as a provider exception crossing Janus).
         print(f"[telegram] send failed ({type(exc).__name__})")
+
+
+def begin_effect_turn(turn):
+    """Open the model-effect scope for one cognitive turn.
+
+    Re-entering the same turn is deliberately a no-op: PeTTa may revisit a
+    reduction while resolving later goals, but an already attempted external
+    send must not become a second Telegram message.
+    """
+    global _effect_turn
+    turn = str(turn)
+    with _effect_lock:
+        if turn != _effect_turn:
+            _effect_turn = turn
+            _effect_sends.clear()
+    return turn
+
+
+def send_effect_message(text, chat_id=""):
+    """Attempt a model-authored Telegram send at most once in this turn."""
+    target = _reply_target(chat_id)
+    body = str(text).replace("\\n", "\n")
+    key = (str(target), body)
+    with _effect_lock:
+        if key in _effect_sends:
+            return "duplicate send suppressed"
+        _effect_sends.add(key)
+    return send_message(body, chat_id=target)
+
+
+def send_effect_message_to_chat(chat_id, text):
+    return send_effect_message(text, chat_id=chat_id)
 
 
 def sleep_until_message(seconds):
