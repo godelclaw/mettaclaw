@@ -72,9 +72,9 @@
                                (println! (py-call (goals.kernel_pass))))
                         (change-state! &loops (max 0 (- (get-state &loops) 1))))
          (progn (println! (---------iteration $k))
-                (let* (($msg (string-safe (repr (receive))))
-                       ($msgnew (> (string_length $msg) 0))
-                       ($humanmsg (lastMessageIsHuman))
+                (let* (($msg (eval (receive)))
+                       ($msgnew (!= $msg ""))
+                       ($humanmsg (eval (lastMessageIsHuman)))
                        ($_ (if $msgnew
                                (if $humanmsg
                                    (progn (py-call (loop_modes.resume_autonomy))
@@ -100,10 +100,10 @@
                                   (progn (change-state! &loops (maxLoops))
                                          (change-state! &sleepInterval (sleepInterval))
                                          (println! (CLAW23_AUTONOMOUS_BURST at (get_time_as_string))))
-                                  _)))
+                                  _))
                        ($_expect (if (> (get-state &loops) 0)
                                     (py-call (cognitive_health.expect_turn $mode))
-                                    _))
+                                    _)))
                       ;; Governance protects mutation promotion.  Ordinary
                       ;; cognition must remain available when that optional
                       ;; external authority is absent.
@@ -115,8 +115,9 @@
                                               (if $msgnew
                                                   (if $humanmsg operator-event channel-event)
                                                   (if $heartbeat heartbeat-event continuation-tick))))
-                                 ($_graph (attention-begin $k $source
-                                           (> (string_length (get-state &lastresults)) 0)))
+                                 ($priorResults (get-state &lastresults))
+                                 ($_ (eval (attention-begin $k $source
+                                           (!= $priorResults ""))))
                                  ($prompt (getContext))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
@@ -130,8 +131,8 @@
                                  ($_ (HandleError multi_command_parse_error_nothing_ran $response $sexpr))
                                  ($_ (println! (RESPONSE: $sexpr)))
                                  ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
-                                 ($_graph_done (attention-complete $k
-                                                (if (== $sexpr ()) no-commands commands-parsed)))
+                                 ($_ (eval (attention-complete $k
+                                           (if (== $sexpr ()) no-commands commands-parsed))))
                                  ($_ (println! $results)))
                                 (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                        (change-state! &lastresults (string-safe (repr $results))))) _))
