@@ -64,7 +64,8 @@ class ActivityBatchTests(unittest.TestCase):
     def test_loop_derives_newness_from_nonempty_batch(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         self.assertIn('($msg (eval (receive)))', loop)
-        self.assertIn('($msgnew (!= $msg ""))', loop)
+        self.assertIn(
+            '($msgnew (== (py-call (helper.text_nonempty $msg)) 1))', loop)
         self.assertNotIn(
             "($msgnew (prog1 (!= $msg (get-state &prevmsg))", loop)
 
