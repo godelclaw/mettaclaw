@@ -15,6 +15,8 @@ SAFE_TEXT_REPLACEMENTS = (
 _SOURCE_REVISION = None
 _RUNTIME_SOURCES = (
     "src/agent_kernel.py",
+    "src/attention_graph.metta",
+    "src/loop_modes.py",
     "src/loop.metta",
     "src/skills.pl",
     "src/channels.metta",
@@ -127,25 +129,77 @@ def recycle_requested():
     return 1 if path and os.path.isfile(path) else 0
 
 
+def _recycle_safe_path():
+    configured = os.environ.get("METTACLAW_RECYCLE_SAFE_PATH", "")
+    if configured:
+        return configured
+    request = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
+    return request + ".safe" if request else ""
+
+
 def recycle_ack():
     """Consume the boundary flag: the NEW process clears it at boot, so a
     pending request can fire at most one process exit. Before this
     existed, the flag was immortal — nothing anywhere removed it."""
-    path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
-    try:
-        if path and os.path.isfile(path):
-            os.remove(path)
-    except OSError:
-        pass
+    paths = (os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", ""),
+             _recycle_safe_path())
+    for path in paths:
+        try:
+            if path and os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
     return 1
 
 
-def recycle_exit():
+def _recycle_mark_safe():
+    """Publish that the current kernel reached a persisted turn boundary."""
+    request = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
+    path = _recycle_safe_path()
+    if not request or not os.path.isfile(request) or not path:
+        return 0
+    parent = os.path.dirname(path) or "."
+    temporary = "%s.tmp.%d" % (path, os.getpid())
+    try:
+        os.makedirs(parent, exist_ok=True)
+        with open(temporary, "w", encoding="utf-8") as stream:
+            stream.write("safely_wrapped_up=%.6f pid=%d\n" %
+                         (time.time(), os.getpid()))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        try:
+            directory = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except OSError:
+            pass
+        return 1
+    except OSError as exc:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+        print("[recycle] safe-boundary receipt failed:", type(exc).__name__)
+        return 0
+
+
+def recycle_exit(persisted=0):
     """Hard process exit for the recycle boundary. Merely returning from
     the loop recursion lands in engine backtracking, which re-enters the
     loop from scratch inside the same process — a boot-loop that re-arms
     a fresh budget every cycle (the 2026-08-06 storm). The service
-    manager (Restart=always) starts the fresh heap."""
+    manager (Restart=always) starts the fresh heap. A successful working-set
+    snapshot earns a durable receipt that permits an immediate relaunch."""
+    try:
+        boundary_is_safe = int(persisted) == 1
+    except (TypeError, ValueError):
+        boundary_is_safe = False
+    if boundary_is_safe:
+        _recycle_mark_safe()
     try:
         sys.stdout.flush()
         sys.stderr.flush()

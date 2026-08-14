@@ -184,7 +184,8 @@ class SlashCommandTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(
                 os.environ["METTACLAW_RECYCLE_REQUEST_PATH"]))
             self.assertTrue(telegram._wake_event.is_set())
-            self.assertIn("recycling", self.sent[-1][1])
+            self.assertIn("switch accepted: 'cetta'", self.sent[-1][1])
+            self.assertIn("safely wrapping current turn", self.sent[-1][1])
         finally:
             telegram._wake_event.clear()
 
@@ -216,9 +217,17 @@ class SlashCommandTest(unittest.TestCase):
                 note = telegram._handle_callback_query(cq)
             self.assertEqual(note, "callback_engine_switch")
             self.assertEqual(engine_modes.selected_engine(), "cetta")
+            self.assertTrue(os.path.isfile(
+                os.environ["METTACLAW_RECYCLE_REQUEST_PATH"]))
             self.assertTrue(telegram._wake_event.is_set())
             self.assertTrue(any("answerCallbackQuery" in u for u, _ in posts))
             self.assertTrue(any("editMessageText" in u for u, _ in posts))
+            answer = next(payload for url, payload in posts
+                          if "answerCallbackQuery" in url)
+            edited = next(payload for url, payload in posts
+                          if "editMessageText" in url)
+            self.assertIn("switch accepted: cetta", answer["text"])
+            self.assertIn("safely wrapping current turn", edited["text"])
         finally:
             telegram._wake_event.clear()
 

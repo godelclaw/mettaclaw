@@ -41,12 +41,16 @@ class EngineLauncherTests(unittest.TestCase):
             'if [ "${CETTA_REQUEST_RECYCLE:-0}" = 1 ]; then '
             'mkdir -p "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")"; '
             ': >"$METTACLAW_RECYCLE_REQUEST_PATH"; fi; '
+            'if [ "${CETTA_SAFE_RECYCLE:-0}" = 1 ]; then '
+            'printf "petta\\n" >"$METTACLAW_ENGINE_STATE_PATH"; '
+            ': >"$METTACLAW_RECYCLE_SAFE_PATH"; fi; '
             'exit "${CETTA_EXIT_CODE:-0}"')
         self.env = os.environ.copy()
         for name in (
                 "METTACLAW_ENGINE", "METTACLAW_ACTIVE_ENGINE",
                 "METTACLAW_ENGINE_STATE_PATH",
-                "METTACLAW_RECYCLE_REQUEST_PATH"):
+                "METTACLAW_RECYCLE_REQUEST_PATH",
+                "METTACLAW_RECYCLE_SAFE_PATH"):
             self.env.pop(name, None)
         self.env.update({
             "HOME": str(self.base / "home"),
@@ -101,6 +105,32 @@ class EngineLauncherTests(unittest.TestCase):
         line = self.result_lines()[0]
         self.assertTrue(line.startswith("cetta:cetta:"))
         self.assertIn("--lang petta", line)
+
+    def test_safely_wrapped_transition_relaunches_without_service_delay(self):
+        self.select("cetta")
+        result = self.launch(CETTA_REQUEST_RECYCLE=1,
+                             CETTA_SAFE_RECYCLE=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line.split(":", 1)[0]
+                          for line in self.result_lines()],
+                         ["cetta", "petta"])
+        self.assertIn("safely wrapped", result.stderr)
+
+    def test_request_without_safe_receipt_uses_slow_service_recovery(self):
+        self.select("cetta")
+        result = self.launch(CETTA_REQUEST_RECYCLE=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line.split(":", 1)[0]
+                          for line in self.result_lines()], ["cetta"])
+
+    def test_safe_receipt_does_not_mask_engine_failure(self):
+        self.select("cetta")
+        result = self.launch(CETTA_REQUEST_RECYCLE=1,
+                             CETTA_SAFE_RECYCLE=1,
+                             CETTA_EXIT_CODE=7)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("safely wrapped", result.stderr)
+        self.assertIn("restoring stable engine 'petta'", result.stderr)
 
     def test_clean_unrequested_cetta_stop_falls_back(self):
         self.select("cetta")

@@ -145,6 +145,8 @@ class LoopWiringTests(unittest.TestCase):
 
     def test_every_turn_boundary_persists(self):
         self.assertIn("(helper.working_set_save", self.loop)
+        self.assertIn("(helper.recycle_exit $persisted)", self.loop)
+        self.assertIn("persisted $persisted", self.loop)
 
     def test_rest_carries_intention(self):
         self.assertIn("(= (rest $seconds $why)", self.skills)

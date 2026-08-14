@@ -93,8 +93,10 @@ export METTACLAW_EMBED_ENDPOINT="${METTACLAW_EMBED_ENDPOINT:-http://127.0.0.1:88
 # Cooperative heap recycling. A requester creates the flag; the running loop
 # exits after its current turn; this new process removes the acknowledged flag.
 export METTACLAW_RECYCLE_REQUEST_PATH="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/recycle.requested}"
+export METTACLAW_RECYCLE_SAFE_PATH="${METTACLAW_RECYCLE_SAFE_PATH:-$STATE_HOME/$INSTANCE/recycle.safely-wrapped}"
 mkdir -p \
     "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")" \
+    "$(dirname "$METTACLAW_RECYCLE_SAFE_PATH")" \
     "$(dirname "$METTACLAW_ENGINE_STATE_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_OFFSET_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_LOG_PATH")" \
@@ -124,8 +126,20 @@ case "$TARGET" in /*) ;; *) TARGET="$ROOT/$TARGET" ;; esac
 # Only the real agent process acknowledges a request. Test and utility targets
 # must not clear a flag intended for a concurrently running service.
 if [ "$TARGET" = "$ROOT/run.metta" ]; then
-    rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
+    rm -f "$METTACLAW_RECYCLE_REQUEST_PATH" "$METTACLAW_RECYCLE_SAFE_PATH"
 fi
+
+fast_recycle_if_safe() {
+    local status="$1"
+    if [ "$TARGET" = "$ROOT/run.metta" ] && [ "$status" -eq 0 ] &&
+       [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ] &&
+       [ -f "$METTACLAW_RECYCLE_SAFE_PATH" ]; then
+        rm -f "$METTACLAW_RECYCLE_SAFE_PATH"
+        echo "engine transition safely wrapped; relaunching immediately" >&2
+        exec "$ROOT/run.sh" "$TARGET"
+    fi
+    return 1
+}
 
 persist_engine_selection() {
     local engine="$1"
@@ -145,9 +159,7 @@ fallback_to_petta() {
     fi
     echo "restoring stable engine 'petta'" >&2
     persist_engine_selection petta
-    export METTACLAW_ENGINE=petta
-    export METTACLAW_ACTIVE_ENGINE=petta
-    exec "$PETTA_ROOT/run.sh" "$TARGET" default
+    exec "$ROOT/run.sh" "$TARGET"
 }
 
 # Memory-index startup diagnostic and best-effort hard-drift recovery.
@@ -161,7 +173,15 @@ PYTHONPATH="$ROOT/src:$ROOT/repos/petta_lib_chromadb" \
 
 case "$METTACLAW_ENGINE" in
     petta)
-        exec "$PETTA_ROOT/run.sh" "$TARGET" default
+        if [ "$TARGET" != "$ROOT/run.metta" ]; then
+            exec "$PETTA_ROOT/run.sh" "$TARGET" default
+        fi
+        set +e
+        "$PETTA_ROOT/run.sh" "$TARGET" default
+        status=$?
+        set -e
+        fast_recycle_if_safe "$status" || true
+        exit "$status"
         ;;
     cetta)
         CETTA_BIN="${CETTA_BIN:-$CETTA_ROOT/cetta}"
@@ -192,6 +212,7 @@ case "$METTACLAW_ENGINE" in
             default
         status=$?
         set -e
+        fast_recycle_if_safe "$status" || true
         if [ "$status" -eq 0 ] && [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ]; then
             exit 0
         fi
