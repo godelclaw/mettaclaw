@@ -53,6 +53,11 @@ def int_env(name, default):
         return int(default)
 
 
+def text_nonempty(value):
+    """Return numeric truth for text crossing the Python/MeTTa boundary."""
+    return 1 if str(value or "") else 0
+
+
 def recycle_requested():
     """Return PeTTa's integer truth value for the boundary flag.
 

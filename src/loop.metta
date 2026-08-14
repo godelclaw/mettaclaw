@@ -73,7 +73,7 @@
                         (change-state! &loops (max 0 (- (get-state &loops) 1))))
          (progn (println! (---------iteration $k))
                 (let* (($msg (eval (receive)))
-                       ($msgnew (!= $msg ""))
+                       ($msgnew (== (py-call (helper.text_nonempty $msg)) 1))
                        ($humanmsg (eval (lastMessageIsHuman)))
                        ($_ (if $msgnew
                                (if $humanmsg
@@ -117,7 +117,7 @@
                                                   (if $heartbeat heartbeat-event continuation-tick))))
                                  ($priorResults (get-state &lastresults))
                                  ($_ (eval (attention-begin $k $source
-                                           (!= $priorResults ""))))
+                                           (== (py-call (helper.text_nonempty $priorResults)) 1))))
                                  ($prompt (getContext))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
