@@ -52,13 +52,13 @@
              (if (== (commchannel) irc)
                  (let $temp (cut) (py-call (irc.send_message $outmsg)))
 	                 (if (== (commchannel) telegram)
-	                     (let $temp (cut) (py-call (telegram.send_message $outmsg)))
+	                     (let $temp (cut) (py-call (telegram.send_effect_message $outmsg)))
 	                     (let $temp (cut) (py-call (mattermost.send_message $outmsg))))))))
 
 (= (send-telegram-chat $chat_id $msg)
    (let $safemsg (string-replace $msg  "\n" "\\n")
         (let $outmsg (py-call (helper.decode_safe_text $safemsg))
-             (let $temp (cut) (py-call (telegram.send_message_to_chat $chat_id $outmsg))))))
+             (let $temp (cut) (py-call (telegram.send_effect_message_to_chat $chat_id $outmsg))))))
 
 ;; Clean up after a test send: delete your own last k messages to a chat,
 ;; newest first, using the ids recorded when they were sent. Only your own

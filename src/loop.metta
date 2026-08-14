@@ -118,6 +118,7 @@
                                  ($priorResults (get-state &lastresults))
                                  ($_ (eval (attention-begin $k $source
                                            (== (py-call (helper.text_nonempty $priorResults)) 1))))
+                                 ($_ (py-call (telegram.begin_effect_turn $k)))
                                  ($prompt (getContext))
                                  ($_ (println! $lastmessage))
                                  ($send (py-str ($prompt $lastmessage)))
@@ -137,7 +138,11 @@
                                           (((Error $a $b) ())
                                            ($valid $valid))))
                                  ($_ (println! (RESPONSE: $sexpr)))
-                                 ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (eval $s) (py-call (helper.normalize_string $result)))))))))))
+                                 ;; Parsing is pure and may explore alternatives.
+                                 ;; Crossing into commands commits that choice; each
+                                 ;; command itself exposes only its first result.
+                                 ($_ (cut))
+                                 ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError command_format_error_nothing_ran $s (catch (let $result (once (eval $s)) (py-call (helper.normalize_string $result)))))))))))
                                  ($_ (eval (attention-complete $k
                                            (if (== $sexpr ()) no-commands commands-parsed))))
                                  ($_ (println! $results)))

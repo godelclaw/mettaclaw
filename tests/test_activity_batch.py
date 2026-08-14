@@ -96,6 +96,16 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertLess(commitment, parse)
         self.assertIn("((Error $a $b) ())", loop)
 
+    def test_commands_cross_one_committed_effect_boundary(self):
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+        response = loop.index("(RESPONSE: $sexpr)")
+        commitment = loop.index("($_ (cut))", response)
+        commands = loop.index("($results (RESULTS:", response)
+        self.assertLess(response, commitment)
+        self.assertLess(commitment, commands)
+        self.assertIn("(once (eval $s))", loop[commands:])
+        self.assertIn("(telegram.begin_effect_turn $k)", loop)
+
 
 if __name__ == "__main__":
     unittest.main()
