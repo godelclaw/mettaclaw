@@ -30,7 +30,8 @@ class EngineLauncherTests(unittest.TestCase):
         self.result = self.base / "result"
         self._script(
             self.petta / "run.sh",
-            'printf "petta:%s:%s\\n" "$METTACLAW_ACTIVE_ENGINE" "$*" '
+            'printf "petta:%s:%s:%s\\n" "$METTACLAW_ACTIVE_ENGINE" "$*" '
+            '"$PYTHONPATH" '
             '>>"$ENGINE_TEST_RESULT"')
         self.cetta = self.base / "cetta"
         self._script(
@@ -90,6 +91,8 @@ class EngineLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.result_lines()), 1)
         self.assertTrue(self.result_lines()[0].startswith("petta:petta:"))
+        self.assertIn(str(self.root / "repos" / "petta_lib_chromadb"),
+                      self.result_lines()[0])
 
     def test_cetta_selection_launches_petta_profile(self):
         self.select("cetta")
