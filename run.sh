@@ -169,10 +169,10 @@ case "$METTACLAW_ENGINE" in
             fallback_to_petta 2 "CeTTa executable unavailable"
         fi
         if [ "$TARGET" != "$ROOT/run.metta" ]; then
-            exec "$CETTA_BIN" --lang petta "$TARGET"
+            exec "$CETTA_BIN" --lang petta --import-mode ancestor-walk "$TARGET"
         fi
         set +e
-        "$CETTA_BIN" --lang petta \
+        "$CETTA_BIN" --lang petta --import-mode ancestor-walk \
             "$ROOT/cetta_bootstrap.metta" \
             "$PETTA_ROOT/lib/lib_import.metta" \
             "$PETTA_ROOT/lib/lib_patrick.metta" \

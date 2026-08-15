@@ -1,5 +1,6 @@
-!(import! &self (library lib_he))
 !(import! &self ./src/attention_graph)
+
+(= (assertEqual $A $B) (assert (== $A $B)))
 
 !(attention-begin turn-7 operator-event True)
 !(assertEqual

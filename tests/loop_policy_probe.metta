@@ -1,7 +1,8 @@
-!(import! &self (library lib_he))
 !(import! &self ./src/weak_process_core)
 !(import! &self ./src/open_assemblage)
 !(import! &self ./src/loop_policy)
+
+(= (assertEqual $A $B) (assert (== $A $B)))
 
 !(let* (($periphery
           (coordinate iteration 7
