@@ -18,7 +18,9 @@
            (coordinate last-heartbeat
              (py-call (helper.boot_num "last_heartbeat" (get_time)))
              (coordinate active-policy $selected
-               (coordinate autonomous-ready 0 coordinates-empty)))))))))
+               (coordinate autonomous-ready 0
+                 (coordinate pending-continuation
+                   no-continuation coordinates-empty))))))))))
 
 (= (initLoop)
    (progn
@@ -150,7 +152,10 @@
                ($valid $valid))))
           ($_ (println! (RESPONSE: $sexpr)))
           ($_ (cut))
-          ($commandResults (run-command-batch-once $iteration $sexpr))
+          ;; The explicit quote keeps grounded commands inert until the
+          ;; deterministic dispatcher receives them.
+          ($commandResults
+            (run-command-batch-once $iteration (quote $sexpr)))
           ($_ (change-state! &error
                 (append (get-state &error)
                         (command-batch-errors $iteration))))
@@ -227,6 +232,34 @@
 (= (agentProcess $periphery)
    (protectedOutcome (catch (agentCandidate $periphery))))
 
+;; A timed rest continuation is code-as-data until the timer expires.  It runs
+;; directly, without spending a model call, and its result becomes context for
+;; exactly one ordinary follow-up turn.  The budget is 2 because agentCandidate
+;; performs its normal boundary decrement before deciding whether to think.
+(= (runRestContinuation $periphery
+                        (continuation-value $continuation))
+   (let* (($iteration (loop-iteration $periphery))
+          ;; Cognitive turns use positive iteration ids.  Their negative
+          ;; counterpart is a distinct scalar key for the timer continuation;
+          ;; unlike a compound marker it cannot be eagerly reduced away while
+          ;; crossing the MeTTa/Prolog call boundary.
+          ($turn (- 0 $iteration))
+          ($records
+            (run-command-batch-once $turn (quote ($continuation))))
+          ($results (CONTINUATION_RESULTS: $records))
+          ($_ (println! $results)))
+     (coordinate-set pending-continuation no-continuation
+       (coordinate-set loops 2
+         (coordinate-set last-results (string-safe (repr $results))
+                         $periphery)))))
+
+(= (applyTimedContinuation $periphery $timedOut)
+   (let $pending (loop-pending-continuation $periphery)
+     (if (and (== $timedOut 1)
+              (not (== $pending no-continuation)))
+         (runRestContinuation $periphery $pending)
+         $periphery)))
+
 ;; Waiting is another replaceable process.  Channel polling remains in its
 ;; adapter; only the resulting readiness bit enters the periphery.
 (= (waitCandidate $periphery)
@@ -238,10 +271,12 @@
                                  (loop-sleep $periphery) $paused))
           ($waitResult (py-call (telegram.sleep_until_message $wait)))
           ($timedOut (py-call (loop_modes.wait_timed_out $waitResult)))
+          ($continued (applyTimedContinuation $periphery $timedOut))
+          ($continuedLoops (loop-budget $continued))
           ($ready
             (policy-next-autonomous-ready
-              $policy $loops $timedOut $paused)))
-     (candidate (coordinate-set autonomous-ready $ready $periphery))))
+              $policy $continuedLoops $timedOut $paused)))
+     (candidate (coordinate-set autonomous-ready $ready $continued))))
 
 (= (waitProcess $periphery)
    (protectedOutcome (catch (waitCandidate $periphery))))
@@ -253,7 +288,9 @@
          (loop-budget $periphery)
          (loop-sleep $periphery)
          (loop-last-results $periphery)
-         (loop-last-heartbeat $periphery)))))
+         (loop-last-heartbeat $periphery)
+         (if (== (loop-pending-continuation $periphery)
+                 no-continuation) 0 1)))))
 
 (= (processLoop $state)
    (let* (($periphery (process-periphery $state))

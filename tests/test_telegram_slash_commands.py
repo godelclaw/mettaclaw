@@ -135,6 +135,17 @@ class SlashCommandTest(unittest.TestCase):
         model.assert_not_called()
         self.assertEqual(self.sent[-1][1], "runtime ok")
 
+    def test_activity_is_deterministic_and_does_not_wake_loop(self):
+        telegram._wake_event.clear()
+        with mock.patch("runtime_health.activity_report",
+                        return_value="activity: idle"), \
+             mock.patch.object(synthetic_llm, "current_model") as model:
+            self.assertEqual(self.handle("/activity"),
+                             "slash_command:/activity")
+        model.assert_not_called()
+        self.assertFalse(telegram._wake_event.is_set())
+        self.assertEqual(self.sent[-1][1], "activity: idle")
+
     def test_model_bare_shows_current(self):
         self.assertEqual(self.handle("/model"), "slash_command:/model")
         self.assertIn("syn:large:text", self.sent[-1][1])

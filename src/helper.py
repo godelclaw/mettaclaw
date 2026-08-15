@@ -128,7 +128,8 @@ def _working_write(data):
     os.replace(tmp, path)
 
 
-def working_set_save(loops, sleep, lastresults, hb_clock):
+def working_set_save(loops, sleep, lastresults, hb_clock,
+                     continuation_pending=0):
     """persist: snapshot the working self at a turn boundary."""
     try:
         data = _working_read()
@@ -137,6 +138,7 @@ def working_set_save(loops, sleep, lastresults, hb_clock):
             "sleepInterval": int(sleep),
             "lastresults": str(lastresults)[-_WORKING_CAP:],
             "last_heartbeat": float(hb_clock),
+            "continuation_pending": bool(int(continuation_pending)),
             "saved_at": time.time(),
         })
         _working_write(data)
