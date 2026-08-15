@@ -4,7 +4,11 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
-INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
+INSTANCE_DEFAULT="$(basename "$ROOT")"
+case "$INSTANCE_DEFAULT" in
+    pettaclaw-*) INSTANCE_DEFAULT="${INSTANCE_DEFAULT#pettaclaw-}" ;;
+esac
+INSTANCE="${METTACLAW_INSTANCE:-$INSTANCE_DEFAULT}"
 FLAG="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/recycle.requested}"
 WAIT_SECONDS="${METTACLAW_RECYCLE_WAIT_SECONDS:-600}"
 
