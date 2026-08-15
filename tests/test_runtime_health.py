@@ -144,15 +144,81 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        with mock.patch("telegram.rest_status", return_value=(False, 0)), \
-             mock.patch("loop_modes.current_mode", return_value="agent"), \
+        with mock.patch("loop_modes.current_mode", return_value="agent"), \
              mock.patch("engine_modes.active_engine", return_value="cetta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
         self.assertIn("activity: working", report)
-        self.assertIn("loops-left=12", report)
+        self.assertIn("steps=12@checkpoint", report)
         self.assertIn("continuation=pending", report)
-        self.assertIn("model-turn-age=5s", report)
+        self.assertIn("turn=completed:5s-ago", report)
+
+    def test_activity_does_not_call_one_second_poll_a_rest(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 995, "pending_since": 0,
+            "last_outcome": "completed",
+        })
+        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
+        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: idle", report)
+        self.assertIn("wake=human-or-heartbeat", report)
+        self.assertNotIn("rest-left", report)
+
+    def test_pending_turn_reports_armed_budget_not_stale_checkpoint(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 900, "pending_since": 998,
+            "budget_at_start": 50, "last_outcome": "completed",
+        })
+        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
+        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: working", report)
+        self.assertIn("steps=50@turn-start", report)
+        self.assertIn("turn=pending:2s", report)
+
+    def test_pending_continuation_is_scheduled_not_working(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": True,
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 995, "pending_since": 0,
+            "last_outcome": "completed",
+        })
+        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
+        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: scheduled", report)
+        self.assertIn("wake=timer-or-human", report)
+        self.assertIn("continuation=pending", report)
+
+    def test_paused_autonomy_is_resting_until_human_input(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 995, "pending_since": 0,
+            "last_outcome": "completed",
+        })
+        self.write(self.mode, {"mode": "agent", "autonomy_paused": True})
+        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: resting", report)
+        self.assertIn("wake=human", report)
 
 
 if __name__ == "__main__":

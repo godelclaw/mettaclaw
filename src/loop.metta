@@ -206,7 +206,8 @@
           ($ready (applyAutonomousBurst $heartbeatApplied $autonomous))
           ($_ (if (> (loop-budget $ready) 0)
                   (py-call (cognitive_health.expect_turn
-                             (loop-active-policy $ready)))
+                             (loop-active-policy $ready)
+                             (loop-budget $ready)))
                   _))
           ($afterTurn
             (if (> (loop-budget $ready) 0)

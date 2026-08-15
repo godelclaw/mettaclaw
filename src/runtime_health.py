@@ -155,34 +155,62 @@ def activity_report(now=None):
     saved_at = float(working.get("saved_at", 0) or 0)
     completed_at = float(cognition.get("last_completed_at", 0) or 0)
     pending_at = float(cognition.get("pending_since", 0) or 0)
-    boundary_age = None if not saved_at else max(0, int(now - saved_at))
+    checkpoint_age = None if not saved_at else max(0, int(now - saved_at))
     turn_age = None if not completed_at else max(0, int(now - completed_at))
     pending_age = None if not pending_at else max(0, int(now - pending_at))
 
     import engine_modes
     import loop_modes
     import synthetic_llm
-    import telegram
-
-    resting, rest_left = telegram.rest_status()
-    state = "resting" if resting else (
-        "working" if loops > 0 or pending_age is not None else "idle")
+    mode_state = _read_json(os.environ.get(
+        "METTACLAW_LOOP_MODE_PATH", "memory/loop_mode.json"))
+    paused = bool(mode_state.get("autonomy_paused", False))
+    continuation = bool(working.get("continuation_pending"))
+    if pending_age is not None:
+        state = "working"
+        wake = "now"
+        try:
+            steps = max(0, int(cognition.get("budget_at_start", loops)))
+        except (TypeError, ValueError):
+            steps = loops
+        steps_source = "turn-start"
+    elif loops > 0:
+        state = "working"
+        wake = "now"
+        steps = loops
+        steps_source = "checkpoint"
+    elif continuation:
+        state = "scheduled"
+        wake = "timer-or-human"
+        steps = loops
+        steps_source = "checkpoint"
+    elif paused:
+        state = "resting"
+        wake = "human"
+        steps = loops
+        steps_source = "checkpoint"
+    else:
+        state = "idle"
+        wake = "human-or-heartbeat"
+        steps = loops
+        steps_source = "checkpoint"
     age = lambda value: "never" if value is None else "%ss" % value
+    turn = ("pending:%s" % age(pending_age)
+            if pending_age is not None
+            else "completed:%s-ago" % age(turn_age))
     return (
-        "activity: {state} | loops-left={loops} | mode={mode} | "
-        "engine={engine} | model={model} | rest-left={rest}s | "
-        "continuation={continuation} | boundary-age={boundary} | "
-        "model-turn-age={turn} | model-turn-pending={pending} | "
-        "last-outcome={outcome}"
+        "activity: {state} | steps={steps}@{steps_source} | mode={mode} | "
+        "engine={engine} | model={model} | wake={wake} | "
+        "continuation={continuation} | checkpoint-age={checkpoint} | "
+        "turn={turn} | last-outcome={outcome}"
     ).format(
-        state=state, loops=loops, mode=loop_modes.current_mode(),
+        state=state, steps=steps, steps_source=steps_source,
+        mode=loop_modes.current_mode(),
         engine=engine_modes.active_engine(),
         model=synthetic_llm.current_model(),
-        rest=rest_left if resting else 0,
-        continuation=("pending" if working.get("continuation_pending")
-                      else "none"),
-        boundary=age(boundary_age), turn=age(turn_age),
-        pending=age(pending_age),
+        wake=wake,
+        continuation=("pending" if continuation else "none"),
+        checkpoint=age(checkpoint_age), turn=turn,
         outcome=cognition.get("last_outcome", "none"),
     )
 

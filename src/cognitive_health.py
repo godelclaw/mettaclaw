@@ -68,9 +68,13 @@ def _stamp(now):
     return time.time() if now is None else float(now)
 
 
-def expect_turn(mode="unknown", now=None):
+def expect_turn(mode="unknown", budget=None, now=None):
     """Record a model-turn obligation without refreshing an older one."""
     now = _stamp(now)
+    try:
+        budget = None if budget is None else max(0, int(budget))
+    except (TypeError, ValueError):
+        budget = None
     try:
         with _lock:
             value = _read()
@@ -82,6 +86,8 @@ def expect_turn(mode="unknown", now=None):
                 "expected_count": int(value.get("expected_count", 0)) + 1,
                 "mode": _label(mode),
             })
+            if budget is not None:
+                value["budget_at_start"] = budget
             _write(value)
         return 1
     except Exception:
