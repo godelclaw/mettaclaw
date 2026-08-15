@@ -1,9 +1,12 @@
 !(import! &self (library lib_import))
-!(import! &self (library lib_he))
 !(import! &self ./lib_mettaclaw)
 
-;; One real policy episode through the production MeTTa loop, with only the
-;; model observation replaced by a deterministic no-command reply.
+(= (assertEqual $A $B) (assert (== $A $B)))
+
+;; One real policy episode through the production MeTTa loop.  Isolate the
+;; boot snapshot and replace the model observation with a deterministic
+;; no-command reply so the probe is independent of a running agent's rest.
+!(py-eval "(__import__('helper').__dict__.__setitem__('_working_boot_cache', {}), __import__('helper').__dict__.__setitem__('working_boot', lambda: 1))")
 !(py-eval "__import__('synthetic_llm').__dict__.__setitem__('chat', lambda *args: '()')")
 !(initMemory)
 !(configure commchannel telegram)
