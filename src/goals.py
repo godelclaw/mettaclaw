@@ -25,7 +25,7 @@ _LOCK = threading.Lock()
 
 DECAY = 0.95            # STI backstop decay per wake
 ALPHA = 0.05            # LTI consolidation rate
-GAMMA = 0.9             # mood EMA retention per affect sample
+GAMMA = 0.69            # affect-gestalt EMA retention per affect sample
 STUCK_WAKES = 3         # unchanged blocked-by across this many wakes -> stuck
 CULL_STI = 0.05         # sti below this AND lti below CULL_LTI -> cull-review
 CULL_LTI = 0.1

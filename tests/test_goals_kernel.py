@@ -107,11 +107,11 @@ class GoalKernelTests(unittest.TestCase):
         with open(log, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"kind": "outbound", "text": "yo\n" + t2}) + "\n")
         goals.kernel_pass(path, log)
-        # 0.9*0.5 + 0.1*0.8 = 0.53 per dimension
-        self.assertIn("(mood Cn:0.53", goals.goals_view(path))
+        # 0.69*0.5 + 0.31*0.8 = 0.593 per dimension
+        self.assertIn("(mood Cn:0.593", goals.goals_view(path))
         gestalt = goals.affect_view(path)
-        self.assertIn("gamma:0.9", gestalt)
-        self.assertIn("Cn:0.53", gestalt)
+        self.assertIn("gamma:0.69", gestalt)
+        self.assertIn("Cn:0.593", gestalt)
 
     def test_decay_and_lti_math(self):
         path = self.stack([FREE])
@@ -193,8 +193,8 @@ class GoalKernelTests(unittest.TestCase):
             fh.write(json.dumps({"kind": "outbound", "text": "b\n" + new9}) + "\n")
         goals.kernel_pass(path, log)
         view = goals.goals_view(path)
-        self.assertIn("(mood Cn:0.53", view)            # 0.9*.5+0.1*.8
-        self.assertIn("Sp:0.08", view)                  # 0.9*0 +0.1*.8
+        self.assertIn("(mood Cn:0.593", view)           # 0.69*.5+0.31*.8
+        self.assertIn("Sp:0.248", view)                 # 0.69*0 +0.31*.8
 
 
 if __name__ == "__main__":
