@@ -95,15 +95,19 @@ def expect_turn(mode="unknown", budget=None, now=None):
 
 
 def turn_started(provider="unknown", now=None):
-    """Record entry into a provider call, defensively creating an obligation."""
+    """Record the start of the current provider call.
+
+    A persisted obligation may predate a process restart or a failed attempt.
+    Once a real provider call begins, its own start is the relevant age for a
+    hung-call check.
+    """
     now = _stamp(now)
     try:
         with _lock:
             value = _read()
-            if not float(value.get("pending_since", 0) or 0):
-                value["pending_since"] = now
             value.update({
                 "schema": 1,
+                "pending_since": now,
                 "last_started_at": now,
                 "started_count": int(value.get("started_count", 0)) + 1,
                 "provider": _label(provider),

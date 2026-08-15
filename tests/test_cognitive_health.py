@@ -40,6 +40,13 @@ class CognitiveHealthTest(unittest.TestCase):
         self.assertEqual(value["budget_at_start"], 50)
         self.assertEqual(value["mode"], "agent")
 
+    def test_provider_start_replaces_an_abandoned_obligation_age(self):
+        cognitive_health.expect_turn("agent", budget=50, now=100)
+        cognitive_health.turn_started("synthetic", now=250)
+        value = self.state()
+        self.assertEqual(value["pending_since"], 250)
+        self.assertEqual(value["last_started_at"], 250)
+
     def test_completion_discharges_obligation_without_content(self):
         cognitive_health.expect_turn("generic", now=100)
         cognitive_health.turn_started("synthetic", now=101)
