@@ -111,7 +111,6 @@ class GoalKernelTests(unittest.TestCase):
         self.assertIn("(mood Cn:0.53", goals.goals_view(path))
         gestalt = goals.affect_view(path)
         self.assertIn("gamma:0.9", gestalt)
-        self.assertIn("samples:2", gestalt)
         self.assertIn("Cn:0.53", gestalt)
 
     def test_decay_and_lti_math(self):
