@@ -34,6 +34,12 @@ class CognitiveHealthTest(unittest.TestCase):
         self.assertEqual(value["last_expected_at"], 200)
         self.assertEqual(value["expected_count"], 2)
 
+    def test_expectation_records_the_budget_visible_at_turn_start(self):
+        cognitive_health.expect_turn("agent", budget=50, now=100)
+        value = self.state()
+        self.assertEqual(value["budget_at_start"], 50)
+        self.assertEqual(value["mode"], "agent")
+
     def test_completion_discharges_obligation_without_content(self):
         cognitive_health.expect_turn("generic", now=100)
         cognitive_health.turn_started("synthetic", now=101)

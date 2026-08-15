@@ -75,6 +75,69 @@ class CommandDispatchEngineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             self.assertEqual(effect.read_text(encoding="utf-8"),
                              "effect-once\n")
+            self.assertIn("COMMAND_RETURN:", result.stdout)
+            self.assertNotRegex(result.stdout, r"\$V[0-9]+")
+
+    def test_cetta_grounds_every_record_in_a_mixed_command_batch(self):
+        petta = self._petta_root()
+        cetta = self._cetta_binary()
+        if not cetta.is_file() or not (petta / "lib" / "lib_import.metta").is_file():
+            self.skipTest("CeTTa/PeTTa checkouts are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            directory = pathlib.Path(directory)
+            effect = directory / "effect.log"
+            probe = directory / "probe.metta"
+            command = "printf 'effect-once\\n' >> %s" % shlex.quote(
+                os.fspath(effect))
+            probe.write_text(
+                "!(println! (run-command-batch-once 424243 (quote ("
+                "(py-call (str \"agent — a complete Unicode message\")) "
+                "(shell %s) "
+                "(py-call (str \"second complete result\"))"
+                "))))\n" % json.dumps(command),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [os.fspath(cetta), "--lang", "petta", "--import-mode",
+                 "ancestor-walk", os.fspath(petta / "lib" / "lib_import.metta"),
+                 os.fspath(ROOT / "src" / "skills.metta"), os.fspath(probe)],
+                cwd=ROOT, env=self._cetta_env(), stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertEqual(effect.read_text(encoding="utf-8"),
+                             "effect-once\n")
+            self.assertEqual(result.stdout.count("COMMAND_RETURN:"), 3,
+                             result.stdout)
+            self.assertIn("agent — a complete Unicode message", result.stdout)
+            self.assertIn("second complete result", result.stdout)
+            self.assertNotRegex(result.stdout, r"\$V[0-9]+")
+
+    def test_cetta_preserves_a_multiline_unicode_send_payload(self):
+        petta = self._petta_root()
+        cetta = self._cetta_binary()
+        if not cetta.is_file() or not (petta / "lib" / "lib_import.metta").is_file():
+            self.skipTest("CeTTa/PeTTa checkouts are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            directory = pathlib.Path(directory)
+            probe = directory / "probe.metta"
+            payload = "agent — first complete line\n⋄⟨Cn:.9 Sp:.4⟩"
+            probe.write_text(
+                "!(println! (REPLACED (string-replace %s \"\\n\" \"\\\\n\")))\n"
+                % json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [os.fspath(cetta), "--lang", "petta", "--import-mode",
+                 "ancestor-walk", os.fspath(petta / "lib" / "lib_import.metta"),
+                 os.fspath(ROOT / "src" / "utils.metta"), os.fspath(probe)],
+                cwd=ROOT, env=self._cetta_env(), stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertIn("agent — first complete line", result.stdout)
+            self.assertIn("⋄⟨Cn:.9 Sp:.4⟩", result.stdout)
+            self.assertNotRegex(result.stdout, r"\$V[0-9]+")
 
     def test_petta_runs_timed_continuation_once(self):
         petta = self._petta_root()
