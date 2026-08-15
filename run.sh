@@ -184,6 +184,9 @@ case "$METTACLAW_ENGINE" in
             "$ROOT/src/utils.metta" \
             "$ROOT/config/channel.metta" \
             "$ROOT/src/channels.metta" \
+            "$ROOT/src/weak_process_core.metta" \
+            "$ROOT/src/open_assemblage.metta" \
+            "$ROOT/src/loop_policy.metta" \
             "$ROOT/src/skills.metta" \
             "$ROOT/src/memory.metta" \
             "$ROOT/src/attention_graph.metta" \

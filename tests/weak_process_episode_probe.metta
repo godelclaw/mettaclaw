@@ -1,0 +1,18 @@
+!(import! &self (library lib_import))
+!(import! &self (library lib_he))
+!(import! &self ./lib_mettaclaw)
+
+;; One real policy episode through the production MeTTa loop, with only the
+;; model observation replaced by a deterministic no-command reply.
+!(py-eval "__import__('synthetic_llm').__dict__.__setitem__('chat', lambda *args: '()')")
+!(initMemory)
+!(configure commchannel telegram)
+!(let* (($before (initLoop))
+         ($outcome (agentProcess (process-periphery $before)))
+         ($after (process-step $before $outcome))
+         ($_ (assertEqual (process-root $after) weak-process-core-v1))
+         ($_ (assertEqual (loop-iteration (process-periphery $after)) 2))
+         ($_ (assertEqual (loop-budget (process-periphery $after)) 50))
+         ($_ (assertEqual
+               (loop-active-policy (process-periphery $after)) agent)))
+     (println! WEAK_PROCESS_EPISODE_OK))

@@ -26,6 +26,8 @@ class ConfigPrivacyTest(unittest.TestCase):
         self.assertIn(
             "METTACLAW_TELEGRAM_LOG_PATH='/tmp/pettaclaw-state/test-claw/telegram/updates.jsonl'",
             result.stdout)
+        self.assertIn("CETTA_ROOT='", result.stdout)
+        self.assertIn("/repos/CeTTa'", result.stdout)
         self.assertNotIn(str(ROOT / "telegram_offset.txt"), result.stdout)
         self.assertNotIn(str(ROOT / "telegram_updates.jsonl"), result.stdout)
 
