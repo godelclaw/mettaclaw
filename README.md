@@ -110,6 +110,26 @@ set -a; . .env; . config/secrets.env; set +a
 "$PETTA_ROOT/run.sh" run.metta default
 ```
 
+**Weak process-core experiment**
+
+This branch also contains a small executable semantics for hosting Agent,
+Iter, and Coding policy adapters without putting their feature vocabularies in
+the kernel. The kernel in `src/three_policy_core.metta` has two outcomes: a
+successful process may replace the whole plastic periphery, while failure
+leaves the previous state unchanged. The protected root is never supplied by a
+candidate process. `src/three_policy_fusion.metta` is a replaceable adapter
+which represents the three policy states and selection inside that periphery.
+
+Run the mixed-trace, failure, root-preservation, projection, selection, and
+commutation checks with:
+
+```
+./run.sh tests/three_policy_core.metta
+```
+
+The corresponding Lean model and trace-refinement theorem are in
+[`ThreePolicyFusion.lean`](https://github.com/godelclaw/MeTTapedia/blob/formal/verified-frontier/lean/pettaclaw/ThreePolicyFusion.lean).
+
 **Illustrations**
 
 Long-Term Memory Recall:
