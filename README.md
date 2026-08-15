@@ -119,12 +119,20 @@ successful process may replace the whole plastic periphery, while failure
 leaves the previous state unchanged. The protected root is never supplied by a
 candidate process. `src/three_policy_fusion.metta` is a replaceable adapter
 which represents the three policy states and selection inside that periphery.
+`src/three_policy_process_host.metta` optionally invokes a dynamic Python
+process through `src/process_host.py`. The child receives only serialized
+periphery, while success, exception, missing code, malformed output, and
+timeout return through the same two-outcome boundary. This is failure
+isolation, not an operating-system security sandbox.
 
 Run the mixed-trace, failure, root-preservation, projection, selection, and
 commutation checks with:
 
 ```
 ./run.sh tests/three_policy_core.metta
+./run.sh tests/three_policy_process_host.metta
+./run.sh tests/three_policy_isolated_cycle.metta
+python3 -m unittest tests.test_process_host
 ```
 
 The corresponding Lean model and trace-refinement theorem are in
