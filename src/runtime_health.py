@@ -162,10 +162,13 @@ def activity_report(now=None):
     import engine_modes
     import loop_modes
     import synthetic_llm
+    import telegram
     mode_state = _read_json(os.environ.get(
         "METTACLAW_LOOP_MODE_PATH", "memory/loop_mode.json"))
     paused = bool(mode_state.get("autonomy_paused", False))
     continuation = bool(working.get("continuation_pending"))
+    actually_resting, rest_left = telegram.rest_status()
+    rest_intent = str(working.get("intent", "") or "").strip()
     if pending_age is not None:
         state = "working"
         wake = "now"
@@ -184,9 +187,9 @@ def activity_report(now=None):
         wake = "timer-or-human"
         steps = loops
         steps_source = "checkpoint"
-    elif paused:
+    elif actually_resting or paused:
         state = "resting"
-        wake = "human"
+        wake = "timer-or-human" if actually_resting else "human"
         steps = loops
         steps_source = "checkpoint"
     else:
@@ -198,10 +201,15 @@ def activity_report(now=None):
     turn = ("pending:%s" % age(pending_age)
             if pending_age is not None
             else "completed:%s-ago" % age(turn_age))
+    rest = ("%ss-left" % rest_left if actually_resting
+            else ("until-human" if paused else "none"))
+    if rest_intent:
+        rest += ":" + " ".join(rest_intent.split())[:120]
     return (
         "activity: {state} | steps={steps}@{steps_source} | mode={mode} | "
         "engine={engine} | model={model} | wake={wake} | "
-        "continuation={continuation} | checkpoint-age={checkpoint} | "
+        "rest={rest} | continuation={continuation} | "
+        "checkpoint-age={checkpoint} | "
         "turn={turn} | last-outcome={outcome}"
     ).format(
         state=state, steps=steps, steps_source=steps_source,
@@ -209,6 +217,7 @@ def activity_report(now=None):
         engine=engine_modes.active_engine(),
         model=synthetic_llm.current_model(),
         wake=wake,
+        rest=rest,
         continuation=("pending" if continuation else "none"),
         checkpoint=age(checkpoint_age), turn=turn,
         outcome=cognition.get("last_outcome", "none"),

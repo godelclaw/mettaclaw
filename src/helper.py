@@ -271,3 +271,39 @@ def history_window(path, max_chars=45000, keep_chars=25000):
     except OSError as exc:
         print(f"[helper] history_window error: {exc}")
         return ""
+
+
+def history_append(addition):
+    """Append one internal turn to the configured conversation transcript.
+
+    This deliberately does not share the public ``append-file`` skill.  That
+    skill may stage protected source mutations; the runtime journal is an
+    observation sink, not a self-modification request.  The destination is
+    fixed by deployment configuration, so callers cannot turn this helper
+    into general file access.
+    """
+    path = os.environ.get("METTACLAW_HISTORY_PATH", "./memory/history.metta")
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        payload = normalize_string(addition)
+        if not payload.endswith("\n"):
+            payload += "\n"
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+                             0o600)
+        try:
+            with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise
+        return 1
+    except Exception as exc:
+        print("[helper] history append error:", type(exc).__name__)
+        return 0

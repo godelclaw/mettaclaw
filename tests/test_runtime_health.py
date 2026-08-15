@@ -169,6 +169,7 @@ class RuntimeHealthTest(unittest.TestCase):
         self.assertIn("activity: idle", report)
         self.assertIn("wake=human-or-heartbeat", report)
         self.assertNotIn("rest-left", report)
+        self.assertIn("rest=none", report)
 
     def test_pending_turn_reports_armed_budget_not_stale_checkpoint(self):
         self.write(self.working, {
@@ -219,6 +220,26 @@ class RuntimeHealthTest(unittest.TestCase):
             report = runtime_health.activity_report(now=1000)
         self.assertIn("activity: resting", report)
         self.assertIn("wake=human", report)
+        self.assertIn("rest=until-human", report)
+
+    def test_active_timed_rest_reports_real_remaining_time(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+            "intent": "quiet integration",
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 995, "pending_since": 0,
+            "last_outcome": "completed",
+        })
+        self.write(self.mode, {"mode": "agent", "autonomy_paused": True})
+        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"), \
+             mock.patch("telegram.rest_status", return_value=(True, 417)):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: resting", report)
+        self.assertIn("wake=timer-or-human", report)
+        self.assertIn("rest=417s-left:quiet integration", report)
 
 
 if __name__ == "__main__":

@@ -247,8 +247,10 @@ def kernel_pass(goals_path=None, log_path=None):
             have_mood = bool(state.get("mood"))
             lp = str(log_path or os.environ.get("METTACLAW_TELEGRAM_LOG_PATH", ""))
             offset = int(state.get("log_offset", 0))
+            affect_samples = int(state.get("affect_samples", 0))
             if lp:
                 samples, offset = _mood_samples(lp, offset)
+                affect_samples += len(samples)
                 for s in samples:
                     if not have_mood:
                         mood = {d: s.get(d, 0.0) for d in MOOD_DIMS}
@@ -260,6 +262,7 @@ def kernel_pass(goals_path=None, log_path=None):
             _write_lines(path, _emit(goals, flags, budget, other,
                                      mood if have_mood else None))
             state = {"streaks": streaks, "log_offset": offset,
+                     "affect_samples": affect_samples,
                      "mood": mood if have_mood else {}}
             with open(_kernel_path(path) + ".tmp", "w", encoding="utf-8") as fh:
                 json.dump(state, fh)
@@ -278,6 +281,20 @@ def goals_view(goals_path=None):
     if not lines:
         return "(no goals yet — add one with (goal-write ...))"
     return "\n".join(lines)
+
+
+def affect_view(goals_path=None):
+    """Read the persisted discounted affect gestalt without advancing it."""
+    path = _goals_path(goals_path)
+    state = _load_kernel_state(_kernel_path(path))
+    mood = state.get("mood") or {}
+    if not mood:
+        return "gamma:%s samples:0 (no affect observations yet)" % _r(GAMMA)
+    return "gamma:%s samples:%s %s" % (
+        _r(GAMMA), int(state.get("affect_samples", 0)),
+        " ".join("%s:%s" % (d, _r(float(mood.get(d, 0.0))))
+                 for d in MOOD_DIMS),
+    )
 
 
 def attention_view(goals_path=None):

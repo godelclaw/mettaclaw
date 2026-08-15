@@ -146,6 +146,22 @@ class SlashCommandTest(unittest.TestCase):
         self.assertFalse(telegram._wake_event.is_set())
         self.assertEqual(self.sent[-1][1], "activity: idle")
 
+    def test_control_worker_preserves_command_order(self):
+        observed = []
+        with mock.patch.object(
+                telegram, "_handle_slash_command",
+                side_effect=lambda chat, sender, text: observed.append(text)):
+            telegram._enqueue_slash_command(self.chat, self.operator,
+                                             "/activity one")
+            telegram._enqueue_slash_command(self.chat, self.operator,
+                                             "/activity two")
+            telegram._enqueue_slash_command(self.chat, self.operator,
+                                             "/activity three")
+            telegram._control_queue.join()
+        self.assertEqual(observed, [
+            "/activity one", "/activity two", "/activity three",
+        ])
+
     def test_model_bare_shows_current(self):
         self.assertEqual(self.handle("/model"), "slash_command:/model")
         self.assertIn("syn:large:text", self.sent[-1][1])
@@ -344,14 +360,6 @@ class SlashCommandTest(unittest.TestCase):
         response.raise_for_status.return_value = None
         response.json.return_value = {"result": [update]}
 
-        class ImmediateThread:
-            def __init__(self, target, args=(), daemon=None):
-                self.target = target
-                self.args = args
-
-            def start(self):
-                self.target(*self.args)
-
         def one_poll(*args, **kwargs):
             telegram._running = False
             return response
@@ -369,13 +377,12 @@ class SlashCommandTest(unittest.TestCase):
                  mock.patch.object(telegram, "_save_offset"), \
                  mock.patch.object(telegram, "_set_last") as queued, \
                  mock.patch.object(telegram, "_maybe_rest_notice") as notice, \
-                 mock.patch.object(telegram, "_handle_slash_command") as handle, \
-                 mock.patch.object(threading, "Thread", ImmediateThread):
+                 mock.patch.object(telegram, "_enqueue_slash_command") as enqueue:
                 telegram._poll_loop()
         finally:
             telegram._running = False
 
-        handle.assert_called_once_with(
+        enqueue.assert_called_once_with(
             update["message"]["chat"], self.operator, "/wake")
         notice.assert_not_called()
         queued.assert_not_called()

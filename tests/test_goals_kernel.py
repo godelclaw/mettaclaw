@@ -109,6 +109,10 @@ class GoalKernelTests(unittest.TestCase):
         goals.kernel_pass(path, log)
         # 0.9*0.5 + 0.1*0.8 = 0.53 per dimension
         self.assertIn("(mood Cn:0.53", goals.goals_view(path))
+        gestalt = goals.affect_view(path)
+        self.assertIn("gamma:0.9", gestalt)
+        self.assertIn("samples:2", gestalt)
+        self.assertIn("Cn:0.53", gestalt)
 
     def test_decay_and_lti_math(self):
         path = self.stack([FREE])

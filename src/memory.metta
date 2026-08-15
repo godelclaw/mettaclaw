@@ -29,7 +29,7 @@
            (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
 
 (= (appendToHistory $addition)
-   (append-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")) (swrite $addition)))
+   (py-call (helper.history_append (swrite $addition))))
 
 ;; Guarded: a dead embed daemon returns an instructive string result
 ;; ("do not infer absence") instead of a generic command error.

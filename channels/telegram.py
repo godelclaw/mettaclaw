@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import queue
 import subprocess
 import tempfile
 import re
@@ -20,10 +21,12 @@ _last_message_is_human = False
 _last_from_bot = False
 _last_arm_tier = "full"
 _pending_messages = []
+_context_frontier_bytes = None
+_current_batch_update_ids = set()
 _offset = None
 _offset_path = ""
 _log_path = ""
-_msg_lock = threading.Lock()
+_msg_lock = threading.RLock()
 _log_lock = threading.Lock()
 _energy_lock = threading.RLock()
 _chat_titles = {}  # chat_id -> last-seen display title (for outbound records)
@@ -40,6 +43,9 @@ _health_last_write = 0.0
 _effect_lock = threading.RLock()
 _effect_turn = None
 _effect_sends = set()
+_control_queue = queue.Queue()
+_control_worker = None
+_control_worker_lock = threading.Lock()
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/engine", "/engines",
@@ -550,12 +556,13 @@ def energy_set(who, tier):
                 if ok else "energy-set failed: could not persist")
 
 
-def _set_last(chat_id, text, from_bot=False, arm_tier="full"):
+def _set_last(chat_id, text, from_bot=False, arm_tier="full", update_id=None):
     global _last_chat_id
     with _msg_lock:
         _last_chat_id = str(chat_id)
         _pending_messages.append(
-            (_last_chat_id, str(text), bool(from_bot), str(arm_tier)))
+            (_last_chat_id, str(text), bool(from_bot), str(arm_tier),
+             update_id))
         del _pending_messages[:-50]
 
 
@@ -575,8 +582,10 @@ def getLastMessage():
             from_bot = False
         elif len(item) == 3:
             _reply_chat_id, msg, from_bot = item
-        else:
+        elif len(item) == 4:
             _reply_chat_id, msg, from_bot, tier = item
+        else:
+            _reply_chat_id, msg, from_bot, tier, _update_id = item
         _last_from_bot = bool(from_bot)
         _last_message_is_human = not _last_from_bot
         _last_arm_tier = str(tier) if _last_message_is_human else "full"
@@ -591,14 +600,28 @@ def getActivityBatch():
     Reply routing and energy accounting follow the NEWEST HUMAN message when
     present (existing tier machinery, unchanged), else the newest message."""
     global _reply_chat_id, _last_message_is_human, _last_from_bot
-    global _last_arm_tier
+    global _last_arm_tier, _context_frontier_bytes
+    global _current_batch_update_ids
     with _msg_lock:
         if not _pending_messages:
             _last_message_is_human = False
             _last_arm_tier = "full"
+            _current_batch_update_ids = set()
+            with _log_lock:
+                _context_frontier_bytes = (
+                    os.path.getsize(_log_path)
+                    if _log_path and os.path.exists(_log_path) else 0)
             return ""
         items = _pending_messages[:]
         del _pending_messages[:]
+        # This is the causal frontier for the turn.  The poller records and
+        # queues an inbound message while holding the same lock, so activity
+        # arriving after this point cannot leak into the prompt early.
+        with _log_lock:
+            _context_frontier_bytes = (
+                os.path.getsize(_log_path)
+                if _log_path and os.path.exists(_log_path) else 0)
+        _current_batch_update_ids = set()
     texts = []
     newest_human = None
     newest = None
@@ -609,12 +632,19 @@ def getActivityBatch():
             from_bot = False
         elif len(item) == 3:
             chat, msg, from_bot = item
-        else:
+        elif len(item) == 4:
             chat, msg, from_bot, tier = item
+            update_id = None
+        else:
+            chat, msg, from_bot, tier, update_id = item
+        if len(item) < 4:
+            update_id = None
         texts.append(str(msg))
         newest = (chat, from_bot, tier)
         if not from_bot:
             newest_human = (chat, from_bot, tier)
+        if update_id is not None:
+            _current_batch_update_ids.add(str(update_id))
     pick = newest_human or newest
     _reply_chat_id = str(pick[0])
     _last_from_bot = bool(pick[1])
@@ -713,6 +743,98 @@ def recent_activity(n=10, chat=None, snippet_chars=110):
     except Exception as exc:
         print("[telegram] recent_activity error:", exc)
         return ""
+
+
+_CONTROL_REPLY_PREFIXES = (
+    "activity:", "runtime-health:", "active engine:", "active model:",
+    "active mode:", "arming energy", "model set to ", "mode set to ",
+    "engine set to ", "tap to switch:",
+)
+
+
+def conversation_window(max_chars=30000, max_events=48,
+                        max_event_chars=6000):
+    """Render a causal, role-preserving window from the append-only ledger.
+
+    The update log is the source of truth.  ``getActivityBatch`` fixes a byte
+    frontier before the model prompt is assembled and records the update ids
+    drained for this turn.  Records beyond that frontier are future input;
+    drained records are supplied exactly once as NEW_ACTIVITY instead.
+    Deterministic slash-command chatter remains auditable in the ledger but is
+    not conversation.
+    """
+    try:
+        limit = max(1000, int(max_chars))
+        event_limit = max(1, int(max_events))
+        item_limit = max(200, int(max_event_chars))
+        if not _log_path or not os.path.exists(_log_path):
+            return "(no prior conversation events)"
+        with _msg_lock:
+            frontier = _context_frontier_bytes
+            excluded = set(_current_batch_update_ids)
+        with _log_lock:
+            size = os.path.getsize(_log_path)
+            end = size if frontier is None else min(size, int(frontier))
+            # A bounded tail avoids re-reading a multi-megabyte audit ledger.
+            start = max(0, end - max(524288, limit * 8))
+            with open(_log_path, "rb") as stream:
+                stream.seek(start)
+                data = stream.read(end - start)
+        if start:
+            newline = data.find(b"\n")
+            data = data[newline + 1:] if newline >= 0 else b""
+
+        rendered = []
+        for raw in data.decode("utf-8", "replace").splitlines():
+            try:
+                rec = json.loads(raw)
+            except ValueError:
+                continue
+            text_value = rec.get("text") or rec.get("caption")
+            if not rec.get("allowed") or not text_value:
+                continue
+            kind = str(rec.get("kind", ""))
+            note = str(rec.get("note", ""))
+            update_id = rec.get("update_id")
+            if update_id is not None and str(update_id) in excluded:
+                continue
+            if (note.startswith("slash_command:")
+                    or note.startswith("slash_command_other_bot:")
+                    or kind in ("callback_query", "outbound_delete")):
+                continue
+            text_value = str(text_value).strip()
+            if (kind == "outbound"
+                    and text_value.lower().startswith(_CONTROL_REPLY_PREFIXES)):
+                continue
+            if len(text_value) > item_limit:
+                text_value = text_value[:item_limit - 1] + "…"
+            stamp = str(rec.get("received_at", ""))
+            who = "GODEL" if kind == "outbound" else str(
+                rec.get("from") or "unknown")
+            direction = "OUT" if kind == "outbound" else "IN"
+            chat = str(rec.get("chat_title") or rec.get("chat_id") or "?")
+            message_id = rec.get("message_id")
+            header = "[%s %s %s chat=%s" % (stamp, direction, who, chat)
+            if message_id is not None:
+                header += " message_id=%s" % message_id
+            rendered.append(header + "]\n" + text_value)
+
+        chosen = []
+        used = 0
+        for event in reversed(rendered):
+            cost = len(event) + (2 if chosen else 0)
+            if chosen and (len(chosen) >= event_limit or used + cost > limit):
+                break
+            if not chosen and cost > limit:
+                event = event[-limit:]
+                cost = len(event)
+            chosen.append(event)
+            used += cost
+        chosen.reverse()
+        return "\n\n".join(chosen) or "(no prior conversation events)"
+    except Exception as exc:
+        print("[telegram] conversation window error:", type(exc).__name__)
+        return "(conversation window unavailable)"
 
 
 def _operator_ids():
@@ -1111,6 +1233,32 @@ def _handle_slash_command(chat, sender, text):
         return "slash_command_error:" + cmd
 
 
+def _control_worker_loop():
+    while True:
+        chat, sender, text = _control_queue.get()
+        try:
+            _handle_slash_command(chat, sender, text)
+        except Exception as exc:
+            print("[telegram] control worker error:", type(exc).__name__)
+        finally:
+            _control_queue.task_done()
+
+
+def _enqueue_slash_command(chat, sender, text):
+    """Keep zero-token controls off the poll thread while preserving order."""
+    global _control_worker
+    with _control_worker_lock:
+        if _control_worker is None or not _control_worker.is_alive():
+            _control_worker = threading.Thread(
+                target=_control_worker_loop,
+                name="telegram-control-worker",
+                daemon=True,
+            )
+            _control_worker.start()
+    _control_queue.put((chat, sender, text))
+    return 1
+
+
 def _poll_loop():
     global _offset
     while _running:
@@ -1179,10 +1327,8 @@ def _poll_loop():
                                 # a slow provider call must not stall polling
                                 # for every other message behind it.
                                 note = command_note
-                                threading.Thread(
-                                    target=_handle_slash_command,
-                                    args=(chat, message.get("from"), text),
-                                    daemon=True).start()
+                                _enqueue_slash_command(
+                                    chat, message.get("from"), text)
                             else:
                                 # Only ordinary messages are queued. Slash
                                 # commands execute immediately, so claiming
@@ -1191,19 +1337,31 @@ def _poll_loop():
                                 if not _wake_for_operator_message(sender):
                                     _maybe_rest_notice(chat, sender)
                                 queued = True
-                if not _append_update_log(update, kind, message, allowed, queued, note):
-                    print("[telegram] continuing after update log failure")
-                _offset = update_id + 1
-                _save_offset()
+                # Ordinary inbound activity is logged and queued under the
+                # same lock used to freeze a model turn's causal frontier.
+                # Without this pairing a newly logged message could leak into
+                # one prompt before it had actually been drained for that
+                # turn, then appear again as NEW_ACTIVITY on the next turn.
                 if queued:
                     chat = message.get("chat") or {}
                     sender = message.get("from") or {}
-                    _set_last(
-                        chat.get("id", ""),
-                        _format_message(update, kind, message, text),
-                        bool(sender.get("is_bot")),
-                        _tier_for_sender(sender),
-                    )
+                    with _msg_lock:
+                        logged = _append_update_log(
+                            update, kind, message, allowed, queued, note)
+                        _set_last(
+                            chat.get("id", ""),
+                            _format_message(update, kind, message, text),
+                            bool(sender.get("is_bot")),
+                            _tier_for_sender(sender),
+                            update_id=update_id,
+                        )
+                else:
+                    logged = _append_update_log(
+                        update, kind, message, allowed, queued, note)
+                if not logged:
+                    print("[telegram] continuing after update log failure")
+                _offset = update_id + 1
+                _save_offset()
         except Exception as exc:
             _health_update(force=True, poll_status="error",
                            last_poll_error_at=time.time(),
