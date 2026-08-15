@@ -51,10 +51,10 @@ shell(Cmd, Out) :-
 
 first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
 
-%% External commands live on the deterministic side of the MeTTa/Prolog
-%% boundary.  The non-backtrackable turn cache is the commitment record: if
-%% the surrounding MeTTa reduction revisits this call, return the first result
-%% without performing any command again.
+%% Commands cross the MeTTa -> Prolog boundary under an explicit quote.  The
+%% quote keeps them inert until this deterministic dispatcher evaluates each
+%% item once.  The turn cache also makes reduction retries observationally
+%% silent.
 'run-command-batch-once'(Turn, Commands, Records) :-
     ( nb_current(mettaclaw_command_batch_cache,
                  command_batch(CachedTurn, CachedCommands,
@@ -72,7 +72,8 @@ first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
 
 'command-batch-errors'(Turn, Errors) :-
     ( nb_current(mettaclaw_command_batch_cache,
-                 command_batch(CachedTurn, _Commands, _Records, CachedErrors)),
+                 command_batch(CachedTurn, _Commands, _Records,
+                               CachedErrors)),
       CachedTurn == Turn
     -> copy_term(CachedErrors, Errors)
     ; Errors = []

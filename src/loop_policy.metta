@@ -25,6 +25,8 @@
    (coordinate-get-or active-policy agent $periphery))
 (= (loop-autonomous-ready $periphery)
    (coordinate-get-or autonomous-ready 0 $periphery))
+(= (loop-pending-continuation $periphery)
+   (coordinate-get-or pending-continuation no-continuation $periphery))
 
 ;; Four-coordinate source records.  Adding a mode adds one equation here;
 ;; neither the generic policy functions nor the process core changes.

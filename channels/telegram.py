@@ -43,7 +43,7 @@ _effect_sends = set()
 
 _CONTROL_COMMANDS = (
     "/model", "/models", "/mode", "/modes", "/engine", "/engines",
-    "/quota", "/wake", "/energy", "/health",
+    "/quota", "/wake", "/energy", "/health", "/activity",
     "/claude_code_authorization",
 )
 
@@ -56,6 +56,7 @@ _MENU_COMMANDS = (
     ("models", "List language models"),
     ("energy", "Show per-sender arming energy"),
     ("health", "Show runtime, channel, and memory health"),
+    ("activity", "Show whether cognition is working, resting, or idle"),
     ("quota", "Show model budget"),
     ("wake", "End the current rest"),
 )
@@ -1043,6 +1044,11 @@ def _handle_slash_command(chat, sender, text):
             send_message_to_chat(str(chat.get("id", "")),
                                  runtime_health.report())
             return "slash_command:/health"
+        if cmd == "/activity":
+            import runtime_health
+            send_message_to_chat(str(chat.get("id", "")),
+                                 runtime_health.activity_report())
+            return "slash_command:/activity"
         if cmd in ("/engine", "/engines"):
             import engine_modes
             if cmd == "/engines":

@@ -10,6 +10,7 @@
     "- Rest now, ending this burst until the next human message: (rest)"
     "- Rest now and poll more slowly while idle: (rest seconds)"
     "- Rest with a stated intention shown at your next waking: (rest seconds \"why\")"
+    "- Rest, then run one quoted command without another model call: (rest seconds (quote (command ...)))"
     "- Finish this fast burst without suspending autonomous renewal: (nop)"
     "- Inspect/select the persistent cognitive loop policy: (mode) | (modes) | (mode-set \"name\")"
     ;SHELL AND FILE I/O:
@@ -81,6 +82,7 @@
 (= (rest)
    (progn (py-call (loop_modes.pause_autonomy))
           (loop-directive-set loops 0)
+          (loop-directive-set pending-continuation (quote no-continuation))
           (RESTING loops-left 0)))
 
 (= (rest $seconds)
@@ -90,17 +92,35 @@
         (progn (py-call (loop_modes.pause_autonomy))
                (loop-directive-set loops 0)
                (loop-directive-set sleep-interval $n)
+               (loop-directive-set pending-continuation
+                                   (quote no-continuation))
                (RESTING loops-left 0 sleep-interval-seconds $n))))
 
-(= (rest $seconds $why)
-   ;; Rest with a stated intention: the why survives every boundary and
-   ;; greets the next waking (WOKE_FROM_REST), and tells anyone thinking
-   ;; who wakes the agent what the rest is for.
+(= (rest $seconds (quote $continuation))
+   ;; The opaque constructor keeps the command inert when it is read from the
+   ;; generic coordinate store.  The wait adapter is the sole consumer that
+   ;; unwraps it after the timer expires.
    (let $n (max 1 (py-call (int $seconds)))
         (progn (py-call (loop_modes.pause_autonomy))
                (loop-directive-set loops 0)
                (loop-directive-set sleep-interval $n)
-               (py-call (helper.intent_save (py-call (helper.decode_safe_text $why))))
+               (loop-directive-set pending-continuation
+                                   (continuation-value $continuation))
+               (RESTING loops-left 0
+                        sleep-interval-seconds $n
+                        continuation (quote $continuation)))))
+
+(= (rest $seconds $why)
+   ;; Preserve the original intention-bearing rest.  Unlike a quoted command,
+   ;; text is context for the next waking rather than executable data.
+   (let $n (max 1 (py-call (int $seconds)))
+        (progn (py-call (loop_modes.pause_autonomy))
+               (loop-directive-set loops 0)
+               (loop-directive-set sleep-interval $n)
+               (loop-directive-set pending-continuation
+                                   (quote no-continuation))
+               (py-call (helper.intent_save
+                          (py-call (helper.decode_safe_text $why))))
                (RESTING loops-left 0
                         sleep-interval-seconds $n
                         intent (py-call (helper.decode_safe_text $why))))))

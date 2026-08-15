@@ -70,7 +70,7 @@ def status(now=None):
     except (TypeError, ValueError):
         loops = 0
     active_mode = str(mode.get("mode", "default")).strip().lower()
-    autonomous = (active_mode == "claw23"
+    autonomous = (active_mode in ("iter", "claw23")
                   and not bool(mode.get("autonomy_paused", False)))
     cognition_required = bool(pending_at or loops > 0 or autonomous)
     stale_after = _positive_seconds(
@@ -135,6 +135,55 @@ def report():
         pending=value["model_turn_pending_age_seconds"],
         memories=value["memories"], behind=value["memory_index_behind"],
         threshold=value["memory_flush_threshold"], problems=problems,
+    )
+
+
+def activity_report(now=None):
+    """Human-facing cognitive activity, derived from existing receipts.
+
+    This is observation only: it does not wake the loop, alter its budget, or
+    infer whether the current work is semantically good.
+    """
+    now = time.time() if now is None else float(now)
+    working = _read_json(os.environ.get(
+        "METTACLAW_WORKING_SET_PATH", "memory/working_set.json"))
+    cognition = cognitive_health.snapshot()
+    try:
+        loops = max(0, int(working.get("loops", 0) or 0))
+    except (TypeError, ValueError):
+        loops = 0
+    saved_at = float(working.get("saved_at", 0) or 0)
+    completed_at = float(cognition.get("last_completed_at", 0) or 0)
+    pending_at = float(cognition.get("pending_since", 0) or 0)
+    boundary_age = None if not saved_at else max(0, int(now - saved_at))
+    turn_age = None if not completed_at else max(0, int(now - completed_at))
+    pending_age = None if not pending_at else max(0, int(now - pending_at))
+
+    import engine_modes
+    import loop_modes
+    import synthetic_llm
+    import telegram
+
+    resting, rest_left = telegram.rest_status()
+    state = "resting" if resting else (
+        "working" if loops > 0 or pending_age is not None else "idle")
+    age = lambda value: "never" if value is None else "%ss" % value
+    return (
+        "activity: {state} | loops-left={loops} | mode={mode} | "
+        "engine={engine} | model={model} | rest-left={rest}s | "
+        "continuation={continuation} | boundary-age={boundary} | "
+        "model-turn-age={turn} | model-turn-pending={pending} | "
+        "last-outcome={outcome}"
+    ).format(
+        state=state, loops=loops, mode=loop_modes.current_mode(),
+        engine=engine_modes.active_engine(),
+        model=synthetic_llm.current_model(),
+        rest=rest_left if resting else 0,
+        continuation=("pending" if working.get("continuation_pending")
+                      else "none"),
+        boundary=age(boundary_age), turn=age(turn_age),
+        pending=age(pending_age),
+        outcome=cognition.get("last_outcome", "none"),
     )
 
 

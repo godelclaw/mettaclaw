@@ -9,6 +9,7 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "channels"))
 import runtime_health  # noqa: E402
 
 
@@ -134,6 +135,24 @@ class RuntimeHealthTest(unittest.TestCase):
             value = runtime_health.status(now=1000)
         self.assertFalse(value["cognition_required"])
         self.assertNotIn("model-turn-receipt-missing", value["problems"])
+
+    def test_activity_reports_existing_receipts_without_control(self):
+        self.write(self.working, {
+            "saved_at": 990, "loops": 12, "continuation_pending": True,
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 995, "pending_since": 0,
+            "last_outcome": "completed",
+        })
+        with mock.patch("telegram.rest_status", return_value=(False, 0)), \
+             mock.patch("loop_modes.current_mode", return_value="agent"), \
+             mock.patch("engine_modes.active_engine", return_value="cetta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: working", report)
+        self.assertIn("loops-left=12", report)
+        self.assertIn("continuation=pending", report)
+        self.assertIn("model-turn-age=5s", report)
 
 
 if __name__ == "__main__":

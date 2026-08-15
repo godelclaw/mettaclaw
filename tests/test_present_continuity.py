@@ -114,9 +114,20 @@ class LoopWiringTests(unittest.TestCase):
         self.assertIn("(helper.working_set_save", self.loop)
         self.assertIn("(process-step $state $outcome)", self.loop)
 
-    def test_rest_carries_intention(self):
-        self.assertIn("(= (rest $seconds $why)", self.skills)
-        self.assertIn("(helper.intent_save", self.skills)
+    def test_timed_rest_carries_quoted_continuation_as_data(self):
+        self.assertIn("(= (rest $seconds (quote $continuation))", self.skills)
+        self.assertIn("pending-continuation", self.skills)
+        self.assertIn("(continuation-value $continuation)", self.skills)
+        start = self.skills.index("(= (rest $seconds (quote $continuation))")
+        end = self.skills.index("(= (rest $seconds $why)", start)
+        self.assertNotIn("(helper.intent_save", self.skills[start:end])
+
+    def test_wait_executes_continuation_without_model_call(self):
+        self.assertIn("(runRestContinuation", self.loop)
+        self.assertIn("(run-command-batch-once $turn", self.loop)
+        continuation = self.loop.index("(runRestContinuation")
+        wait = self.loop.index("(waitCandidate")
+        self.assertLess(continuation, wait)
 
 
 class WeakProcessCoreShapeTests(unittest.TestCase):
