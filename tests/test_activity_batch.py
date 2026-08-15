@@ -63,19 +63,22 @@ class ActivityBatchTests(unittest.TestCase):
 
     def test_loop_derives_newness_from_nonempty_batch(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
-        self.assertIn('($msg (eval (receive)))', loop)
+        self.assertIn('($message (eval (receive)))', loop)
         self.assertIn(
-            '($msgnew (== (py-call (helper.text_nonempty $msg)) 1))', loop)
+            '($hasActivity\n            (== (py-call (helper.text_nonempty $message)) 1))',
+            loop)
         self.assertNotIn(
             "($msgnew (prog1 (!= $msg (get-state &prevmsg))", loop)
 
-    def test_claw23_renews_only_after_an_idle_wait(self):
+    def test_iter_renews_only_after_an_idle_wait(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
-        self.assertIn("(mettaclaw 1 0)", loop)
-        self.assertIn("(== $autonomousReady 1)", loop)
-        self.assertIn("loop_modes.wait_seconds", loop)
-        self.assertIn("loop_modes.autonomous_ready", loop)
-        self.assertIn("CLAW23_AUTONOMOUS_BURST", loop)
+        policy = (ROOT / "src" / "loop_policy.metta").read_text(
+            encoding="utf-8")
+        self.assertIn("(processLoop (initLoop))", loop)
+        self.assertIn("(loop-autonomous-ready $periphery)", loop)
+        self.assertIn("(policy-wait-seconds", policy)
+        self.assertIn("(policy-next-autonomous-ready", policy)
+        self.assertIn("AUTONOMOUS_POLICY_BURST", loop)
         self.assertIn("cognitive_health.expect_turn", loop)
         self.assertNotIn("telegram.getMode", loop)
 
@@ -100,13 +103,14 @@ class ActivityBatchTests(unittest.TestCase):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         response = loop.index("(RESPONSE: $sexpr)")
         commitment = loop.index("($_ (cut))", response)
-        dispatcher = loop.index("(run-command-batch-once $k $sexpr)", response)
+        dispatcher = loop.index(
+            "(run-command-batch-once $iteration $sexpr)", response)
         results = loop.index("($results (RESULTS:", response)
         self.assertLess(response, commitment)
         self.assertLess(commitment, dispatcher)
         self.assertLess(dispatcher, results)
         self.assertNotIn("(collapse (let $s (superpose $sexpr)", loop)
-        self.assertIn("(telegram.begin_effect_turn $k)", loop)
+        self.assertIn("(telegram.begin_effect_turn $iteration)", loop)
 
 
 if __name__ == "__main__":

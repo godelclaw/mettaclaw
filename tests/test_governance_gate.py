@@ -70,7 +70,7 @@ class GovernanceGateBoundaryTests(unittest.TestCase):
     def test_governance_does_not_gate_ordinary_cognition(self):
         source = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         self.assertNotIn("ggbGovernancePassed tick", source)
-        self.assertIn("(if (> (get-state &loops) 0)", source)
+        self.assertIn("(if (> (loop-budget $ready) 0)", source)
 
     def test_governance_remains_at_selfmod_boundary(self):
         source = (ROOT / "src" / "ggb_bridge_ext.py").read_text(

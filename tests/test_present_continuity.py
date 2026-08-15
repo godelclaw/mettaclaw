@@ -98,20 +98,45 @@ class LoopWiringTests(unittest.TestCase):
 
     def test_boot_restores_instead_of_blank_arming(self):
         self.assertIn("(helper.working_boot)", self.loop)
-        self.assertIn('(helper.boot_int "loops" (maxLoops))', self.loop)
+        self.assertIn(
+            '(helper.boot_int "loops" (policy-burst-budget $selected))',
+            self.loop,
+        )
         self.assertIn('(helper.boot_str "lastresults" ""', self.loop)
-        # Boot itself must restore rather than blindly re-arm. The two later
-        # re-arms are conditional: heartbeat and an earned claw23 idle burst.
-        init_loop = self.loop.split("(= (heartbeatInterval)", 1)[0]
-        self.assertNotIn("(change-state! &loops (maxLoops))", init_loop)
-        self.assertEqual(self.loop.count("(change-state! &loops (maxLoops))"), 2)
+        self.assertIn("(rooted weak-process-core-v1 (initialPeriphery))",
+                      self.loop)
+        self.assertNotIn("&loops", self.loop)
+        self.assertNotIn("&sleepInterval", self.loop)
+        self.assertNotIn("&lastresults", self.loop)
+        self.assertNotIn("&last-heartbeat", self.loop)
 
     def test_every_turn_boundary_persists(self):
         self.assertIn("(helper.working_set_save", self.loop)
+        self.assertIn("(process-step $state $outcome)", self.loop)
 
     def test_rest_carries_intention(self):
         self.assertIn("(= (rest $seconds $why)", self.skills)
         self.assertIn("(helper.intent_save", self.skills)
+
+
+class WeakProcessCoreShapeTests(unittest.TestCase):
+    def setUp(self):
+        path = os.path.join(ROOT, "src", "weak_process_core.metta")
+        with open(path) as fh:
+            self.core = fh.read()
+
+    def test_core_contains_exactly_two_equations(self):
+        definitions = [
+            line for line in self.core.splitlines() if line.startswith("(= ")
+        ]
+        self.assertEqual(2, len(definitions))
+        self.assertIn("(success $next)", self.core)
+        self.assertIn("(process-step $state failure) $state", self.core)
+
+    def test_core_contains_no_policy_or_host_effects(self):
+        for forbidden in ("py-call", "bind!", "change-state!", "policy"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.core)
 
 
 if __name__ == "__main__":

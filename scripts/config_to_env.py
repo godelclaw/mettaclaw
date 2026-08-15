@@ -66,6 +66,7 @@ def main():
     print("# Edit config/local.toml and config/secrets.env instead.")
 
     emit("PETTA_ROOT", expand(paths.get("petta_root"), root))
+    emit("CETTA_ROOT", expand(paths.get("cetta_root"), root))
     emit("PETTA_PY_ENV", expand(paths.get("petta_py_env"), root))
     emit("SESSION_MEMORY_TOOLS", expand(paths.get("session_memory_tools"), root))
     emit("METTACLAW_CHROMA_DIR", expand(paths.get("chroma_dir"), root))

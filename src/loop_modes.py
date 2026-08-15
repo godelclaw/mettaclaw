@@ -6,23 +6,24 @@ import threading
 
 
 MODES = {
-    "default": {
-        "description": "bounded event-armed bursts; no claw23 idle renewal",
-        "reasoning": None,
+    "agent": {
+        "description": "event-armed life with bounded bursts",
+    },
+    "iter": {
+        "description": "transformational renewal after each idle boundary",
     },
     "coding": {
-        "description": "default cadence with high reasoning effort",
-        "reasoning": "high",
-    },
-    "claw23": {
-        "description": "50-step fast bursts separated by 60-second input waits",
-        "reasoning": None,
+        "description": "event-armed task episodes with high reasoning effort",
     },
 }
 
-# Old installations stored ``generic``.  Keep it as an input alias while
-# presenting one canonical, unsurprising name to operators and the loop.
-ALIASES = {"generic": "default"}
+# Persisted historical selections retain their behavior while the operator UI
+# exposes only the three policy names used by the open MeTTa assemblage.
+ALIASES = {
+    "default": "agent",
+    "generic": "agent",
+    "claw23": "iter",
+}
 
 _lock = threading.RLock()
 
@@ -44,9 +45,9 @@ def _load():
             raise ValueError("mode state is not an object")
     except (OSError, TypeError, ValueError):
         data = {}
-    mode = _canonical(data.get("mode", "default"))
+    mode = _canonical(data.get("mode", "agent"))
     if mode not in MODES:
-        mode = "default"
+        mode = "agent"
     return {
         "mode": mode,
         "autonomy_paused": bool(data.get("autonomy_paused", False)),
@@ -106,50 +107,13 @@ def set_mode(name):
     return "mode set to '%s'%s; persists across restarts" % (name, alias)
 
 
-def reasoning_mode(default):
-    override = MODES[current_mode()]["reasoning"]
-    return override or str(default)
-
-
-def wait_seconds(loops_left, requested_seconds):
-    """Return the wait before the next cognitive tick.
-
-    Channel polling has its own thread and is deliberately not governed by
-    this value. In claw23, an exhausted burst waits 60 seconds for activity;
-    explicit longer rests remain longer.
-    """
-    try:
-        loops_left = int(loops_left)
-    except (TypeError, ValueError):
-        loops_left = 0
-    try:
-        requested = max(0, int(float(requested_seconds)))
-    except (TypeError, ValueError):
-        requested = 1
-    with _lock:
-        state = _load()
-    if state["mode"] == "claw23" and loops_left <= 0:
-        # A normal completed burst has the exact claw23 cadence. Explicit
-        # (rest N) sets autonomy_paused, preserving the agent's chosen N.
-        return requested if state["autonomy_paused"] else 60
-    return requested
-
-
-def autonomous_ready(loops_left, wait_result):
-    """Whether a completed claw23 input wait should renew cognition."""
-    try:
-        exhausted = int(loops_left) <= 0
-    except (TypeError, ValueError):
-        exhausted = True
-    with _lock:
-        state = _load()
-    timed_out = str(wait_result).startswith("rested ")
-    return 1 if (state["mode"] == "claw23" and exhausted and timed_out
-                 and not state["autonomy_paused"]) else 0
+def wait_timed_out(wait_result):
+    """Normalize the channel adapter's timeout result for the MeTTa policy."""
+    return 1 if str(wait_result).startswith("rested ") else 0
 
 
 def pause_autonomy():
-    """Make explicit rest sovereign over claw23's automatic renewal."""
+    """Make explicit rest sovereign over Iter policy renewal."""
     with _lock:
         data = _load()
         data["autonomy_paused"] = True

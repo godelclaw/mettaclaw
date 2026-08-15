@@ -84,6 +84,15 @@ class RestControlTest(unittest.TestCase):
         rest_rule = source[start:end]
         self.assertNotIn("(min 1800", rest_rule)
 
+    def test_rest_emits_policy_directives_instead_of_mutating_runner(self):
+        source = (ROOT / "src" / "skills.metta").read_text(encoding="utf-8")
+        start = source.index("(= (rest)")
+        end = source.index("(= (mode)", start)
+        rest_rules = source[start:end]
+        self.assertIn("(loop-directive-set loops 0)", rest_rules)
+        self.assertNotIn("&loops", rest_rules)
+        self.assertNotIn("&sleepInterval", rest_rules)
+
     def test_positive_fractional_remainder_is_reported_as_one_second(self):
         telegram._sleep_until = 100.1
         with mock.patch.object(telegram.time, "time", return_value=100.0):

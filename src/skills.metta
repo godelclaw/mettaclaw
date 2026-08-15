@@ -80,19 +80,17 @@
 
 (= (rest)
    (progn (py-call (loop_modes.pause_autonomy))
-          (change-state! &loops 0)
-          (RESTING loops-left (get-state &loops)
-                   sleep-interval-seconds (get-state &sleepInterval))))
+          (loop-directive-set loops 0)
+          (RESTING loops-left 0)))
 
 (= (rest $seconds)
    ;; Rest duration remains the agent's decision. An authenticated operator
    ;; message or /wake may deliberately end it; other activity queues.
    (let $n (max 1 (py-call (int $seconds)))
         (progn (py-call (loop_modes.pause_autonomy))
-               (change-state! &loops 0)
-               (change-state! &sleepInterval $n)
-               (RESTING loops-left (get-state &loops)
-                        sleep-interval-seconds (get-state &sleepInterval)))))
+               (loop-directive-set loops 0)
+               (loop-directive-set sleep-interval $n)
+               (RESTING loops-left 0 sleep-interval-seconds $n))))
 
 (= (rest $seconds $why)
    ;; Rest with a stated intention: the why survives every boundary and
@@ -100,19 +98,19 @@
    ;; who wakes the agent what the rest is for.
    (let $n (max 1 (py-call (int $seconds)))
         (progn (py-call (loop_modes.pause_autonomy))
-               (change-state! &loops 0)
-               (change-state! &sleepInterval $n)
+               (loop-directive-set loops 0)
+               (loop-directive-set sleep-interval $n)
                (py-call (helper.intent_save (py-call (helper.decode_safe_text $why))))
-               (RESTING loops-left (get-state &loops)
-                        sleep-interval-seconds (get-state &sleepInterval)
+               (RESTING loops-left 0
+                        sleep-interval-seconds $n
                         intent (py-call (helper.decode_safe_text $why))))))
 
 ;; A claw23 burst ends either at its step bound or explicitly via nop. Unlike
 ;; rest, nop leaves autonomous renewal armed for the next idle boundary.
 (= (nop)
    (progn (py-call (loop_modes.resume_autonomy))
-          (change-state! &loops 0)
-          (BURST_COMPLETE loops-left (get-state &loops))))
+          (loop-directive-set loops 0)
+          (BURST_COMPLETE loops-left 0)))
 
 (= (mode) (py-call (loop_modes.mode_view)))
 (= (modes) (py-call (loop_modes.modes_view)))

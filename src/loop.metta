@@ -1,174 +1,280 @@
-(= (maxLoops) (empty))
 (= (sleepInterval) (empty))
 (= (LLM) (empty))
 (= (maxOutputToken) (empty))
 (= (reasoningMode) (empty))
 
+(= (heartbeatInterval)
+   (py-call (helper.int_env "METTACLAW_HEARTBEAT_INTERVAL_SECONDS" 1800)))
+
+(= (initialPeriphery)
+   (let $selected (py-call (loop_modes.current_mode))
+     (coordinate iteration 1
+     (coordinate loops
+       (py-call (helper.boot_int "loops" (policy-burst-budget $selected)))
+       (coordinate sleep-interval
+         (py-call (helper.boot_int "sleepInterval" (sleepInterval)))
+         (coordinate last-results
+           (py-call (helper.boot_str "lastresults" ""))
+           (coordinate last-heartbeat
+             (py-call (helper.boot_num "last_heartbeat" (get_time)))
+             (coordinate active-policy $selected
+               (coordinate autonomous-ready 0 coordinates-empty)))))))))
+
 (= (initLoop)
-   (progn (py-call (helper.recycle_ack)) ;new process consumes the boundary flag
-          (py-call (helper.working_boot)) ;continuity: load the present-moment snapshot
-          (configure maxLoops 50) ;20
-          (configure sleepInterval 1) ;10
-          (configure LLM syn:large:text)
-          (configure maxOutputToken 32768) ;the 2026-07 swipl crashes were the frozen chroma HNSW index (fixed by sync_threshold), NOT this ceiling; 6000 starved reasoning models into empty answers
-          (configure reasoningMode medium)
-          (change-state! &prevmsg "")
-          ;; PresentMoment.restore: wake with the working self intact —
-          ;; a recycle or restart is sleep, not a fresh boot. First-ever
-          ;; boot (no snapshot) keeps the fresh-start values below.
-          (change-state! &lastresults (py-call (helper.boot_str "lastresults" "")))
-          (change-state! &sleepInterval (py-call (helper.boot_int "sleepInterval" (sleepInterval))))
-          (change-state! &loops (py-call (helper.boot_int "loops" (maxLoops))))
-          (change-state! &last-heartbeat (py-call (helper.boot_num "last_heartbeat" (get_time))))))
+   (progn
+     (py-call (helper.recycle_ack))
+     (py-call (helper.working_boot))
+     (configure sleepInterval 1)
+     (configure LLM syn:large:text)
+     (configure maxOutputToken 32768)
+     (configure reasoningMode medium)
+     (rooted weak-process-core-v1 (initialPeriphery))))
 
-;; Heartbeat (optional): when the loop wakes and this clock is stale, re-arm a
-;; fresh (maxLoops)-cycle burst. Human messages reset the clock, so the timer is
-;; measured from the last human-armed turn. 1800 s = 30 min; 0 disables it.
-;; Overridable via METTACLAW_HEARTBEAT_INTERVAL_SECONDS (tests shrink it).
-(= (heartbeatInterval) (py-call (helper.int_env "METTACLAW_HEARTBEAT_INTERVAL_SECONDS" 1800)))
+;; Static context leads and changing policy state trails, preserving provider
+;; prefix caching while making the state passed to the model explicit.
+(= (getContext $periphery)
+   (string-safe
+     (py-str
+       ("PROMPT: " (getPrompt) " SKILLS: " (getSkills)
+        " OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
+        " each arg is an explicit string hence needs quotes, and variables are forbidden!"
+        " HISTORY: " (getHistory)
+        " LOOPS_LEFT: " (loop-budget $periphery)
+        " SLEEP_INTERVAL_SECONDS: " (loop-sleep $periphery)
+        " ACTIVE_MODE: " (loop-active-policy $periphery)
+        " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
+        " ATTENTION_DAG: " (repr (attention-view))
+        " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
+        " GOAL_STACK: " (py-call (goals.goals_view))
+        " PINNED: " (py-call (pins.view))
+        " LAST_SKILL_USE_RESULTS: "
+        (last_chars (loop-last-results $periphery) (maxFeedback))
+        " TIME: " (get_time_as_string)))))
 
-(= (maybeHeartbeat)
+(= (HandleError $msg $cmd $sexpr)
+   (case $sexpr
+     (((Error $a $b)
+       (let $new (append (get-state &error) (($msg $cmd)))
+            (change-state! &error $new)))
+      ($else $sexpr))))
+
+;; Heartbeat is a replaceable life-policy transformation over the periphery.
+(= (heartbeatDue $periphery $now)
    (if (or (<= (heartbeatInterval) 0)
            (== (py-call (loop_modes.autonomy_paused)) 1))
        False
-       (let $now (get_time)
-            (if (>= (- $now (get-state &last-heartbeat)) (heartbeatInterval))
-                (progn (println! (HEARTBEAT_REARM at (get_time_as_string) loops (maxLoops)))
-                       (change-state! &loops (maxLoops))
-                       (change-state! &sleepInterval (sleepInterval))
-                       (change-state! &last-heartbeat $now)
-                       (println! (py-call (goals.kernel_pass)))
-                       True)
-                False))))
+       (>= (- $now (loop-last-heartbeat $periphery))
+           (heartbeatInterval))))
 
-;; Static context (prompt, skills, format) leads and dynamic fields trail so an
-;; exact-prefix provider cache can reuse the unchanging head across turns.
-(= (getContext)
-   (string-safe (py-str ("PROMPT: " (getPrompt) " SKILLS: " (getSkills)
-                         " OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
-                         " each arg is an explicit string hence needs quotes, and variables are forbidden!"
-                         " HISTORY: " (getHistory)
-                         " LOOPS_LEFT: " (get-state &loops)
-                         " SLEEP_INTERVAL_SECONDS: " (get-state &sleepInterval)
-                         " ACTIVE_MODE: " (py-call (loop_modes.current_mode))
-                         " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
-                         " ATTENTION_DAG: " (repr (attention-view))
-                         " RECENT_ACTIVITY: " (py-call (telegram.recent_activity 8))
-                         " GOAL_STACK: " (py-call (goals.goals_view))
-                         " PINNED: " (py-call (pins.view))
-                         " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " TIME: " (get_time_as_string)))))
+(= (applyHeartbeat $periphery $now $due)
+   (if $due
+       (progn
+         (println! (HEARTBEAT_REARM at (get_time_as_string)
+                    loops (policy-burst-budget
+                            (loop-active-policy $periphery))))
+         (println! (py-call (goals.kernel_pass)))
+         (coordinate-set last-heartbeat $now
+           (coordinate-set sleep-interval (sleepInterval)
+             (coordinate-set loops
+               (policy-burst-budget (loop-active-policy $periphery))
+               $periphery))))
+       $periphery))
 
-(= (HandleError $msg $cmd $sexpr)
-   (case $sexpr (((Error $a $b) (let $new (append (get-state &error) (($msg $cmd)))
-                                          (change-state! &error $new)))
-                 ($else $sexpr))))
+(= (applyHumanActivity $periphery $has-activity $is-human)
+   (if (and $has-activity $is-human)
+       (let $armed
+            (max (loop-budget $periphery)
+                 (py-call (telegram.lastMessageArmLoops)))
+            (progn
+              (py-call (loop_modes.resume_autonomy))
+              (println! (py-call (goals.kernel_pass)))
+              (coordinate-set last-heartbeat (get_time)
+                (coordinate-set sleep-interval
+                  (if (> $armed 0) (sleepInterval) 60)
+                  (coordinate-set loops $armed $periphery)))))
+       $periphery))
+
+(= (applyAutonomousBurst $periphery $autonomous)
+   (if $autonomous
+       (progn
+         (println! (AUTONOMOUS_POLICY_BURST
+                     policy (loop-active-policy $periphery)
+                     at (get_time_as_string)))
+         (coordinate-set sleep-interval (sleepInterval)
+           (coordinate-set loops
+             (policy-burst-budget (loop-active-policy $periphery))
+             $periphery)))
+       $periphery))
+
+;; One model-and-tools episode.  It returns a candidate periphery; rest and nop
+;; contribute ordinary policy directives rather than mutating the runner.
+(= (cognitiveTurn $periphery $message $has-activity $is-human
+                  $autonomous $heartbeat)
+   (let* (($iteration (loop-iteration $periphery))
+          ($lastmessage
+            (if $autonomous
+                (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
+                (NEW_ACTIVITY: $message)))
+          ($source
+            (if $autonomous autonomous-trigger
+                (if $has-activity
+                    (if $is-human operator-event channel-event)
+                    (if $heartbeat heartbeat-event continuation-tick))))
+          ($priorResults (loop-last-results $periphery))
+          ($_ (loop-directives-clear))
+          ($_ (eval (attention-begin $iteration $source
+                    (== (py-call (helper.text_nonempty $priorResults)) 1))))
+          ($_ (py-call (telegram.begin_effect_turn $iteration)))
+          ($prompt (getContext $periphery))
+          ($_ (println! $lastmessage))
+          ($send (py-str ($prompt $lastmessage)))
+          ($_ (println! (CHARS_SENT: (string_length $send) $send)))
+          ($rmode (policy-reasoning (loop-active-policy $periphery)
+                                    (reasoningMode)))
+          ($respi (py-call (synthetic_llm.chat
+                             (LLM) (maxOutputToken) $rmode $send)))
+          ;; The external observation is committed before parse recovery.
+          ($_ (cut))
+          ($resp (py-call (helper.balance_parentheses $respi)))
+          ($response
+            (if (== "(" (first_char $resp))
+                $resp
+                (progn (println! $resp) (repr (no_commands_parsed)))))
+          ($parsed (catch (sread (py-call (helper.decode_safe_text $response)))))
+          ($_ (change-state! &error ()))
+          ($_ (HandleError multi_command_parse_error_nothing_ran
+                          $response $parsed))
+          ($sexpr
+            (case $parsed
+              (((Error $a $b) ())
+               ($valid $valid))))
+          ($_ (println! (RESPONSE: $sexpr)))
+          ($_ (cut))
+          ($commandResults (run-command-batch-once $iteration $sexpr))
+          ($_ (change-state! &error
+                (append (get-state &error)
+                        (command-batch-errors $iteration))))
+          ($results (RESULTS: $commandResults))
+          ($_ (eval (attention-complete $iteration
+                    (if (== $sexpr ()) no-commands commands-parsed))))
+          ($_ (println! $results))
+          ($_ (if (or $has-activity (not (== $sexpr ())))
+                  (addToHistory $message $response $sexpr $has-activity)
+                  _))
+          ($withResults
+            (coordinate-set last-results (string-safe (repr $results))
+              $periphery))
+          ($directed (loop-directives-apply $withResults))
+          ($_ (loop-directives-clear)))
+     $directed))
+
+;; The policy process computes freely.  Only this wrapper converts its result
+;; to the kernel's success/failure vocabulary.
+(= (agentCandidate $periphery)
+   (let* (($iteration (loop-iteration $periphery))
+          ($selected (py-call (loop_modes.current_mode)))
+          ($selectedPeriphery
+            (coordinate-set active-policy $selected
+              (coordinate-set autonomous-ready 0 $periphery)))
+          ($decremented
+            (if (== $iteration 1)
+                $selectedPeriphery
+                (coordinate-set loops
+                  (max 0 (- (loop-budget $selectedPeriphery) 1))
+                  $selectedPeriphery)))
+          ($message (eval (receive)))
+          ($hasActivity
+            (== (py-call (helper.text_nonempty $message)) 1))
+          ($isHuman (eval (lastMessageIsHuman)))
+          ($humanApplied
+            (applyHumanActivity $decremented $hasActivity $isHuman))
+          ($now (get_time))
+          ($heartbeat (heartbeatDue $humanApplied $now))
+          ($heartbeatApplied
+            (applyHeartbeat $humanApplied $now $heartbeat))
+          ($autonomous
+            (policy-autonomous-turn
+              (loop-active-policy $heartbeatApplied)
+              (loop-autonomous-ready $periphery)
+              $hasActivity
+              (py-call (loop_modes.autonomy_paused))))
+          ($ready (applyAutonomousBurst $heartbeatApplied $autonomous))
+          ($_ (if (> (loop-budget $ready) 0)
+                  (py-call (cognitive_health.expect_turn
+                             (loop-active-policy $ready)))
+                  _))
+          ($afterTurn
+            (if (> (loop-budget $ready) 0)
+                (cognitiveTurn $ready $message $hasActivity $isHuman
+                               $autonomous $heartbeat)
+                $ready))
+          ($next
+            (coordinate-set iteration (+ 1 $iteration) $afterTurn)))
+     (candidate $next)))
+
+(= (protectedOutcome $trial)
+   (case $trial
+     (((candidate $next) (success $next))
+      ((Error $expression $exception)
+       (progn
+         (println! (PROCESS_FAILURE $expression $exception))
+         failure))
+      ($unexpected
+       (progn
+         (println! (PROCESS_MALFORMED_OUTCOME $unexpected))
+         failure)))))
+
+(= (agentProcess $periphery)
+   (protectedOutcome (catch (agentCandidate $periphery))))
+
+;; Waiting is another replaceable process.  Channel polling remains in its
+;; adapter; only the resulting readiness bit enters the periphery.
+(= (waitCandidate $periphery)
+   (let* (($policy (loop-active-policy $periphery))
+          ($loops (loop-budget $periphery))
+          ($paused (py-call (loop_modes.autonomy_paused)))
+          ($wait
+            (policy-wait-seconds $policy $loops
+                                 (loop-sleep $periphery) $paused))
+          ($waitResult (py-call (telegram.sleep_until_message $wait)))
+          ($timedOut (py-call (loop_modes.wait_timed_out $waitResult)))
+          ($ready
+            (policy-next-autonomous-ready
+              $policy $loops $timedOut $paused)))
+     (candidate (coordinate-set autonomous-ready $ready $periphery))))
+
+(= (waitProcess $periphery)
+   (protectedOutcome (catch (waitCandidate $periphery))))
+
+(= (persistProcessState $state)
+   (let $periphery (process-periphery $state)
+     (py-call
+       (helper.working_set_save
+         (loop-budget $periphery)
+         (loop-sleep $periphery)
+         (loop-last-results $periphery)
+         (loop-last-heartbeat $periphery)))))
+
+(= (processLoop $state)
+   (let* (($periphery (process-periphery $state))
+          ($_ (println! (---------iteration (loop-iteration $periphery))))
+          ($outcome (agentProcess $periphery))
+          ($next (process-step $state $outcome))
+          ($_ (persistProcessState $next)))
+     (if (== (py-call (helper.recycle_requested)) 1)
+         (progn
+           (println! (RECYCLE_AT_TURN_BOUNDARY
+                       iteration
+                       (loop-iteration (process-periphery $next))))
+           (py-call (helper.recycle_exit)))
+         (let* (($waitOutcome (waitProcess (process-periphery $next)))
+                ($waiting (process-step $next $waitOutcome))
+                ($_ (persistProcessState $waiting)))
+           (processLoop $waiting)))))
 
 (= (mettaclaw)
-   (mettaclaw 1 0))
-(= (mettaclaw $k $autonomousReady)
-   (progn (if (== $k 1) (progn (initLoop)
-                               (initMemory)
-                               (initChannels)
-                               (println! (py-call (goals.kernel_pass))))
-                        (change-state! &loops (max 0 (- (get-state &loops) 1))))
-         (progn (println! (---------iteration $k))
-                (let* (($msg (eval (receive)))
-                       ($msgnew (== (py-call (helper.text_nonempty $msg)) 1))
-                       ($humanmsg (eval (lastMessageIsHuman)))
-                       ($_ (if $msgnew
-                               (if $humanmsg
-                                   (progn (py-call (loop_modes.resume_autonomy))
-                                          (change-state! &loops
-                                            ;; per-sender energy tier: full 50 /
-                                            ;; mid 30 / light 10 (see /energy).
-                                            ;; max: a message only ADDS energy —
-                                            ;; it never drains what the agent holds
-                                            (max (get-state &loops)
-                                                 (py-call (telegram.lastMessageArmLoops))))
-                                          (change-state! &sleepInterval (if (> (get-state &loops) 0) (sleepInterval) 60))
-                                          (change-state! &last-heartbeat (get_time))
-                                          (println! (py-call (goals.kernel_pass))))
-                                   _)
-                               _))
-                       ($heartbeat (maybeHeartbeat))
-                       ($mode (py-call (loop_modes.current_mode)))
-                       ($autonomous (and (and (== $mode (quote claw23))
-                                               (== $autonomousReady 1))
-                                          (and (not $msgnew)
-                                               (== (py-call (loop_modes.autonomy_paused)) 0))))
-                       ($_auto (if $autonomous
-                                  (progn (change-state! &loops (maxLoops))
-                                         (change-state! &sleepInterval (sleepInterval))
-                                         (println! (CLAW23_AUTONOMOUS_BURST at (get_time_as_string))))
-                                  _))
-                       ($_expect (if (> (get-state &loops) 0)
-                                    (py-call (cognitive_health.expect_turn $mode))
-                                    _)))
-                      ;; Governance protects mutation promotion.  Ordinary
-                      ;; cognition must remain available when that optional
-                      ;; external authority is absent.
-                      (if (> (get-state &loops) 0)
-                          (let* (($lastmessage (if $autonomous
-                                                   (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
-                                                   (NEW_ACTIVITY: $msg)))
-                                 ($source (if $autonomous autonomous-trigger
-                                              (if $msgnew
-                                                  (if $humanmsg operator-event channel-event)
-                                                  (if $heartbeat heartbeat-event continuation-tick))))
-                                 ($priorResults (get-state &lastresults))
-                                 ($_ (eval (attention-begin $k $source
-                                           (== (py-call (helper.text_nonempty $priorResults)) 1))))
-                                 ($_ (py-call (telegram.begin_effect_turn $k)))
-                                 ($prompt (getContext))
-                                 ($_ (println! $lastmessage))
-                                 ($send (py-str ($prompt $lastmessage)))
-                                 ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                 ($rmode (py-call (loop_modes.reasoning_mode (reasoningMode))))
-                                 ($respi (py-call (synthetic_llm.chat (LLM) (maxOutputToken) $rmode $send)))
-                                 ;; External calls are observations, not search
-                                 ;; branches: never repeat one while recovering
-                                 ;; from a malformed response.
-                                 ($_ (cut))
-                                 ($resp (py-call (helper.balance_parentheses $respi)))
-                                 ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (no_commands_parsed)))))
-                                 ($parsed (catch (sread (py-call (helper.decode_safe_text $response)))))
-                                 ($_ (change-state! &error ()))
-                                 ($_ (HandleError multi_command_parse_error_nothing_ran $response $parsed))
-                                 ($sexpr (case $parsed
-                                          (((Error $a $b) ())
-                                           ($valid $valid))))
-                                 ($_ (println! (RESPONSE: $sexpr)))
-                                 ;; Parsing is pure and may explore alternatives.
-                                 ;; Crossing into commands commits the whole batch in
-                                 ;; a non-backtrackable turn cache. Re-entry returns
-                                 ;; records without performing external effects again.
-                                 ($_ (cut))
-                                 ($commandResults (run-command-batch-once $k $sexpr))
-                                 ($_ (change-state! &error
-                                      (append (get-state &error)
-                                              (command-batch-errors $k))))
-                                 ($results (RESULTS: $commandResults))
-                                 ($_ (eval (attention-complete $k
-                                           (if (== $sexpr ()) no-commands commands-parsed))))
-                                 ($_ (println! $results)))
-                                (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
-                                       (change-state! &lastresults (string-safe (repr $results))))) _))
-                ;; PresentMoment.persist: snapshot the working self at every
-                ;; turn boundary — the write half of the continuity invariant.
-                (py-call (helper.working_set_save (get-state &loops) (get-state &sleepInterval) (get-state &lastresults) (get-state &last-heartbeat)))
-                ;; Recycling is cooperative: finish the current turn and its
-                ;; bookkeeping, then exit the PROCESS so the service manager
-                ;; starts a fresh heap. The exit must be a hard process exit:
-                ;; merely returning from the recursion lands in engine
-                ;; backtracking, which re-enters the loop from scratch in the
-                ;; same process and re-arms a fresh budget every cycle (the
-                ;; 2026-08-06 boot-loop storm). The new process consumes the
-                ;; flag at boot (helper.recycle_ack in initLoop).
-                (if (== (py-call (helper.recycle_requested)) 1)
-                    (progn (println! (RECYCLE_AT_TURN_BOUNDARY iteration $k))
-                           (py-call (helper.recycle_exit)))
-                    (progn
-                      (let $wait (py-call (loop_modes.wait_seconds (get-state &loops) (get-state &sleepInterval)))
-                           (let $waitResult (py-call (telegram.sleep_until_message $wait))
-                                (mettaclaw (+ 1 $k)
-                                           (py-call (loop_modes.autonomous_ready (get-state &loops) $waitResult))))))))))
+   (progn
+     (initMemory)
+     (initChannels)
+     (println! (py-call (goals.kernel_pass)))
+     (processLoop (initLoop))))
