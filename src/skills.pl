@@ -1,11 +1,114 @@
 %Gets shell command return, plus the process if time limit is not met, returning timeout_error:
-shell(Cmd, Out) :- format(string(SafeCmd), "timeout -k 1s 10s sh -c '~w'", [Cmd]),
-                   process_create(path(sh), ['-c', SafeCmd], [ stdout(pipe(S)), stderr(pipe(S)), process(P)]),
-                   setup_call_cleanup(true,
-                                      read_string(S, _, Text),
-                                      close(S)),
-                   process_wait(P, Status),
-                   ( Status = exit(124) -> Out = timeout_error
-                                         ; Out = Text ).
+shell(Cmd, Out) :-
+    tmp_file_stream(text, TmpFile, TmpInit),
+    close(TmpInit),
+    open(TmpFile, write, TmpOut, [type(text)]),
+    catch(
+        setup_call_cleanup(
+            process_create(
+                path(timeout),
+                ['-k', '1s', '5s', 'sh', '-c', Cmd],
+                [ stdout(stream(TmpOut)),
+                  stderr(stream(TmpOut)),
+                  process(P)
+                ]
+            ),
+            (
+                process_wait(P, Status),
+                close(TmpOut),
+                read_file_to_string(TmpFile, Text, [])
+            ),
+            (
+                catch(close(TmpOut), _, true),
+                catch(delete_file(TmpFile), _, true)
+            )
+        ),
+        E,
+        (
+            catch(close(TmpOut), _, true),
+            catch(delete_file(TmpFile), _, true),
+            throw(E)
+        )
+    ),
+    ( Status = exit(124) -> Out = timeout_error
+    ; Status = exit(137) -> Out = timeout_error
+    ; Status = killed(_) -> Out = timeout_error
+    ; Text == "" ->
+        %% Empty output was indistinguishable from a failed command, so a
+        %% mistyped shell string looked exactly like "no matches found".
+        %% Say which one happened.
+        ( Status = exit(0)
+          -> Out = "SHELL_OK_NO_OUTPUT (command succeeded, printed nothing)"
+        ; Status = exit(Code)
+          -> format(string(Out),
+                    "SHELL_ERROR exit ~w (command failed, printed nothing)",
+                    [Code])
+        ; Out = "SHELL_ERROR (command did not exit normally)"
+        )
+    ; Out = Text
+    ).
+
 
 first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
+
+%% Commands cross the MeTTa -> Prolog boundary under an explicit quote.  The
+%% quote keeps them inert until this deterministic dispatcher evaluates each
+%% item once.  The turn cache also makes reduction retries observationally
+%% silent.
+'run-command-batch-once'(Turn, Commands, Records) :-
+    ( nb_current(mettaclaw_command_batch_cache,
+                 command_batch(CachedTurn, CachedCommands,
+                               CachedRecords, _CachedErrors)),
+      CachedTurn == Turn
+    -> ( CachedCommands =@= Commands
+       -> copy_term(CachedRecords, Records)
+       ;  Records = [['COMMAND_BATCH_REJECTED:',
+                      "different commands proposed after turn commitment"]]
+       )
+    ; run_command_list_once(Commands, Records, Errors),
+      nb_setval(mettaclaw_command_batch_cache,
+                command_batch(Turn, Commands, Records, Errors))
+    ), !.
+
+'command-batch-errors'(Turn, Errors) :-
+    ( nb_current(mettaclaw_command_batch_cache,
+                 command_batch(CachedTurn, _Commands, _Records,
+                               CachedErrors)),
+      CachedTurn == Turn
+    -> copy_term(CachedErrors, Errors)
+    ; Errors = []
+    ), !.
+
+run_command_list_once([], [], []).
+run_command_list_once([Command|Rest], [Record|Records], Errors) :-
+    run_command_once(Command, Record, CommandErrors),
+    run_command_list_once(Rest, Records, RestErrors),
+    append(CommandErrors, RestErrors, Errors).
+
+run_command_once(Command, ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-
+    catch(( once(eval(Command, Raw)) -> Status = ok(Raw)
+                                    ; Status = failed ),
+          Exception,
+          Status = exception(Exception)),
+    command_status(Status, Command, Value, Errors),
+    normalize_command_value(Value, Normalized).
+
+command_status(ok(Value), _Command, Value, []).
+command_status(failed, Command, ['Error', command_failed],
+               [['command_format_error_nothing_ran', Command,
+                 "command returned no result"]]).
+command_status(exception(Exception), Command, ['Error', Message],
+               [['command_format_error_nothing_ran', Command, Message]]) :-
+    message_to_string(Exception, Message).
+
+normalize_command_value(Value, Normalized) :-
+    ( catch('py-call'(['helper.normalize_string', Value], Normalized), _, fail)
+    -> true
+    ; with_output_to(string(Normalized),
+                     write_term(Value, [quoted(true)]))
+    ).
+
+gc(true) :-
+    garbage_collect,
+    garbage_collect_atoms,
+    trim_stacks.

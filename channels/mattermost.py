@@ -1,11 +1,12 @@
 import threading, json
+from collections import deque
 import requests, websocket
 import time
 
 _running = False
 _ws = None
 _ws_lock = threading.Lock()
-_last_message = None
+_pending_messages = deque()
 _msg_lock = threading.Lock()
 _connected = False
 
@@ -13,6 +14,10 @@ _connected = False
 MM_URL = "https://chat.singularitynet.io"
 CHANNEL_ID = "8fjrmabjx7gupy7e5kjznpt5qh" #NOT AN ID JUST NAME: "mettaclaw"x
 BOT_TOKEN = ""
+_seen_post_ids = deque()
+_seen_post_id_set = set()
+_seen_post_ids_lock = threading.Lock()
+_MAX_SEEN_POST_IDS = 4096
 
 def _get_bot_user_id():
     global headers
@@ -23,13 +28,26 @@ def _get_bot_user_id():
     return r.json()["id"]
 
 def _set_last(msg):
-    global _last_message
     with _msg_lock:
-        _last_message = msg
+        _pending_messages.append(str(msg))
 
 def getLastMessage():
     with _msg_lock:
-        return _last_message
+        messages = " | ".join(_pending_messages)
+        _pending_messages.clear()
+        return messages
+
+def _remember_post_id(post_id):
+    if not post_id:
+        return False
+    with _seen_post_ids_lock:
+        if post_id in _seen_post_id_set:
+            return False
+        _seen_post_ids.append(post_id)
+        _seen_post_id_set.add(post_id)
+        while len(_seen_post_ids) > _MAX_SEEN_POST_IDS:
+            _seen_post_id_set.discard(_seen_post_ids.popleft())
+        return True
 
 def _get_display_name(user_id):
     r = requests.get(
@@ -69,9 +87,14 @@ def _ws_loop():
 
             if event.get("event") == "posted":
                 post = json.loads(event["data"]["post"])
-                if post["channel_id"] == CHANNEL_ID and post["user_id"] != BOT_USER_ID:
-                    name = _get_display_name(post["user_id"])
-                    _set_last(f"{name}: {post['message']}")
+                if post["channel_id"] != CHANNEL_ID:
+                    continue
+                if post["user_id"] == BOT_USER_ID:
+                    continue
+                if not _remember_post_id(post.get("id")):
+                    continue
+                name = _get_display_name(post["user_id"])
+                _set_last(f"{name}: {post['message']}")
 
         except websocket.WebSocketTimeoutException:
             continue

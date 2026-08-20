@@ -1,0 +1,64 @@
+# Copy to config/local.toml and edit there. config/local.toml is ignored.
+
+[paths]
+# These are expanded by initialize.sh when it generates .env.
+petta_root = "$HOME/repos/PeTTa"
+# CeTTa checkout used by `/engine cetta`; it must provide `--lang petta`.
+cetta_root = "$HOME/repos/CeTTa"
+# Python env PeTTa/swipl links against; install requirements.txt into it.
+# Point this at YOUR env -- the name below is only a placeholder.
+petta_py_env = "$HOME/miniforge3/envs/petta"
+
+# Optional session-memory helper source. Its Python dependencies must be
+# installed in petta_py_env; do not inject another venv into PYTHONPATH.
+session_memory_tools = ""
+
+# Mutable transport state lives outside the checkout. This keeps atomic
+# offset updates working when the deployed program tree is mounted read-only.
+chroma_dir = "$ROOT/chroma_db"
+telegram_offset_path = "$STATE_HOME/$INSTANCE/telegram/offset"
+telegram_log_path = "$STATE_HOME/$INSTANCE/telegram/updates.jsonl"
+prompt_path = "$ROOT/memory/prompt.txt"
+history_path = "$ROOT/memory/history.metta"
+memory_log_dir = "$ROOT/memory/remembered"
+attachments_dir = "$ROOT/memory/attachments"
+repos_dir = "$ROOT/repos"
+
+# Local Qwen3-Embedding-8B path. Fill this before using remember/query.
+embed_model = ""
+
+[agent]
+owner = "$USER"
+# Any OpenAI-compatible provider. Put the key in config/secrets.env.
+synthetic_base_url = "https://api.synthetic.new/openai/v1"
+synthetic_model = "syn:large:text"
+
+[channel]
+# Communication channel: "telegram" (needs a bot token), "irc", or "mattermost".
+kind = "telegram"
+
+[telegram]
+allow_private = true
+# Identity-bearing Telegram settings belong in config/secrets.env; see its
+# example file. This keeps authorization data out of generated .env and Git.
+
+[search]
+# "auto" tries Tavily first when TAVILY_API_KEY is set, then DuckDuckGo HTML.
+# Use "tavily" or "ddg" to force one provider for the default (search "...").
+provider = "auto"
+
+[memory]
+collection = "memories"
+metric = "cosine"
+embed_backend = "sentence-transformers"
+embed_protocol = "qwen3-embedding-8b-1024-v1"
+embed_dim = 1024
+embed_device = "auto"
+embed_query_prompt_name = "query"
+embed_normalize = true
+embed_max_tokens = 4096
+
+# Dated remembered-memory JSONL is the canonical event record. Chroma is its
+# derived search index; keep rebuildability false until a replay tool exists.
+source_of_truth = "remembered-jsonl"
+index_is_rebuildable = false

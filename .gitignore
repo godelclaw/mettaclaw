@@ -1,0 +1,47 @@
+.env
+.env.*
+config/local.toml
+config/secrets.env
+config/channel.metta
+.mcp.json
+*.log
+*.pid
+*.ps
+__pycache__/
+*/__pycache__/
+
+# Live agent state: private, mutable, and not source. Public defaults and
+# examples belong under identity/ and config/, never under the live tree.
+memory/
+promotions.db*
+*.sqlite*
+chroma_db/
+episodes/
+chat/
+telegram_offset.txt
+telegram_offset.txt.*
+telegram_updates.jsonl
+archive/
+to-claws/
+
+# Runtime-generated session distillations occasionally land at repository root.
+/[0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9]_distillation.md
+
+# Vendored deps git-cloned on first run (e.g. petta_lib_chromadb).
+repos/
+
+# Agent-private by default: markdown, notes, self-model, scratch.
+# The repo carries code; documentation is README.md only.
+*.md
+!README.md
+selfmodel/
+to-*.md
+*.sed
+*.log
+loo_distill_*.txt
+scratch/
+recovery/
+chroma_db.rebuilt-*/
+
+# Agent-authored knowledge base: private facts, quotes, provenance.
+kb/

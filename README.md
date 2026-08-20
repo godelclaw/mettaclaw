@@ -28,33 +28,97 @@ This project also aims to explore the potential of Agentic Physical AI, a ROS2 p
 
 **Installation**
 
-First, get [SWI-Prolog](https://www.swi-prolog.org/). Then:
+Prerequisites: [SWI-Prolog](https://www.swi-prolog.org/), a built local
+[PeTTa](https://github.com/trueagi-io/PeTTa) checkout (this fork launches PeTTa's
+own `run.sh`), and Python 3.11+. Then clone this repository and install the
+Python dependencies into the environment PeTTa uses:
 
 ```
-git clone https://github.com/trueagi-io/PeTTa
-cd PeTTa
-mkdir -p repos && git clone https://github.com/patham9/mettaclaw repos/mettaclaw
+git clone https://github.com/godelclaw/mettaclaw
+cd mettaclaw
+pip install -r requirements.txt
+./initialize.sh
 ```
 
-**Usage**
+`initialize.sh` creates local, ignored runtime files:
 
-Run the system via the following command which ensures the system is started from the root folder of PeTTa:
+- `config/local.toml` — human-edited paths and ordinary settings (copied from `config/default.toml`).
+- `config/secrets.env` — API keys, bot tokens, and Telegram identity or
+  authorization IDs; kept mode 600.
+- `.env` — generated runtime environment; do not edit directly.
+- `memory/prompt.txt` — live identity, seeded from `identity/default-prompt.txt`.
+
+Edit `config/local.toml` if your PeTTa checkout, Python environment,
+provider/model, embedding model, memory paths, or channel differ from the
+defaults. Put secrets only in `config/secrets.env`:
 
 ```
-cp repos/mettaclaw/run.metta ./
-OPENAI_API_KEY=... sh run.sh run.metta
+SYNTHETIC_API_KEY=sk-...
+METTACLAW_TELEGRAM_BOT_TOKEN=123456789:...
+METTACLAW_TELEGRAM_BOT_USERNAME=ExampleBot
+METTACLAW_TELEGRAM_OPERATOR_IDS=<telegram-user-id>
 ```
 
-**Auto-install/run**
+The LLM provider is any OpenAI-compatible endpoint (default `api.synthetic.new`);
+adjust `synthetic_base_url` / `synthetic_model` in `config/local.toml`. The
+communication channel defaults to Telegram (set `[channel] kind` to `irc` or
+`mattermost` to switch). Long-term memory (`remember` / `query`) is optional and
+stays off until you set `embed_model` to a local Qwen3-Embedding-8B path. To use
+your own agent identity, edit `identity/default-prompt.txt` before the first
+`initialize.sh` (the seed), or `memory/prompt.txt` directly (the live copy).
 
-Alternatively, if PeTTa is already installed and the latest version pulled (v1.0.2 or latest commit), then, running the following MeTTa file from the root folder, installs and runs MeTTaClaw (assuming OPENAI_API_KEY is set):
+Successful remembered-memory writes are journaled as dated JSONL records under
+the ignored live `memory/` tree. Chroma is the derived similarity-search index.
+The journal/index distinction is explicit, but automated index replay is not
+implemented yet.
+
+**Running**
+
+Both methods launch from the repository root.
+
+Before publishing, install the repository's public/private boundary check once:
+
+```bash
+git config core.hooksPath .githooks
+python3 scripts/audit_public_tree.py --history
+```
+
+The pre-push hook rejects private runtime paths and any locally configured
+credential or Telegram identity found in tracked history. It reports only the
+affected path, never the private value.
+
+*Wrapper (recommended).* `run.sh` regenerates `.env` from `config/local.toml`,
+sources `config/secrets.env`, initializes runtime files, then starts the agent
+loop:
 
 ```
-!(import! &self (library lib_import))
-!(git-import! "https://github.com/patham9/mettaclaw.git")
-!(import! &self (library mettaclaw lib_mettaclaw))
+./run.sh
+```
 
-!(mettaclaw)
+The loop policy is mutable runtime state, separate from the protected source.
+Use `(mode)`, `(modes)`, or `(mode-set "claw23")` from the agent, and `/mode`,
+`/modes`, or `/mode claw23` from an authorized Telegram account. `default` runs
+bounded bursts armed by incoming events or the configured heartbeat; `coding`
+keeps that cadence with high reasoning effort; `claw23` runs bounded fast
+bursts and, after a 60-second input wait, renews autonomous work. `(nop)` ends
+one fast burst while leaving renewal enabled; `(rest)` explicitly suspends it.
+The selected mode persists in the ignored `memory/` state across restarts;
+the old name `generic` remains an input alias for `default`.
+
+To validate your PeTTa + Python setup without starting the loop, run the
+import-only smoke test first — it loads the full library (git-cloning the
+`petta_lib_chromadb` dependency into `./repos` on the first run) and exits:
+
+```
+./run.sh smoketest.metta        # prints SMOKE_OK and exits
+```
+
+*Direct.* After `initialize.sh` has generated `.env`, you can launch PeTTa
+yourself in the same configured environment:
+
+```
+set -a; . .env; . config/secrets.env; set +a
+"$PETTA_ROOT/run.sh" run.metta default
 ```
 
 **Illustrations**
@@ -75,6 +139,27 @@ System also added it into its Atom Space storage (embedding vector omitted):
 
 <img width="379" height="69" alt="image" src="https://github.com/user-attachments/assets/6aa59deb-33b4-42b9-a535-ae153b4b7a18" />
 
+## Protected self-modification
 
+The file tools create immutable proposals instead of rewriting the running
+agent. A proposal contains the exact candidate bytes, their SHA-256 digest,
+the prior target digest, and provenance. MeTTa candidates are parsed by PeTTa's
+`top_forms` and `sread` without calling `process_form`. Optional semantic
+evaluation runs without network, secrets, a writable host tree, or ambient
+home-directory access.
 
+Promotion is a separate operation for a supervisor that has a writable view of
+the protected root. The agent runtime should see that root read-only:
 
+```sh
+python3 scripts/selfmod_supervisor.py verify PROPOSAL_ID \
+  --root PROTECTED_ROOT --store PROPOSAL_STORE
+python3 scripts/selfmod_supervisor.py promote PROPOSAL_ID \
+  --root PROTECTED_ROOT --store PROPOSAL_STORE
+```
+
+Add `--semantic` to require sandboxed PeTTa evaluation. Configure locations
+with `METTACLAW_PROTECTED_ROOT`, `METTACLAW_SELFMOD_PROPOSAL_STORE`, and
+`PETTA_ROOT`. Optional external governance is enabled only when
+`METTACLAW_SELFMOD_REQUIRE_GOVERNANCE=1`; its executable is supplied through
+`METTACLAW_GGB_SELFMOD_CLI`.

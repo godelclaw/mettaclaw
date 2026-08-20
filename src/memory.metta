@@ -1,20 +1,29 @@
 ;Configured at runtime memory and history in amount of characters:
 (= (maxFeedback) (empty))
 (= (maxRecallItems) (empty))
-(= (maxHistory) (empty))
+(= (maxRecentTurns) (empty))
 
 (= (initMemory)
    (progn (println! "Initializing memory")
           (configure maxFeedback 50000)
           (configure maxRecallItems 20)
-          (configure maxHistory 30000)))
+          (configure maxRecentTurns 8)))
 
 (= (getPrompt)
-   (read-file (library mettaclaw ./memory/prompt.txt)))
+   (read-file (py-call (helper.path_from_env "METTACLAW_PROMPT_PATH" "./memory/prompt.txt"))))
 
-(= (getHistory)
-   (let $ret (read-file (library mettaclaw ./memory/history.metta))
-        (last_chars $ret (maxHistory))))
+;; The running action window: what this agent's own hands did over the last
+;; few substantive turns. Outputs are deliberately left behind — they are
+;; bulky and already acted on — and no-op turns do not consume a slot.
+(= (recentActions)
+   (py-call (helper.recent_actions
+              (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta"))
+              (maxRecentTurns))))
+
+(= (relevantFiles)
+   (py-call (helper.relevant_files
+              (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta"))
+              (maxRecentTurns))))
 
 (= (addToHistory $lastmessage $response $sexpr $msgnew)
    (if $msgnew
@@ -26,10 +35,14 @@
            (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
 
 (= (appendToHistory $addition)
-   (append-file (library mettaclaw ./memory/history.metta) (swrite $addition)))
+   (py-call (helper.history_append (swrite $addition))))
 
+;; Guarded: a dead embed daemon returns an instructive string result
+;; ("do not infer absence") instead of a generic command error.
 (= (remember $str)
-   (py-call (lib_chromadb.remember $str (useGPTEmbedding (string-safe $str)) (get_time_as_string))))
+   (let $memory (py-call (helper.decode_safe_text $str))
+        (py-call (qwen_embed.remember_guarded (string-safe $memory) (get_time_as_string)))))
 
 (= (query $str)
-   (py-call (lib_chromadb.query (useGPTEmbedding (string-safe $str)) (maxRecallItems))))
+   (let $query (py-call (helper.decode_safe_text $str))
+        (py-call (qwen_embed.query_guarded (string-safe $query) (maxRecallItems)))))

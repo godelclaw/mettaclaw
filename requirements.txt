@@ -1,0 +1,22 @@
+# Python dependencies for the pettaclaw runtime.
+# Install into the environment referenced by `petta_py_env` in config/local.toml:
+#   pip install -r requirements.txt
+#
+# The runtime env is intentionally self-contained. Do not put another venv's
+# site-packages on PYTHONPATH; `session_memory_tools` is source code only.
+requests==2.34.2
+websocket-client==1.9.0
+chromadb==1.5.9
+mcp==1.26.0
+
+# Qwen-backed remember/query.
+torch==2.12.0
+sentence-transformers==5.5.1
+transformers==5.12.0
+tokenizers==0.22.2
+safetensors==0.8.0
+huggingface-hub==1.16.1
+accelerate==1.14.0
+scikit-learn==1.9.0
+scipy==1.17.1
+tqdm==4.68.2
