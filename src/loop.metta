@@ -50,7 +50,7 @@
         " LAST_SKILL_USE_RESULTS: "
         (last_chars (loop-last-results $periphery) (maxFeedback))
         " CONTEXT_SOURCES: " (py-call (context_sources.bundle))
-        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[recent-actions] is what you yourself did over recent substantive turns, oldest first, commands only — consult it before rediscovering your own work; SOURCE[relevant-files] is derived from it; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
+        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[recent-actions] is what you yourself did over recent substantive turns, oldest first, commands only — consult it before rediscovering your own work; SOURCE[relevant-files] is derived from it; SOURCE[project-capabilities] is a revision-bound executable inventory — consult it before proposing a local subsystem from scratch; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
         " TIME: " (get_time_as_string)))))
 
 (= (HandleError $msg $cmd $sexpr)

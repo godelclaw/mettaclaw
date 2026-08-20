@@ -54,6 +54,7 @@ class ContextSourcesTest(unittest.TestCase):
     def test_live_registry_has_unique_stable_ids(self):
         ids = [spec.source_id for spec in context_sources.SOURCE_SPECS]
         self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn("project-capabilities", ids)
         self.assertEqual(ids[-1], "conversation")
 
 

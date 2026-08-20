@@ -48,6 +48,11 @@ def _engine_paths(name):
     return ()
 
 
+def engine_command(name):
+    """Return the configured argv prefix for an engine, without executing it."""
+    return _engine_paths(_canonical(name))
+
+
 def engine_available(name):
     name = _canonical(name)
     if name not in ENGINES:

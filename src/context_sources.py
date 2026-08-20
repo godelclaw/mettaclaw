@@ -29,6 +29,7 @@ SOURCE_SPECS = (
     SourceSpec("pins", 6000, True),
     SourceSpec("recent-actions", 12000, True),
     SourceSpec("relevant-files", 4000),
+    SourceSpec("project-capabilities", 5000),
     SourceSpec("conversation", 30000, True),
 )
 
@@ -91,6 +92,7 @@ def _loaders():
     import goals
     import helper
     import pins
+    import project_capabilities
     import telegram
 
     history = helper.path_from_env(
@@ -105,7 +107,8 @@ def _loaders():
          lambda: helper.recent_actions(history, limit=turns)),
         (SOURCE_SPECS[4],
          lambda: helper.relevant_files(history, limit=turns)),
-        (SOURCE_SPECS[5],
+        (SOURCE_SPECS[5], project_capabilities.view),
+        (SOURCE_SPECS[6],
          lambda: telegram.conversation_window(max_events=events)),
     )
 
