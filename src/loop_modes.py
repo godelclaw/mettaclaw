@@ -15,10 +15,13 @@ MODES = {
     "coding": {
         "description": "event-armed task episodes with high reasoning effort",
     },
+    "iter-coding": {
+        "description": "transformational renewal with high reasoning effort",
+    },
 }
 
 # Persisted historical selections retain their behavior while the operator UI
-# exposes only the three policy names used by the open MeTTa assemblage.
+# exposes only policy names used by the open MeTTa assemblage.
 ALIASES = {
     "default": "agent",
     "generic": "agent",
@@ -104,4 +107,3 @@ def set_mode(name):
 def wait_timed_out(wait_result):
     """Normalize the channel adapter's timeout result for the MeTTa policy."""
     return 1 if str(wait_result).startswith("rested ") else 0
-

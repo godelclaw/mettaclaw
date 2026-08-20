@@ -40,11 +40,21 @@ LEAN = _lean_dir()
 CONSTANTS = {
     "one full burst": [
         (ROOT / "src" / "loop_policy.metta",
-         r"\(=\s*\(policy-record agent\)\s*\(policy\s+(\d+)"),
+         r"\(=\s*\(policy-stage base\)\s*"
+         r"\(coordinate\s+burst-budget\s+(\d+)"),
+        (LEAN / "PolicyPipelineRuntime.lean",
+         r"def fullBurst : Nat := (\d+)"),
         (LEAN / "PresentMoment.lean", r"def full : Nat := (\d+)"),
         (LEAN / "ClawArchitectures.lean", r"def full : Nat := (\d+)"),
         (LEAN / "RestEnergy.lean", r"def full : Nat := (\d+)"),
         (LEAN / "FuelPolicy.lean", r"def full : Nat := (\d+)"),
+    ],
+    "iter idle boundary": [
+        (ROOT / "src" / "loop_policy.metta",
+         r"\(=\s*\(policy-stage iter-renewal\)\s*"
+         r"\(coordinate\s+idle-wait\s+(\d+)"),
+        (LEAN / "PolicyPipelineRuntime.lean",
+         r"def iterIdleWait : Nat := (\d+)"),
     ],
     "feedback window": [
         (ROOT / "src" / "helper.py", r"_WORKING_CAP = (\d+)"),

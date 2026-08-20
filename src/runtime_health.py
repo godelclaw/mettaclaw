@@ -70,7 +70,7 @@ def status(now=None):
     except (TypeError, ValueError):
         loops = 0
     active_mode = str(mode.get("mode", "default")).strip().lower()
-    autonomous = active_mode in ("iter", "claw23")
+    autonomous = active_mode in ("iter", "iter-coding", "claw23")
     # An autonomous mode expects cognition, but a rest in flight is a
     # legitimate reason for there to be none. Without this, every long rest
     # under iter would report a stale model turn.

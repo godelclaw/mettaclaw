@@ -96,14 +96,16 @@ loop:
 ```
 
 The loop policy is mutable runtime state, separate from the protected source.
-Use `(mode)`, `(modes)`, or `(mode-set "claw23")` from the agent, and `/mode`,
-`/modes`, or `/mode claw23` from an authorized Telegram account. `default` runs
+Use `(mode)`, `(modes)`, or `(mode-set "iter")` from the agent, and `/mode`,
+`/modes`, or `/mode iter` from an authorized Telegram account. `agent` runs
 bounded bursts armed by incoming events or the configured heartbeat; `coding`
-keeps that cadence with high reasoning effort; `claw23` runs bounded fast
-bursts and, after a 60-second input wait, renews autonomous work. `(nop)` ends
-one fast burst while leaving renewal enabled; `(rest)` explicitly suspends it.
-The selected mode persists in the ignored `memory/` state across restarts;
-the old name `generic` remains an input alias for `default`.
+keeps that cadence with high reasoning effort; `iter` renews autonomous work
+after each 60-second idle boundary; and `iter-coding` composes that renewal with
+high reasoning effort. These are ordered presets of named policy fragments,
+not separate loops. `(nop)` ends one fast burst while leaving renewal enabled;
+`(rest)` explicitly suspends it. The selected mode persists in the ignored
+`memory/` state across restarts; the old names `default` and `generic` alias
+`agent`, while `claw23` aliases `iter`.
 
 To validate your PeTTa + Python setup without starting the loop, run the
 import-only smoke test first — it loads the full library (git-cloning the

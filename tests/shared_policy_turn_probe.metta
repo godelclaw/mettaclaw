@@ -46,4 +46,16 @@
                (loop-active-policy (process-periphery $after)) coding)))
      (empty))
 
+!(let* (($_ (py-call (loop_modes.set_mode "iter-coding")))
+         ($before (initLoop))
+         ($after (process-step $before
+                   (turnProcess (process-periphery $before))))
+         ($_ (println! (POLICY_PROBE iter-coding
+                       (process-root $after)
+                       (loop-active-policy (process-periphery $after)))))
+         ($_ (assertEqual (process-root $after) weak-process-core-v1))
+         ($_ (assertEqual
+               (loop-active-policy (process-periphery $after)) iter-coding)))
+     (empty))
+
 !(println! SHARED_POLICY_TURN_OK)

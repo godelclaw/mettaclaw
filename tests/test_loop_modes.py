@@ -61,6 +61,12 @@ class LoopModeTests(unittest.TestCase):
         loop_modes.set_mode("coding")
         self.assertEqual(loop_modes.current_mode(), "coding")
 
+    def test_iter_coding_is_selectable_and_persistent(self):
+        self.assertIn("persists", loop_modes.set_mode("iter-coding"))
+        self.assertEqual(loop_modes.current_mode(), "iter-coding")
+        self.assertEqual(json.loads(self.path.read_text())["mode"],
+                         "iter-coding")
+
     def test_wait_result_normalization_only_reports_adapter_fact(self):
         self.assertEqual(loop_modes.wait_timed_out("rested 60s"), 1)
         self.assertEqual(loop_modes.wait_timed_out("woken by operator message"), 0)

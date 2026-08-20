@@ -188,27 +188,29 @@ class RuntimeHealthTest(unittest.TestCase):
         self.assertIn("steps=50@turn-start", report)
         self.assertIn("turn=pending:2s", report)
 
-    def test_a_long_rest_under_iter_is_not_a_stale_model_turn(self):
+    def test_a_long_rest_under_autonomous_presets_is_not_a_stale_model_turn(self):
         """The watcher can roll back on problems, so a legitimate rest must
         not look like a hung mind just because the mode is autonomous."""
-        self.write(self.channel, {
-            "menu_status": "ok", "last_poll_ok_at": 999,
-            "loop_status": "waiting", "waiting_until": 1200,
-        })
-        self.write(self.working, {"saved_at": 999, "loops": 0})
-        self.write(self.cognitive, {
-            "last_completed_at": 1, "pending_since": 0,
-            "last_outcome": "completed",
-        })
-        self.write(self.mode, {"mode": "iter"})
-        with mock.patch.object(runtime_health.memory_health, "drift",
-                               return_value=(100, 95, 5)), \
-             mock.patch.object(runtime_health.memory_health, "threshold",
-                               return_value=20):
-            value = runtime_health.status(now=1000)
-        self.assertFalse(value["cognition_required"])
-        self.assertNotIn("model-turn-stale", value["problems"])
-        self.assertEqual(value["state"], "ok")
+        for mode in ("iter", "iter-coding"):
+            with self.subTest(mode=mode):
+                self.write(self.channel, {
+                    "menu_status": "ok", "last_poll_ok_at": 999,
+                    "loop_status": "waiting", "waiting_until": 1200,
+                })
+                self.write(self.working, {"saved_at": 999, "loops": 0})
+                self.write(self.cognitive, {
+                    "last_completed_at": 1, "pending_since": 0,
+                    "last_outcome": "completed",
+                })
+                self.write(self.mode, {"mode": mode})
+                with mock.patch.object(runtime_health.memory_health, "drift",
+                                       return_value=(100, 95, 5)), \
+                     mock.patch.object(runtime_health.memory_health,
+                                       "threshold", return_value=20):
+                    value = runtime_health.status(now=1000)
+                self.assertFalse(value["cognition_required"])
+                self.assertNotIn("model-turn-stale", value["problems"])
+                self.assertEqual(value["state"], "ok")
 
     def test_pending_continuation_is_scheduled_not_working(self):
         self.write(self.working, {

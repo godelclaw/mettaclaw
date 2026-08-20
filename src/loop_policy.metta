@@ -28,24 +28,47 @@
 (= (loop-pending-continuation $periphery)
    (coordinate-get-or pending-continuation no-continuation $periphery))
 
-;; Four-coordinate source records.  Adding a mode adds one equation here;
-;; neither the generic policy functions nor the process core changes.
-;; reasoning=inherit means use the configured model default.
-(= (policy-record agent)  (policy 50 1 False inherit))
-(= (policy-record iter)   (policy 50 60 True inherit))
-(= (policy-record coding) (policy 50 1 False high))
+;; Named policy fragments compose into presets.  The list order is semantic:
+;; later fragments override earlier coordinates.  Adding a fragment or preset
+;; does not add a case to the process core.  reasoning=inherit means use the
+;; configured model default.
+(= (policy-stage base)
+   (coordinate burst-budget 50
+     (coordinate idle-wait 1
+       (coordinate autonomous-renewal False
+         (coordinate reasoning inherit coordinates-empty)))))
+(= (policy-stage iter-renewal)
+   (coordinate idle-wait 60
+     (coordinate autonomous-renewal True coordinates-empty)))
+(= (policy-stage coding-reasoning)
+   (coordinate reasoning high coordinates-empty))
+
+(= (policy-preset agent)
+   (stage-list base stages-empty))
+(= (policy-preset iter)
+   (stage-list base (stage-list iter-renewal stages-empty)))
+(= (policy-preset coding)
+   (stage-list base (stage-list coding-reasoning stages-empty)))
+(= (policy-preset iter-coding)
+   (stage-list base
+     (stage-list iter-renewal
+       (stage-list coding-reasoning stages-empty))))
+
+(= (policy-compile stages-empty) coordinates-empty)
+(= (policy-compile (stage-list $name $rest))
+   (coordinate-overlay (policy-compile $rest) (policy-stage $name)))
+(= (policy-record $selected)
+   (policy-compile (policy-preset $selected)))
 
 (= (policy-burst-budget $selected)
-   (let (policy $budget $idle $renew $reasoning) (policy-record $selected)
-        $budget))
+   (coordinate-get-or burst-budget 50 (policy-record $selected)))
 (= (policy-idle-wait $selected)
-   (let (policy $budget $idle $renew $reasoning) (policy-record $selected)
-        $idle))
+   (coordinate-get-or idle-wait 1 (policy-record $selected)))
 (= (policy-autonomous-renewal $selected)
-   (let (policy $budget $idle $renew $reasoning) (policy-record $selected)
-        $renew))
+   (coordinate-get-or autonomous-renewal False (policy-record $selected)))
 (= (policy-reasoning $selected $default)
-   (let (policy $budget $idle $renew $reasoning) (policy-record $selected)
+   (let $reasoning
+        (coordinate-get-or reasoning inherit (policy-record $selected))
         (if (== $reasoning inherit) $default $reasoning)))
 
 ;; A rest in flight is exactly a banked budget waiting to be handed back,

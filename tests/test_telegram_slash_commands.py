@@ -251,7 +251,7 @@ class SlashCommandTest(unittest.TestCase):
         callbacks = [row[0]["callback_data"]
                      for row in payload["reply_markup"]["inline_keyboard"]]
         self.assertEqual(callbacks, ["mode:agent", "mode:iter",
-                                     "mode:coding"])
+                                     "mode:coding", "mode:iter-coding"])
 
     def test_engine_bare_shows_active_engine(self):
         self.assertEqual(self.handle("/engine"), "slash_command:/engine")
