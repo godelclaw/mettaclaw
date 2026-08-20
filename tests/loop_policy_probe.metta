@@ -23,6 +23,9 @@
          ($_ (assertEqual (policy-idle-wait iter-coding) 60))
          ($_ (assertEqual (policy-autonomous-renewal iter-coding) True))
          ($_ (assertEqual (policy-reasoning iter-coding medium) high))
+         ($_ (assertEqual
+               (policy-compile (stage-list missing-stage stages-empty))
+               (policy-error unknown-stage missing-stage)))
          ($_ (assertEqual (policy-reasoning agent medium) medium))
          ($_ (assertEqual (policy-wait-seconds agent 0 3 0) 3))
          ($_ (assertEqual (policy-wait-seconds iter 0 3 0) 60))

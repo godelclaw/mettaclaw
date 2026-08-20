@@ -40,7 +40,8 @@ LEAN = _lean_dir()
 CONSTANTS = {
     "one full burst": [
         (ROOT / "src" / "loop_policy.metta",
-         r"\(=\s*\(policy-stage base\)\s*"
+         r"\(=\s*\(policy-registry\)\s*"
+         r"\(coordinate\s+base\s*"
          r"\(coordinate\s+burst-budget\s+(\d+)"),
         (LEAN / "PolicyPipelineRuntime.lean",
          r"def fullBurst : Nat := (\d+)"),
@@ -51,7 +52,7 @@ CONSTANTS = {
     ],
     "iter idle boundary": [
         (ROOT / "src" / "loop_policy.metta",
-         r"\(=\s*\(policy-stage iter-renewal\)\s*"
+         r"\(coordinate\s+iter-renewal\s*"
          r"\(coordinate\s+idle-wait\s+(\d+)"),
         (LEAN / "PolicyPipelineRuntime.lean",
          r"def iterIdleWait : Nat := (\d+)"),

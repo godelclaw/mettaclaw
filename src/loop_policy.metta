@@ -32,16 +32,20 @@
 ;; later fragments override earlier coordinates.  Adding a fragment or preset
 ;; does not add a case to the process core.  reasoning=inherit means use the
 ;; configured model default.
-(= (policy-stage base)
-   (coordinate burst-budget 50
-     (coordinate idle-wait 1
-       (coordinate autonomous-renewal False
-         (coordinate reasoning inherit coordinates-empty)))))
-(= (policy-stage iter-renewal)
-   (coordinate idle-wait 60
-     (coordinate autonomous-renewal True coordinates-empty)))
-(= (policy-stage coding-reasoning)
-   (coordinate reasoning high coordinates-empty))
+(= (policy-registry)
+   (coordinate base
+     (coordinate burst-budget 50
+       (coordinate idle-wait 1
+         (coordinate autonomous-renewal False
+           (coordinate reasoning inherit coordinates-empty))))
+     (coordinate iter-renewal
+       (coordinate idle-wait 60
+         (coordinate autonomous-renewal True coordinates-empty))
+       (coordinate coding-reasoning
+         (coordinate reasoning high coordinates-empty)
+         coordinates-empty))))
+(= (policy-stage $name)
+   (coordinate-get $name (policy-registry)))
 
 (= (policy-preset agent)
    (stage-list base stages-empty))
@@ -54,11 +58,23 @@
      (stage-list iter-renewal
        (stage-list coding-reasoning stages-empty))))
 
-(= (policy-compile stages-empty) coordinates-empty)
+(= (policy-compile stages-empty) (policy-ok coordinates-empty))
 (= (policy-compile (stage-list $name $rest))
-   (coordinate-overlay (policy-compile $rest) (policy-stage $name)))
+   (let $stage (policy-stage $name)
+     (case $stage
+       (((missing-coordinate $missing)
+         (policy-error unknown-stage $missing))
+        ($known
+         (let $tail (policy-compile $rest)
+           (case $tail
+             (((policy-error $kind $detail) $tail)
+              ((policy-ok $coordinates)
+               (policy-ok (coordinate-overlay $coordinates $known)))))))))))
 (= (policy-record $selected)
-   (policy-compile (policy-preset $selected)))
+   (let $compiled (policy-compile (policy-preset $selected))
+     (case $compiled
+       (((policy-error $kind $detail) $compiled)
+        ((policy-ok $coordinates) $coordinates)))))
 
 (= (policy-burst-budget $selected)
    (coordinate-get-or burst-budget 50 (policy-record $selected)))
