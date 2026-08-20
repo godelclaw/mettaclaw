@@ -207,7 +207,7 @@
 
 ;; The policy process computes freely.  Only this wrapper converts its result
 ;; to the kernel's success/failure vocabulary.
-(= (agentCandidate $periphery)
+(= (turnCandidate $periphery)
    (let* (($iteration (loop-iteration $periphery))
           ($selected (py-call (loop_modes.current_mode)))
           ($selectedPeriphery
@@ -262,12 +262,12 @@
          (println! (PROCESS_MALFORMED_OUTCOME $unexpected))
          failure)))))
 
-(= (agentProcess $periphery)
-   (protectedOutcome (catch (agentCandidate $periphery))))
+(= (turnProcess $periphery)
+   (protectedOutcome (catch (turnCandidate $periphery))))
 
 ;; A timed rest continuation is code-as-data until the timer expires.  It runs
 ;; directly, without spending a model call, and its result becomes context for
-;; exactly one ordinary follow-up turn.  The budget is 2 because agentCandidate
+;; exactly one ordinary follow-up turn.  The budget is 2 because turnCandidate
 ;; performs its normal boundary decrement before deciding whether to think.
 (= (runRestContinuation $periphery
                         (continuation-value $continuation))
@@ -330,7 +330,7 @@
 (= (processLoop $state)
    (let* (($periphery (process-periphery $state))
           ($_ (println! (---------iteration (loop-iteration $periphery))))
-          ($outcome (agentProcess $periphery))
+          ($outcome (turnProcess $periphery))
           ($next (process-step $state $outcome))
           ($_ (persistProcessState $next)))
      (if (== (py-call (helper.recycle_requested)) 1)

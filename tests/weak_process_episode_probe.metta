@@ -11,7 +11,7 @@
 !(initMemory)
 !(configure commchannel telegram)
 !(let* (($before (initLoop))
-         ($outcome (agentProcess (process-periphery $before)))
+         ($outcome (turnProcess (process-periphery $before)))
          ($after (process-step $before $outcome))
          ($_ (assertEqual (process-root $after) weak-process-core-v1))
          ($_ (assertEqual (loop-iteration (process-periphery $after)) 2))

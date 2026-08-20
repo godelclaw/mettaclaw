@@ -16,6 +16,7 @@ class RuntimeProbeTest(unittest.TestCase):
     PROBES = (
         ("tests/weak_process_core_probe.metta", "WEAK_PROCESS_CORE_OK"),
         ("tests/weak_process_episode_probe.metta", "WEAK_PROCESS_EPISODE_OK"),
+        ("tests/shared_policy_turn_probe.metta", "SHARED_POLICY_TURN_OK"),
         ("tests/loop_policy_probe.metta", "LOOP_POLICY_OK"),
         ("tests/fuel_policy_probe.metta", "FUEL_POLICY_OK"),
         ("tests/rest_banking_probe.metta", "REST_BANKING_OK"),
@@ -47,6 +48,8 @@ class RuntimeProbeTest(unittest.TestCase):
                         "METTACLAW_ENGINE": "petta",
                         "METTACLAW_ENGINE_STATE_PATH": os.path.join(
                             directory, "engine"),
+                        "METTACLAW_LOOP_MODE_PATH": os.path.join(
+                            directory, "loop-mode.json"),
                         "METTACLAW_CHROMA_DIR": os.path.join(
                             directory, "chroma"),
                     })
