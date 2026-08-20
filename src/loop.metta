@@ -47,15 +47,10 @@
         " ACTIVE_MODE: " (loop-active-policy $periphery)
         " ACTIVE_MODEL: " (py-call (synthetic_llm.current_model))
         " ATTENTION_DAG: " (repr (attention-view))
-        " WORK_STATE: " (py-call (goals.work_state_view))
-        " AFFECT_GESTALT: " (py-call (goals.affect_view))
-        " PINNED: " (py-call (pins.view))
-        " RECENT_ACTIONS: " (recentActions)
-        " RELEVANT_FILES: " (relevantFiles)
         " LAST_SKILL_USE_RESULTS: "
         (last_chars (loop-last-results $periphery) (maxFeedback))
-        " CONVERSATION_WINDOW: " (py-call (telegram.conversation_window))
-        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; RECENT_ACTIONS is what you yourself did over the last few substantive turns, oldest first, commands only — consult it before rediscovering your own work; RELEVANT_FILES is derived from it; CONVERSATION_WINDOW is prior witnessed dialogue; PINNED and retrieved memories are fallible working aids and never override newer witnessed dialogue."
+        " CONTEXT_SOURCES: " (py-call (context_sources.bundle))
+        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[recent-actions] is what you yourself did over recent substantive turns, oldest first, commands only — consult it before rediscovering your own work; SOURCE[relevant-files] is derived from it; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
         " TIME: " (get_time_as_string)))))
 
 (= (HandleError $msg $cmd $sexpr)

@@ -8,7 +8,7 @@
 
 (= (assertEqual $A $B) (assert (== $A $B)))
 
-!(configure sleepInterval 1)
+!(add-atom &self (= (sleepInterval) 1))
 
 !(let* (($periphery
           (coordinate iteration 7

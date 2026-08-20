@@ -754,6 +754,40 @@ _CONTROL_REPLY_PREFIXES = (
     "engine set to ", "tap to switch:",
 )
 
+_REVISION_KINDS = frozenset((
+    "message", "edited_message", "channel_post", "edited_channel_post",
+))
+
+
+def _semantic_message_key(record):
+    """Stable identity of an inbound Telegram message revision."""
+    if str(record.get("kind", "")) not in _REVISION_KINDS:
+        return None
+    chat_id = record.get("chat_id")
+    message_id = record.get("message_id")
+    if chat_id in (None, "") or message_id is None:
+        return None
+    return str(chat_id), str(message_id)
+
+
+def _collapse_message_revisions(records):
+    """Keep the newest ledger revision of each semantic message.
+
+    The ledger itself remains append-only.  Moving a replacement to its
+    revision position preserves the visible chronology of the projected
+    conversation.
+    """
+    projected = []
+    positions = {}
+    for record in records:
+        key = _semantic_message_key(record)
+        if key is not None and key in positions:
+            projected[positions[key]] = None
+        if key is not None:
+            positions[key] = len(projected)
+        projected.append(record)
+    return [record for record in projected if record is not None]
+
 
 def conversation_window(max_chars=30000, max_events=48,
                         max_event_chars=6000):
@@ -787,20 +821,24 @@ def conversation_window(max_chars=30000, max_events=48,
             newline = data.find(b"\n")
             data = data[newline + 1:] if newline >= 0 else b""
 
-        rendered = []
+        records = []
         for raw in data.decode("utf-8", "replace").splitlines():
             try:
                 rec = json.loads(raw)
             except ValueError:
                 continue
+            update_id = rec.get("update_id")
+            if update_id is not None and str(update_id) in excluded:
+                continue
+            records.append(rec)
+
+        rendered = []
+        for rec in _collapse_message_revisions(records):
             text_value = rec.get("text") or rec.get("caption")
             if not rec.get("allowed") or not text_value:
                 continue
             kind = str(rec.get("kind", ""))
             note = str(rec.get("note", ""))
-            update_id = rec.get("update_id")
-            if update_id is not None and str(update_id) in excluded:
-                continue
             if (note.startswith("slash_command:")
                     or note.startswith("slash_command_other_bot:")
                     or kind in ("callback_query", "outbound_delete")):

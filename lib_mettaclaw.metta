@@ -5,6 +5,7 @@
 !(import! &self ./lib_nal)
 !(import! &self ./lib_nal7)
 !(import! &self ./src/helper.py)
+!(import! &self ./src/context_sources.py)
 !(import! &self ./src/synthetic_llm.py)
 !(import! &self ./src/mcp_bridge.py)
 !(import! &self ./src/qwen_embed.py)

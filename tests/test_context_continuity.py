@@ -93,6 +93,46 @@ class ContextContinuityTest(unittest.TestCase):
         self.assertNotIn("steps=0", window)
         self.assertIn("real conversation", window)
 
+    def test_message_edits_are_one_semantic_event_in_context(self):
+        self.append(update_id=30, message_id=8, text="draft answer")
+        self.append(update_id=31, kind="edited_message", message_id=8,
+                    text="final answer")
+        window = telegram.conversation_window()
+        self.assertNotIn("draft answer", window)
+        self.assertEqual(window.count("final answer"), 1)
+        self.assertEqual(len(self.log.read_text(encoding="utf-8").splitlines()),
+                         2)
+
+    def test_message_identity_includes_chat(self):
+        self.append(update_id=40, chat_id="7", chat_title="Room A",
+                    message_id=9, text="from A")
+        self.append(update_id=41, chat_id="8", chat_title="Room B",
+                    message_id=9, text="from B")
+        window = telegram.conversation_window()
+        self.assertIn("from A", window)
+        self.assertIn("from B", window)
+
+    def test_future_edit_cannot_cross_the_context_frontier(self):
+        self.append(update_id=50, message_id=10, text="visible now")
+        telegram._context_frontier_bytes = self.log.stat().st_size
+        self.append(update_id=51, kind="edited_message", message_id=10,
+                    text="future revision")
+        window = telegram.conversation_window()
+        self.assertIn("visible now", window)
+        self.assertNotIn("future revision", window)
+
+    def test_current_edit_does_not_erase_prior_revision_early(self):
+        self.append(update_id=60, message_id=11, text="prior revision")
+        self.append(update_id=61, kind="edited_message", message_id=11,
+                    text="current revision")
+        telegram._set_last("7", "CURRENT FORMATTED\ncurrent revision",
+                           update_id=61)
+        batch = telegram.getActivityBatch()
+        window = telegram.conversation_window()
+        self.assertIn("prior revision", window)
+        self.assertNotIn("current revision", window)
+        self.assertEqual(batch.count("current revision"), 1)
+
     def test_internal_history_append_does_not_use_public_mutation_skill(self):
         self.assertEqual(helper.history_append("turn one"), 1)
         self.assertEqual(helper.history_append("turn two\n"), 1)
@@ -106,12 +146,11 @@ class ContextContinuityTest(unittest.TestCase):
         source = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         context = source[source.index("(= (getContext"):source.index(
             "(= (HandleError")]
-        self.assertIn("telegram.conversation_window", context)
-        self.assertIn("goals.affect_view", context)
+        self.assertIn("context_sources.bundle", context)
+        self.assertEqual(context.count("context_sources.bundle"), 1)
         self.assertNotIn("(getHistory)", context)
         self.assertNotIn("telegram.recent_activity", context)
-        self.assertLess(context.index("PINNED:"),
-                        context.index("CONVERSATION_WINDOW:"))
+        self.assertNotIn("telegram.conversation_window", context)
 
 
 if __name__ == "__main__":

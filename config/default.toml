@@ -47,6 +47,11 @@ allow_private = true
 # Use "tavily" or "ddg" to force one provider for the default (search "...").
 provider = "auto"
 
+[context]
+# Views remain bounded, but their horizons are ordinary replaceable policy.
+recent_action_turns = 12
+conversation_events = 64
+
 [memory]
 collection = "memories"
 metric = "cosine"
