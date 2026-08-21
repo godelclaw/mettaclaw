@@ -24,6 +24,9 @@ class RuntimeProbeTest(unittest.TestCase):
         ("tests/context_sources_probe.metta", "CONTEXT_SOURCES_OK"),
         ("tests/iter_process_adapter_probe.metta", "ITER_PROCESS_ADAPTER_OK"),
         ("tests/metta_coding_policy_probe.metta", "METTA_CODING_POLICY_OK"),
+        ("tests/structured_request_probe.metta", "STRUCTURED_REQUEST_OK"),
+        ("tests/integrated_coding_turn_probe.metta",
+         "INTEGRATED_CODING_TURN_OK"),
     )
 
     def assert_witness(self, result, marker, engine):
@@ -54,6 +57,12 @@ class RuntimeProbeTest(unittest.TestCase):
                             directory, "loop-mode.json"),
                         "METTACLAW_CHROMA_DIR": os.path.join(
                             directory, "chroma"),
+                        "METTACLAW_ITER_PROCESS_DIR": os.fspath(
+                            ROOT / "tests" / "fixtures" / "iter_processes"),
+                        "METTACLAW_HISTORY_PATH": os.path.join(
+                            directory, "history.metta"),
+                        "METTACLAW_WORKING_SET_PATH": os.path.join(
+                            directory, "working-set.json"),
                     })
                     result = subprocess.run(
                         ["./run.sh", probe], cwd=ROOT, env=env,

@@ -128,6 +128,71 @@ class IterProcessAdapterTests(unittest.TestCase):
         self.assertEqual(output["observations"][0]["status"], "success")
         self.assertEqual(len(output["revision"]), 64)
 
+    def test_disabled_request_is_identity_without_directory_capture(self):
+        with mock.patch.object(adapter, "capture") as capture:
+            output = json.loads(adapter.prepare_request_json(
+                "system", "activity", "skills", 0
+            ))
+        capture.assert_not_called()
+        self.assertEqual(
+            output["messages"],
+            [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "activity"},
+            ],
+        )
+        self.assertFalse(output["transformations_enabled"])
+        self.assertEqual(output["observations"], [])
+
+    def test_enabled_request_uses_exact_transformed_order_and_advertisement(self):
+        self.write(
+            "10_transform.py",
+            "def transform(messages, tools):\n"
+            "    return [messages[1], messages[0], "
+            "{'role': 'user', 'content': 'added'}], []\n",
+        )
+        with mock.patch.dict(os.environ, {
+            "METTACLAW_ITER_PROCESS_DIR": str(self.directory)
+        }):
+            encoded = adapter.prepare_request_json(
+                "system", "activity", "skills", 1
+            )
+        output = json.loads(encoded)
+        self.assertEqual(
+            [message["content"] for message in output["messages"]],
+            ["activity", "system", "added"],
+        )
+        self.assertEqual(output["tools"], [])
+        self.assertEqual(
+            output["authority"],
+            {
+                "executable": ["command-batch"],
+                "permitted": ["command-batch"],
+            },
+        )
+        rendered = adapter.render_request_json(encoded)
+        self.assertLess(rendered.index("USER: activity"),
+                        rendered.index("SYSTEM: system"))
+        self.assertIn("USER: added", rendered)
+
+    def test_request_failure_stutters_and_is_rendered_as_evidence(self):
+        self.write(
+            "10_broken.py",
+            "def transform(messages, tools): raise RuntimeError('broken')\n",
+        )
+        with mock.patch.dict(os.environ, {
+            "METTACLAW_ITER_PROCESS_DIR": str(self.directory)
+        }):
+            encoded = adapter.prepare_request_json(
+                "system", "activity", "skills", True
+            )
+        output = json.loads(encoded)
+        self.assertEqual(output["messages"][0]["content"], "system")
+        self.assertEqual(output["observations"][0]["status"], "failure")
+        observations = adapter.render_observations_json(encoded)
+        self.assertIn("10_broken.py:failure", observations)
+        self.assertIn("RuntimeError: broken", observations)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,12 +35,16 @@
      (rooted weak-process-core-v1 (initialPeriphery))))
 
 ;; Static context leads and changing policy state trails, preserving provider
-;; prefix caching while making the state passed to the model explicit.
-(= (getContext $periphery)
+;; prefix caching while making the request projection explicit.  Skills are a
+;; separate advertisement so Iter may transform them without receiving the
+;; command dispatcher's executable authority.
+(= (getContextPrefix)
+   (string-safe (py-str ("PROMPT: " (getPrompt)))))
+
+(= (getContextSuffix $periphery)
    (string-safe
      (py-str
-       ("PROMPT: " (getPrompt) " SKILLS: " (getSkills)
-        " OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
+       (" OUTPUT_FORMAT: Output a ((skillName1 args1) (skillName2 args2) (skillName3 args3) (skillName4 args4) (skillName5 args5)) S-expression of up to 5 sexpr commands, double-check the parentheses it must be (cmd1 ... cmdn)! Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
         " each arg is an explicit string hence needs quotes, and variables are forbidden!"
         " LOOPS_LEFT: " (loop-budget $periphery)
         " SLEEP_INTERVAL_SECONDS: " (loop-sleep $periphery)
@@ -52,6 +56,12 @@
         " CONTEXT_SOURCES: " (py-call (context_sources.bundle))
         " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[recent-actions] is what you yourself did over recent substantive turns, oldest first, commands only — consult it before rediscovering your own work; SOURCE[relevant-files] is derived from it; SOURCE[project-capabilities] is a revision-bound executable inventory — consult it before proposing a local subsystem from scratch; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
         " TIME: " (get_time_as_string)))))
+
+(= (getContext $periphery)
+   (string-safe
+     (py-str
+       ((getContextPrefix) " SKILLS: " (getSkills)
+        (getContextSuffix $periphery)))))
 
 (= (HandleError $msg $cmd $sexpr)
    (case $sexpr
@@ -159,8 +169,21 @@
                     (== (py-call (helper.text_nonempty $priorResults)) 1))))
           ($_ (py-call (telegram.begin_effect_turn $iteration)))
           ($prompt (getContext $periphery))
+          ($structuredSystem
+            (string-safe
+              (py-str ((getContextPrefix) (getContextSuffix $periphery)))))
+          ($advertised (string-safe (py-str (getSkills))))
           ($_ (println! $lastmessage))
-          ($send (py-str ($prompt $lastmessage)))
+          ($legacySend (py-str ($prompt $lastmessage)))
+          ($request
+            (coding-prepare-request
+              (loop-active-policy $periphery) $legacySend
+              $structuredSystem (string-safe (py-str $lastmessage))
+              $advertised))
+          ($requestObservations (coding-request-observations $request))
+          ($_ (if (== $requestObservations "") _
+                  (println! $requestObservations)))
+          ($send (coding-request-prompt $request))
           ($_ (println! (CHARS_SENT: (string_length $send) $send)))
           ($rmode (policy-reasoning (loop-active-policy $periphery)
                                     (reasoningMode)))
@@ -197,12 +220,20 @@
           ($_ (if (or $has-activity (not (== $sexpr ())))
                   (addToHistory $message $response $sexpr $has-activity)
                   _))
+          ($feedback
+            (if (== $requestObservations "")
+                (string-safe (repr $results))
+                (string-safe
+                  (py-str ($requestObservations " " (repr $results))))))
           ($withResults
-            (coordinate-set last-results (string-safe (repr $results))
-              $periphery))
+            (coordinate-set last-results $feedback $periphery))
           ($directed (loop-directives-apply $withResults))
           ($banked (applyRestBanking $directed))
-          ($_ (loop-directives-clear)))
+          ($_ (loop-directives-clear))
+          ;; A model/effect episode has exactly one committed successor.  The
+          ;; final cut prevents a bridge predicate's residual choice point
+          ;; from replaying the same pure candidate after effects completed.
+          ($_ (cut)))
      $banked))
 
 ;; The policy process computes freely.  Only this wrapper converts its result

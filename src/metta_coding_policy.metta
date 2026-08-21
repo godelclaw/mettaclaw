@@ -28,6 +28,26 @@
 (= (coding-state-boundary (coding-state $boundary $workspace)) $boundary)
 (= (coding-state-workspace (coding-state $boundary $workspace)) $workspace)
 
+;; The real turn path keeps the legacy agent request byte-for-byte while the
+;; structured policies use the captured Iter request adapter.  The prepared
+;; JSON remains opaque to the loop; these accessors are its only consumers.
+(= (coding-prepare-request
+      $selected $legacy-request $system-message $activity-message $advertised)
+   (if (== (policy-structured-request $selected) 1)
+       (coding-prepared-request
+         (iter-process-prepare-request
+           $system-message $activity-message $advertised
+           (policy-iter-transformations $selected)))
+       (coding-legacy-request $legacy-request)))
+
+(= (coding-request-prompt (coding-legacy-request $request)) $request)
+(= (coding-request-prompt (coding-prepared-request $prepared-json))
+   (iter-process-render-request $prepared-json))
+
+(= (coding-request-observations (coding-legacy-request $request)) "")
+(= (coding-request-observations (coding-prepared-request $prepared-json))
+   (iter-process-request-observations $prepared-json))
+
 ;; Open Iter transformation interface.  A transformation file contributes
 ;; equations for (coding-transform <name> <visible>).  No name catalogue is
 ;; built into this runner.

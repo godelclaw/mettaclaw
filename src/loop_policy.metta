@@ -37,12 +37,17 @@
      (coordinate burst-budget 50
        (coordinate idle-wait 1
          (coordinate autonomous-renewal False
-           (coordinate reasoning inherit coordinates-empty))))
+           (coordinate reasoning inherit
+             (coordinate structured-request 0
+               (coordinate iter-transformations 0 coordinates-empty))))))
      (coordinate iter-renewal
        (coordinate idle-wait 60
-         (coordinate autonomous-renewal True coordinates-empty))
+         (coordinate autonomous-renewal True
+           (coordinate structured-request 1
+             (coordinate iter-transformations 1 coordinates-empty))))
        (coordinate coding-reasoning
-         (coordinate reasoning high coordinates-empty)
+         (coordinate reasoning high
+           (coordinate structured-request 1 coordinates-empty))
          coordinates-empty))))
 (= (policy-stage $name)
    (coordinate-get $name (policy-registry)))
@@ -86,6 +91,10 @@
    (let $reasoning
         (coordinate-get-or reasoning inherit (policy-record $selected))
         (if (== $reasoning inherit) $default $reasoning)))
+(= (policy-structured-request $selected)
+   (coordinate-get-or structured-request 0 (policy-record $selected)))
+(= (policy-iter-transformations $selected)
+   (coordinate-get-or iter-transformations 0 (policy-record $selected)))
 
 ;; A rest in flight is exactly a banked budget waiting to be handed back,
 ;; so the periphery already answers "is renewal suspended?" and no separate

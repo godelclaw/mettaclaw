@@ -23,6 +23,7 @@ from typing import Any
 
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
+DEFAULT_PROCESS_DIRECTORY = "memory/transformations"
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,14 @@ def _python_executable() -> str:
     return os.environ.get("METTACLAW_PYTHON_EXECUTABLE", "python3")
 
 
+def configured_directory() -> str:
+    """The replaceable Iter process directory used by a live request."""
+
+    return os.environ.get(
+        "METTACLAW_ITER_PROCESS_DIR", DEFAULT_PROCESS_DIRECTORY
+    )
+
+
 def _write_result(path: Path, result: dict[str, Any]) -> None:
     try:
         encoded = json.dumps(result, ensure_ascii=False)
@@ -127,6 +136,8 @@ def _worker(payload_path: Path, result_path: Path) -> None:
         result = module.transform(payload["messages"], payload["tools"])
         if not isinstance(result, (list, tuple)) or len(result) != 2:
             raise TypeError("transform must return (messages, tools)")
+        if not isinstance(result[0], list) or not isinstance(result[1], list):
+            raise TypeError("transformed messages and tools must be lists")
         output = {"ok": True, "messages": result[0], "tools": result[1]}
     except BaseException as error:
         output = {"ok": False, "error": f"{type(error).__name__}: {error}"}
@@ -254,6 +265,158 @@ def run_json(directory: str, messages_json: str, tools_json: str) -> str:
         ensure_ascii=False,
         sort_keys=True,
     )
+
+
+def _enabled(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no")
+    return bool(value)
+
+
+def _request_tools(advertised: Any) -> list[dict[str, Any]]:
+    """Represent the real prompt command surface as one broker capability.
+
+    Individual MeTTa skills remain governed by the existing deterministic
+    dispatcher.  Iter may rewrite what the model sees here, but this value is
+    never used to resolve or authorize a command.
+    """
+
+    return [{
+        "type": "function",
+        "function": {
+            "name": "command_batch",
+            "description": str(advertised),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": True,
+            },
+        },
+    }]
+
+
+def prepare_request_json(
+    system_message: Any,
+    activity_message: Any,
+    advertised: Any,
+    run_iter: Any,
+) -> str:
+    """Capture and prepare one structured coding request.
+
+    The child transformations receive only messages and advertised schemas.
+    The executable/permitted authority remains the single command-batch
+    dispatcher and is recorded, not passed to transformations.
+    """
+
+    messages = [
+        {"role": "system", "content": str(system_message)},
+        {"role": "user", "content": str(activity_message)},
+    ]
+    tools = _request_tools(advertised)
+    directory = configured_directory()
+    observations: tuple[Observation, ...] = ()
+    revision = None
+    if _enabled(run_iter):
+        try:
+            snapshot, result = run_directory(directory, messages, tools)
+            revision = snapshot.revision
+            messages, tools = result.messages, result.tools
+            observations = result.observations
+        except BaseException as error:
+            observations = (
+                Observation(
+                    "request-adapter",
+                    "",
+                    "failure",
+                    f"{type(error).__name__}: {error}",
+                ),
+            )
+    return json.dumps(
+        {
+            "authority": {
+                "executable": ["command-batch"],
+                "permitted": ["command-batch"],
+            },
+            "messages": messages,
+            "observations": [
+                {
+                    "name": item.name,
+                    "digest": item.digest,
+                    "status": item.status,
+                    "detail": item.detail,
+                }
+                for item in observations
+            ],
+            "revision": revision,
+            "tools": tools,
+            "transformations_enabled": _enabled(run_iter),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _request_envelope(value: str) -> dict[str, Any]:
+    envelope = json.loads(str(value))
+    if not isinstance(envelope, dict):
+        raise TypeError("prepared request must be a JSON object")
+    return envelope
+
+
+def _render_message(message: Any) -> str:
+    if isinstance(message, dict) and "content" in message:
+        role = str(message.get("role", "message")).upper()
+        return f"{role}: {message['content']}"
+    return "MESSAGE: " + json.dumps(message, ensure_ascii=False, sort_keys=True)
+
+
+def render_request_json(value: str) -> str:
+    """Render transformed order and advertisements for the current LLM API."""
+
+    envelope = _request_envelope(value)
+    messages = envelope.get("messages")
+    tools = envelope.get("tools")
+    if not isinstance(messages, list) or not isinstance(tools, list):
+        raise TypeError("prepared messages and tools must be JSON lists")
+    rendered_messages = "\n\n".join(_render_message(item) for item in messages)
+    rendered_tools = json.dumps(
+        tools, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    observations = render_observations_json(value)
+    sections = [
+        rendered_messages,
+        "ADVERTISED_CAPABILITIES:\n" + rendered_tools,
+    ]
+    if observations:
+        sections.append(observations)
+    return "\n\n".join(sections)
+
+
+def render_observations_json(value: str) -> str:
+    """Bounded request-preparation evidence for context and turn receipts."""
+
+    envelope = _request_envelope(value)
+    observations = envelope.get("observations")
+    if not isinstance(observations, list) or not observations:
+        return ""
+    items = []
+    for observation in observations:
+        if not isinstance(observation, dict):
+            items.append("malformed-observation")
+            continue
+        item = "%s:%s" % (
+            observation.get("name", "unknown"),
+            observation.get("status", "unknown"),
+        )
+        detail = str(observation.get("detail") or "")
+        if detail:
+            item += ":" + detail[:500]
+        items.append(item)
+    revision = envelope.get("revision")
+    return (
+        "ITER_PROCESS_OBSERVATIONS revision=%s %s"
+        % (revision or "none", "; ".join(items))
+    )[:4000]
 
 
 if __name__ == "__main__":
