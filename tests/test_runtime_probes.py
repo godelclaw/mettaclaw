@@ -23,6 +23,7 @@ class RuntimeProbeTest(unittest.TestCase):
         ("tests/rest_continuation_probe.metta", "REST_CONTINUATION_OK"),
         ("tests/context_sources_probe.metta", "CONTEXT_SOURCES_OK"),
         ("tests/iter_process_adapter_probe.metta", "ITER_PROCESS_ADAPTER_OK"),
+        ("tests/metta_coding_policy_probe.metta", "METTA_CODING_POLICY_OK"),
     )
 
     def assert_witness(self, result, marker, engine):

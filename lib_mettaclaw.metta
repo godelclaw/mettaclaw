@@ -21,6 +21,7 @@
 !(import! &self ./src/open_assemblage)
 !(import! &self ./src/loop_policy)
 !(import! &self ./src/iter_process_policy)
+!(import! &self ./src/metta_coding_policy)
 !(import! &self ./src/skills)
 !(import! &self ./src/memory)
 !(import! &self ./src/attention_graph)
