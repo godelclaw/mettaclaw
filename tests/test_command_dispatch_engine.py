@@ -66,6 +66,8 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "METTACLAW_ENGINE": "petta",
                 "METTACLAW_ENGINE_STATE_PATH": os.fspath(
                     directory / "engine-selection"),
+                "METTACLAW_EFFECT_RECEIPT_PATH": os.fspath(
+                    directory / "effect-receipts.jsonl"),
             })
             result = subprocess.run(
                 ["./run.sh", os.fspath(probe)], cwd=ROOT, env=env,
@@ -77,6 +79,13 @@ class CommandDispatchEngineTest(unittest.TestCase):
                              "effect-once\n")
             self.assertIn("COMMAND_RETURN:", result.stdout)
             self.assertNotRegex(result.stdout, r"\$V[0-9]+")
+            receipts = [json.loads(line) for line in
+                        (directory / "effect-receipts.jsonl").read_text(
+                            encoding="utf-8").splitlines()]
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(receipts[0]["turn"], 424242)
+            self.assertEqual(receipts[0]["disposition"], "returned")
+            self.assertIn("shell", receipts[0]["command"])
 
     def test_cetta_grounds_every_record_in_a_mixed_command_batch(self):
         petta = self._petta_root()

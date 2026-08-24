@@ -28,7 +28,8 @@ SOURCE_SPECS = (
     SourceSpec("commitment-state", 2000),
     SourceSpec("affect-gestalt", 2000),
     SourceSpec("pins", 6000, True),
-    SourceSpec("recent-actions", 12000, True),
+    SourceSpec("effect-receipts", 14000, True),
+    SourceSpec("recent-proposals", 10000, True),
     SourceSpec("relevant-files", 4000),
     SourceSpec("project-capabilities", 5000),
     SourceSpec("conversation", 30000, True),
@@ -91,6 +92,7 @@ _PROJECTOR = Projector()
 
 def _loaders():
     import commitment_projection
+    import effect_receipts
     import goals
     import helper
     import pins
@@ -106,12 +108,13 @@ def _loaders():
         (SOURCE_SPECS[1], commitment_projection.view),
         (SOURCE_SPECS[2], goals.affect_view),
         (SOURCE_SPECS[3], pins.view),
-        (SOURCE_SPECS[4],
-         lambda: helper.recent_actions(history, limit=turns)),
+        (SOURCE_SPECS[4], effect_receipts.view),
         (SOURCE_SPECS[5],
+         lambda: helper.recent_actions(history, limit=turns)),
+        (SOURCE_SPECS[6],
          lambda: helper.relevant_files(history, limit=turns)),
-        (SOURCE_SPECS[6], project_capabilities.view),
-        (SOURCE_SPECS[7],
+        (SOURCE_SPECS[7], project_capabilities.view),
+        (SOURCE_SPECS[8],
          lambda: telegram.conversation_window(max_events=events)),
     )
 

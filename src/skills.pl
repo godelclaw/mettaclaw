@@ -70,7 +70,7 @@ first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
     ; admit_command_prefix(Limit, Commands, Admitted, Deferred),
       run_command_list_unless_stimulus(Turn, Admitted,
                                        ExecutedRecords, Errors),
-      deferred_command_record(Limit, Deferred, DeferredRecords),
+      deferred_command_record(Turn, Limit, Deferred, DeferredRecords),
       append(ExecutedRecords, DeferredRecords, Records),
       nb_setval(mettaclaw_command_batch_cache,
                 command_batch(Turn, Limit, Commands, Records, Errors))
@@ -96,21 +96,23 @@ admit_command_prefix(Limit, [Command|Rest], [Command|Admitted], Deferred) :-
     Next is Limit - 1,
     admit_command_prefix(Next, Rest, Admitted, Deferred).
 
-deferred_command_record(_, [], []) :- !.
-deferred_command_record(Limit, Deferred,
+deferred_command_record(_, _, [], []) :- !.
+deferred_command_record(Turn, Limit, Deferred,
                         [['COMMAND_BATCH_DEFERRED:',
-                          [limit, Limit, commands, Deferred]]]).
+                          [limit, Limit, commands, Deferred]]]) :-
+    record_suffix_receipt(Turn, deferred, Deferred, batch_limit).
 
 run_command_list_unless_stimulus(_, [], [], []).
 run_command_list_unless_stimulus(Turn, Commands, Records, Errors) :-
     ( effect_turn_stimulus_free(Turn)
     -> Commands = [Command|Rest],
-       run_command_once(Command, Record, CommandErrors),
+       run_command_once(Turn, Command, Record, CommandErrors),
        run_command_list_unless_stimulus(Turn, Rest, RestRecords, RestErrors),
        Records = [Record|RestRecords],
        append(CommandErrors, RestErrors, Errors)
     ; Records = [['COMMAND_BATCH_INTERRUPTED:',
                   [reason, new_stimulus, commands, Commands]]],
+      record_suffix_receipt(Turn, withheld, Commands, new_stimulus),
       Errors = []
     ).
 
@@ -123,13 +125,28 @@ effect_turn_stimulus_free(Turn) :-
     ),
     ( Value == 1 ; Value == true ; Value == 'True' ), !.
 
-run_command_once(Command, ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-
+run_command_once(Turn, Command,
+                 ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-
     catch(( once(command_effect(Command, Raw)) -> Status = ok(Raw)
                                               ; Status = failed ),
           Exception,
           Status = exception(Exception)),
     command_status(Status, Command, Value, Errors),
-    normalize_command_value(Value, Normalized).
+    normalize_command_value(Value, Normalized),
+    command_disposition(Status, Disposition),
+    record_command_receipt(Turn, Disposition, Command, Normalized).
+
+command_disposition(ok(_), returned).
+command_disposition(failed, no_result).
+command_disposition(exception(_), exception).
+
+record_command_receipt(Turn, Disposition, Command, Result) :-
+    catch('py-call'(['effect_receipts.record_command', Turn, Disposition,
+                     Command, Result], _), _, true).
+
+record_suffix_receipt(Turn, Disposition, Commands, Reason) :-
+    catch('py-call'(['effect_receipts.record_suffix', Turn, Disposition,
+                     Commands, Reason], _), _, true).
 
 %% Qualification replaces only the effect provider beneath the real parser
 %% and batch dispatcher. Shadow mode is fail-closed: its Python provider has

@@ -8,6 +8,38 @@ CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/CeTTa}"
 STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
 
+# Alternate .metta targets are tests or utilities, not the persistent agent.
+# Capture caller-supplied state paths before local configuration is loaded;
+# unspecified mutable state is redirected to one disposable directory.  This
+# prevents a semantic probe from changing the live mode, working set, history,
+# transport offset, or receipts merely because it imports the real loop.
+REQUESTED_TARGET="${1:-run.metta}"
+case "$REQUESTED_TARGET" in
+    run.metta|"$ROOT/run.metta") NONLIVE_TARGET=0 ;;
+    *) NONLIVE_TARGET=1 ;;
+esac
+STATE_PATH_NAMES=(
+    METTACLAW_ENGINE_STATE_PATH METTACLAW_TELEGRAM_OFFSET_PATH
+    METTACLAW_TELEGRAM_LOG_PATH METTACLAW_TELEGRAM_HEALTH_PATH
+    METTACLAW_COGNITIVE_HEALTH_PATH METTACLAW_LIFECYCLE_PATH
+    METTACLAW_DEPLOYMENT_STATE_PATH METTACLAW_RECYCLE_REQUEST_PATH
+    METTACLAW_WORKING_SET_PATH METTACLAW_HISTORY_PATH
+    METTACLAW_LOOP_MODE_PATH METTACLAW_FUEL_MODE_PATH
+    METTACLAW_ENERGY_PATH METTACLAW_MODEL_STATE_PATH
+    METTACLAW_ANTHROPIC_USAGE_PATH METTACLAW_EFFECT_RECEIPT_PATH
+    METTACLAW_MEMORY_LOG_DIR METTACLAW_CHROMA_DIR
+    METTACLAW_TELEGRAM_ATTACHMENTS_DIR METTACLAW_SELFMOD_LOG
+    METTACLAW_SELFMOD_PROPOSAL_STORE
+)
+declare -A CALLER_STATE_SET=()
+declare -A CALLER_STATE_VALUE=()
+for state_name in "${STATE_PATH_NAMES[@]}"; do
+    if [[ -v $state_name ]]; then
+        CALLER_STATE_SET["$state_name"]=1
+        CALLER_STATE_VALUE["$state_name"]="${!state_name}"
+    fi
+done
+
 if [ "${METTACLAW_SKIP_INITIALIZE:-0}" != "1" ] && [ -x "$ROOT/initialize.sh" ]; then
     "$ROOT/initialize.sh" >/dev/null
 fi
@@ -22,6 +54,30 @@ if [ -f "$ROOT/config/secrets.env" ]; then
     set -a
     . "$ROOT/config/secrets.env"
     set +a
+fi
+
+TEST_STATE_DIR=""
+if [ "$NONLIVE_TARGET" = 1 ]; then
+    TEST_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pettaclaw-probe.XXXXXX")"
+    trap 'rm -rf -- "$TEST_STATE_DIR"' EXIT
+    for state_name in "${STATE_PATH_NAMES[@]}"; do
+        if [ "${CALLER_STATE_SET[$state_name]:-0}" = 1 ]; then
+            printf -v "$state_name" '%s' "${CALLER_STATE_VALUE[$state_name]}"
+        else
+            printf -v "$state_name" '%s/%s' "$TEST_STATE_DIR" "$state_name"
+        fi
+        export "$state_name"
+    done
+    if [ "${CALLER_STATE_SET[METTACLAW_LIFECYCLE_PATH]:-0}" != 1 ]; then
+        printf '%s\n' '{"schema":1,"state":"running"}' \
+            >"$METTACLAW_LIFECYCLE_PATH"
+    fi
+    if [ "${CALLER_STATE_SET[METTACLAW_DEPLOYMENT_STATE_PATH]:-0}" != 1 ]; then
+        probe_now="$(date +%s)"
+        printf '%s\n' \
+            "{\"candidate\":\"test-probe\",\"last_observation\":{\"observed_at\":$probe_now,\"head\":\"test-probe\",\"active\":true,\"problems\":[]}}" \
+            >"$METTACLAW_DEPLOYMENT_STATE_PATH"
+    fi
 fi
 
 # The persisted selection is deliberately tiny: one validated engine name.
@@ -83,6 +139,9 @@ export METTACLAW_TELEGRAM_LOG_PATH="${METTACLAW_TELEGRAM_LOG_PATH:-$STATE_HOME/$
 export METTACLAW_COGNITIVE_HEALTH_PATH="${METTACLAW_COGNITIVE_HEALTH_PATH:-$STATE_HOME/$INSTANCE/cognitive-health.json}"
 export METTACLAW_LIFECYCLE_PATH="${METTACLAW_LIFECYCLE_PATH:-$STATE_HOME/$INSTANCE/lifecycle.json}"
 export METTACLAW_DEPLOYMENT_STATE_PATH="${METTACLAW_DEPLOYMENT_STATE_PATH:-$STATE_HOME/$INSTANCE/deployment.json}"
+if [ "$NONLIVE_TARGET" = 0 ]; then
+    export METTACLAW_EFFECT_RECEIPT_PATH="${METTACLAW_EFFECT_RECEIPT_PATH:-$STATE_HOME/$INSTANCE/effect-receipts.jsonl}"
+fi
 export METTACLAW_EMBED_MODEL="${METTACLAW_EMBED_MODEL:-}"
 export METTACLAW_EMBED_DIM="${METTACLAW_EMBED_DIM:-1024}"
 export METTACLAW_EMBED_DEVICE="${METTACLAW_EMBED_DEVICE:-auto}"
@@ -165,6 +224,10 @@ PYTHONPATH="$ROOT/src:$ROOT/repos/petta_lib_chromadb" \
 
 case "$METTACLAW_ENGINE" in
     petta)
+        if [ "$NONLIVE_TARGET" = 1 ]; then
+            "$PETTA_ROOT/run.sh" "$TARGET" default
+            exit $?
+        fi
         exec "$PETTA_ROOT/run.sh" "$TARGET" default
         ;;
     cetta)
@@ -173,7 +236,8 @@ case "$METTACLAW_ENGINE" in
             fallback_to_petta 2 "CeTTa executable unavailable"
         fi
         if [ "$TARGET" != "$ROOT/run.metta" ]; then
-            exec "$CETTA_BIN" --lang petta --import-mode ancestor-walk "$TARGET"
+            "$CETTA_BIN" --lang petta --import-mode ancestor-walk "$TARGET"
+            exit $?
         fi
         set +e
         "$CETTA_BIN" --lang petta --import-mode ancestor-walk \

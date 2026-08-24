@@ -308,11 +308,13 @@ def _is_noise(commands):
 
 
 def recent_actions(path, limit=8, max_chars=12000):
-    """The last `limit` substantive turns, oldest first, within max_chars.
+    """The last `limit` substantive proposals, oldest first, within max_chars.
 
     The newest substantive turn is never dropped: if it alone exceeds the
     budget it is truncated rather than omitted, because a window that
-    silently loses the most recent action is worse than a short one."""
+    silently loses the most recent proposal is worse than a short one.  This
+    transcript is not evidence that any proposed command executed; broker
+    receipts carry that distinction."""
     try:
         limit = max(1, int(limit))
         budget = max(500, int(max_chars))
@@ -336,7 +338,7 @@ def recent_actions(path, limit=8, max_chars=12000):
         return "\n\n".join(chosen)
     except Exception as exc:
         print("[helper] recent_actions error:", type(exc).__name__, exc)
-        return "(action window unavailable)"
+        return "(proposal window unavailable)"
 
 
 def relevant_files(path, limit=8, max_paths=25):

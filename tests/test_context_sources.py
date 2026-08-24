@@ -1,12 +1,16 @@
 import pathlib
+import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import context_sources  # noqa: E402
+import effect_receipts  # noqa: E402
 
 
 class ContextSourcesTest(unittest.TestCase):
@@ -54,8 +58,32 @@ class ContextSourcesTest(unittest.TestCase):
     def test_live_registry_has_unique_stable_ids(self):
         ids = [spec.source_id for spec in context_sources.SOURCE_SPECS]
         self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn("effect-receipts", ids)
+        self.assertIn("recent-proposals", ids)
+        self.assertNotIn("recent-actions", ids)
+        self.assertLess(ids.index("effect-receipts"),
+                        ids.index("recent-proposals"))
         self.assertIn("project-capabilities", ids)
         self.assertEqual(ids[-1], "conversation")
+
+    def test_broker_receipt_crosses_the_real_context_bundle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "receipts.jsonl"
+            with mock.patch.dict(os.environ, {
+                "METTACLAW_EFFECT_RECEIPT_PATH": str(path),
+                "METTACLAW_HISTORY_PATH": str(
+                    pathlib.Path(directory) / "history.metta"),
+                "METTACLAW_TELEGRAM_LOG_PATH": str(
+                    pathlib.Path(directory) / "updates.jsonl"),
+            }):
+                effect_receipts.record_command(
+                    8, "returned", ["send-file", "report.md"],
+                    "partial(failed)",
+                )
+                rendered = context_sources.bundle()
+        self.assertIn("SOURCE[effect-receipts] status=known", rendered)
+        self.assertIn("partial(failed)", rendered)
+        self.assertIn("SOURCE[recent-proposals]", rendered)
 
 
 if __name__ == "__main__":

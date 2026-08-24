@@ -56,7 +56,7 @@
         " LAST_SKILL_USE_RESULTS: "
         (last_chars (loop-last-results $periphery) (maxFeedback))
         " CONTEXT_SOURCES: " (addition-context-sources)
-        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[recent-actions] is what you yourself did over recent substantive turns, oldest first, commands only — consult it before rediscovering your own work; SOURCE[relevant-files] is derived from it; SOURCE[project-capabilities] is a revision-bound executable inventory — consult it before proposing a local subsystem from scratch; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
+        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[effect-receipts] is the authoritative record of which brokered commands returned, were withheld, or were deferred — returned is not domain success, so inspect its result; SOURCE[recent-proposals] contains model requests only and never proves execution or success; SOURCE[relevant-files] is derived from proposals; SOURCE[project-capabilities] is a revision-bound executable inventory — consult it before proposing a local subsystem from scratch; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
         " TIME: " (get_time_as_string)))))
 
 (= (getContext $periphery)
@@ -201,6 +201,11 @@
           ($_ (HandleError multi_command_parse_error_nothing_ran
                           $response $parsed))
           ($sexpr (addition-command-sequence $parsed))
+          ;; Inspect only the outer list shape before the effect boundary.
+          ;; Passing the command value itself through a later `eval` would
+          ;; reduce grounded skills even when the broker withheld them.
+          ($parseOutcome
+            (if (== $sexpr ()) no-commands commands-parsed))
           ($_ (println! (RESPONSE: $sexpr)))
           ($_ (cut))
           ;; The explicit quote keeps grounded commands inert until the
@@ -214,11 +219,10 @@
                 (append (get-state &error)
                         (command-batch-errors $iteration))))
           ($results (RESULTS: $commandResults))
-          ($_ (eval (attention-complete $iteration
-                    (if (== $sexpr ()) no-commands commands-parsed))))
+          ($_ (eval (attention-complete $iteration $parseOutcome)))
           ($_ (println! $results))
           ($_ (if (or $has-activity (not (== $sexpr ())))
-                  (addToHistory $message $response $sexpr $has-activity)
+                  (addToHistory $message $response $has-activity)
                   _))
           ($feedback
             (if (== $requestObservations "")

@@ -79,6 +79,15 @@ class FullGodelShadowTests(unittest.TestCase):
                     shadow.state()["last_result"],
                 )
 
+    def test_unsupported_grounded_skill_is_inert_before_shadow_broker(self):
+        with FullShadow() as shadow:
+            self.run_ok(shadow, '((pin "must remain a proposal"))', 1)
+            self.assertFalse((shadow.directory / "pins.txt").exists())
+            self.assertIn(
+                "SHADOW_DENIED unsupported-command pin",
+                shadow.state()["last_result"],
+            )
+
     def test_new_operator_stimulus_interrupts_batch_suffix(self):
         with FullShadow(auto_stop_after_first_effect=True) as shadow:
             self.observe(shadow, 1)

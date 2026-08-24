@@ -12,9 +12,9 @@
 (= (getPrompt)
    (read-file (py-call (helper.path_from_env "METTACLAW_PROMPT_PATH" "./memory/prompt.txt"))))
 
-;; The running action window: what this agent's own hands did over the last
-;; few substantive turns. Outputs are deliberately left behind — they are
-;; bulky and already acted on — and no-op turns do not consume a slot.
+;; The running proposal window: what the model requested over the last few
+;; substantive turns. Broker receipts, not this transcript, say what ran.
+;; No-op turns do not consume a slot.
 (= (recentActions)
    (py-call (helper.recent_actions
               (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta"))
@@ -25,7 +25,7 @@
               (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta"))
               (maxRecentTurns))))
 
-(= (addToHistory $lastmessage $response $sexpr $msgnew)
+(= (addToHistory $lastmessage $response $msgnew)
    (if $msgnew
        (if (== (get-state &error) ())
            (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline)))

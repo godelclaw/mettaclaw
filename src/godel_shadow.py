@@ -104,6 +104,24 @@ class FullShadow:
             "METTACLAW_ENGINE_STATE_PATH": str(
                 self.directory / "engine-selection"
             ),
+            "METTACLAW_HISTORY_PATH": str(self.directory / "history.metta"),
+            "METTACLAW_WORKING_SET_PATH": str(
+                self.directory / "working-set.json"
+            ),
+            "METTACLAW_LOOP_MODE_PATH": str(self.directory / "loop-mode.json"),
+            "METTACLAW_FUEL_MODE_PATH": str(self.directory / "fuel-mode.json"),
+            "METTACLAW_ENERGY_PATH": str(self.directory / "energy.json"),
+            "METTACLAW_PINS_PATH": str(self.directory / "pins.txt"),
+            "METTACLAW_GOALS_PATH": str(self.directory / "goals.metta"),
+            "METTACLAW_TELEGRAM_OFFSET_PATH": str(
+                self.directory / "telegram-offset"
+            ),
+            "METTACLAW_TELEGRAM_LOG_PATH": str(
+                self.directory / "telegram-updates.jsonl"
+            ),
+            "METTACLAW_EFFECT_RECEIPT_PATH": str(
+                self.directory / "effect-receipts.jsonl"
+            ),
         })
         if self.backend_selector is None:
             environment.pop("METTACLAW_EFFECT_BACKEND", None)

@@ -31,6 +31,8 @@ class RuntimeProbeTest(unittest.TestCase):
          "INTEGRATED_CODING_TURN_OK"),
         ("tests/interactive_batch_policy_probe.metta",
          "INTERACTIVE_BATCH_POLICY_OK"),
+        ("tests/interrupted_cognitive_turn_probe.metta",
+         "INTERRUPTED_COGNITIVE_TURN_OK"),
     )
 
     def assert_witness(self, result, marker, engine):
@@ -99,6 +101,8 @@ class RuntimeProbeTest(unittest.TestCase):
                             directory, "history.metta"),
                         "METTACLAW_WORKING_SET_PATH": os.path.join(
                             directory, "working-set.json"),
+                        "METTACLAW_PINS_PATH": os.path.join(
+                            directory, "pins.txt"),
                         "METTACLAW_LIFECYCLE_PATH": os.fspath(lifecycle),
                         "METTACLAW_DEPLOYMENT_STATE_PATH": os.fspath(
                             deployment),
@@ -112,6 +116,21 @@ class RuntimeProbeTest(unittest.TestCase):
                         text=True, timeout=30,
                     )
                     self.assert_witness(result, marker, "PeTTa")
+                    if probe == "tests/interactive_batch_policy_probe.metta":
+                        mode_path = pathlib.Path(directory) / "loop-mode.json"
+                        history_path = pathlib.Path(directory) / "history.metta"
+                        self.assertTrue(mode_path.is_file())
+                        self.assertIn("coding", mode_path.read_text(
+                            encoding="utf-8"))
+                        self.assertTrue(history_path.is_file())
+                        self.assertIn("probe-stimulus", history_path.read_text(
+                            encoding="utf-8"))
+                    if probe == "tests/interrupted_cognitive_turn_probe.metta":
+                        pins_path = pathlib.Path(directory) / "pins.txt"
+                        pins = (pins_path.read_text(encoding="utf-8")
+                                if pins_path.is_file() else "")
+                        self.assertNotIn(
+                            "withheld-cognitive-pin-must-not-land", pins)
 
     def test_context_projection_crosses_cetta_provider_boundary(self):
         cetta = pathlib.Path(os.environ.get(
