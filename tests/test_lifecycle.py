@@ -120,6 +120,18 @@ class LifecycleTests(unittest.TestCase):
         self.deployment.write_text(json.dumps(base), encoding="utf-8")
         self.assertFalse(lifecycle._fresh_probe_healthy(now)[0])
 
+    def test_service_pins_shared_authority_paths_after_legacy_environment(self):
+        unit = (ROOT / "systemd" / "pettaclaw-godel.service").read_text(
+            encoding="utf-8"
+        )
+        legacy = unit.index("EnvironmentFile=-%h/.config/pettaclaw/godel-runtime.env")
+        lifecycle_path = unit.index("Environment=METTACLAW_LIFECYCLE_PATH=")
+        deployment_path = unit.index(
+            "Environment=METTACLAW_DEPLOYMENT_STATE_PATH="
+        )
+        self.assertLess(legacy, lifecycle_path)
+        self.assertLess(legacy, deployment_path)
+
     def test_failed_start_leaves_stopped_latch(self):
         lifecycle._write(lifecycle.RUNNING)
         with mock.patch.object(lifecycle, "_systemctl",
