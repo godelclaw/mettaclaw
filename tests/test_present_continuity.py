@@ -124,7 +124,8 @@ class LoopWiringTests(unittest.TestCase):
 
     def test_wait_executes_continuation_without_model_call(self):
         self.assertIn("(runRestContinuation", self.loop)
-        self.assertIn("(telegram.begin_effect_turn $turn)", self.loop)
+        self.assertIn("(addition-effect-turn-begin $turn)", self.loop)
+        self.assertNotIn("(telegram.begin_effect_turn", self.loop)
         self.assertIn("(run-command-batch-once $turn", self.loop)
         self.assertIn("(policy-command-batch-limit", self.loop)
         continuation = self.loop.index("(runRestContinuation")

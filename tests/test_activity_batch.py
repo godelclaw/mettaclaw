@@ -138,7 +138,9 @@ class ActivityBatchTests(unittest.TestCase):
         )
         self.assertNotIn("run-command-batch-once $iteration $sexpr", loop)
         self.assertNotIn("(collapse (let $s (superpose $sexpr)", loop)
-        self.assertIn("(telegram.begin_effect_turn $iteration)", loop)
+        frontier = loop.index("(addition-effect-turn-begin $iteration)")
+        self.assertLess(frontier, response)
+        self.assertNotIn("(telegram.begin_effect_turn", loop)
 
 
 if __name__ == "__main__":

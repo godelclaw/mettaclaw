@@ -20,6 +20,7 @@ class TurnAdditionShapeTests(unittest.TestCase):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         for name in (
             "addition-context-sources",
+            "addition-effect-turn-begin",
             "addition-prepare-request",
             "addition-model-call",
             "addition-balance-response",
@@ -30,6 +31,7 @@ class TurnAdditionShapeTests(unittest.TestCase):
         ):
             self.assertIn(name, loop)
         self.assertNotIn("(py-call (context_sources.bundle))", loop)
+        self.assertNotIn("(py-call (telegram.begin_effect_turn", loop)
         self.assertNotIn("(py-call (synthetic_llm.chat", loop)
         self.assertNotIn("(run-command-batch-once\n", loop)
 

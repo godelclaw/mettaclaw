@@ -169,7 +169,7 @@
           ($_ (loop-directives-clear))
           ($_ (eval (attention-begin $iteration $source
                     (== (py-call (helper.text_nonempty $priorResults)) 1))))
-          ($_ (py-call (telegram.begin_effect_turn $iteration)))
+          ($_ (addition-effect-turn-begin $iteration))
           ($prompt (getContext $periphery))
           ($structuredSystem
             (string-safe
@@ -308,7 +308,7 @@
           ;; unlike a compound marker it cannot be eagerly reduced away while
           ;; crossing the MeTTa/Prolog call boundary.
           ($turn (- 0 $iteration))
-          ($_ (py-call (telegram.begin_effect_turn $turn)))
+          ($_ (addition-effect-turn-begin $turn))
           ($records
             (run-command-batch-once $turn
               (policy-command-batch-limit

@@ -4,6 +4,9 @@
 (= (addition-context-sources)
    (py-call (context_sources.bundle)))
 
+(= (addition-effect-turn-begin $turn)
+   (py-call (effect_frontier.begin $turn)))
+
 (= (addition-prepare-request
       $selected $legacy $system $activity $advertised)
    (coding-prepare-request

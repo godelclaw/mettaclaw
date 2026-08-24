@@ -129,7 +129,7 @@ class FullShadow:
             "!(import! &self ./src/skills)\n"
             "!(import! &self ./src/command_pipeline)\n"
             "!(import! &self ./src/turn_additions)\n"
-            "!(println! (py-call (effect_backend.begin_turn %d)))\n"
+            "!(println! (addition-effect-turn-begin %d))\n"
             "!(let* ("
             "($respi %s) "
             "($resp (addition-balance-response $respi)) "
