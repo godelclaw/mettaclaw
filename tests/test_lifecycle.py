@@ -17,10 +17,12 @@ class LifecycleTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.path = pathlib.Path(self.temporary.name) / "lifecycle.json"
+        self.deployment = pathlib.Path(self.temporary.name) / "deployment.json"
         self.environment = mock.patch.dict(os.environ, {
             "METTACLAW_LIFECYCLE_PATH": str(self.path),
             "METTACLAW_DEPLOYMENT_WATCH_SERVICE": "watch.service",
             "METTACLAW_DEPLOYMENT_WATCH_TIMER": "watch.timer",
+            "METTACLAW_DEPLOYMENT_STATE_PATH": str(self.deployment),
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -50,7 +52,9 @@ class LifecycleTests(unittest.TestCase):
             return (0, "")
 
         with mock.patch.object(lifecycle, "_systemctl", side_effect=systemctl), \
-             mock.patch.object(lifecycle, "watcher_active", return_value=True):
+             mock.patch.object(lifecycle, "watcher_active", return_value=True), \
+             mock.patch.object(lifecycle, "_fresh_probe_healthy",
+                               return_value=(True, "healthy")):
             reply = lifecycle.start()
         self.assertIn("cognition enabled", reply)
         self.assertEqual(lifecycle.durable_state(), lifecycle.RUNNING)
@@ -67,7 +71,9 @@ class LifecycleTests(unittest.TestCase):
             return (0, "")
 
         with mock.patch.object(lifecycle, "_systemctl", side_effect=systemctl), \
-             mock.patch.object(lifecycle, "watcher_active", return_value=True):
+             mock.patch.object(lifecycle, "watcher_active", return_value=True), \
+             mock.patch.object(lifecycle, "_fresh_probe_healthy",
+                               return_value=(True, "healthy")):
             lifecycle.start()
         self.assertTrue(states)
         self.assertEqual(set(states), {lifecycle.STOPPED})
@@ -82,11 +88,37 @@ class LifecycleTests(unittest.TestCase):
             return (0, "")
 
         with mock.patch.object(lifecycle, "_systemctl", side_effect=systemctl), \
-             mock.patch.object(lifecycle, "watcher_active", return_value=True):
+             mock.patch.object(lifecycle, "watcher_active", return_value=True), \
+             mock.patch.object(lifecycle, "_fresh_probe_healthy",
+                               return_value=(False, "probe failed")):
             reply = lifecycle.start()
-        self.assertIn("probe did not complete", reply)
+        self.assertIn("probe was not healthy", reply)
         self.assertEqual(lifecycle.durable_state(), lifecycle.STOPPED)
         self.assertIn(("disable", "--now", "watch.timer"), calls)
+
+    def test_probe_requires_fresh_matching_problem_free_observation(self):
+        now = 1000.0
+        base = {
+            "candidate": "abc",
+            "last_observation": {
+                "observed_at": now,
+                "head": "abc",
+                "active": True,
+                "problems": [],
+            },
+        }
+        self.deployment.write_text(json.dumps(base), encoding="utf-8")
+        self.assertEqual(lifecycle._fresh_probe_healthy(now),
+                         (True, "healthy"))
+        base["last_observation"]["problems"] = ["telegram-poll-stale"]
+        self.deployment.write_text(json.dumps(base), encoding="utf-8")
+        healthy, detail = lifecycle._fresh_probe_healthy(now)
+        self.assertFalse(healthy)
+        self.assertIn("telegram-poll-stale", detail)
+        base["last_observation"]["problems"] = []
+        base["last_observation"]["observed_at"] = now - 1
+        self.deployment.write_text(json.dumps(base), encoding="utf-8")
+        self.assertFalse(lifecycle._fresh_probe_healthy(now)[0])
 
     def test_failed_start_leaves_stopped_latch(self):
         lifecycle._write(lifecycle.RUNNING)

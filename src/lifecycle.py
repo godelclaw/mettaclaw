@@ -13,6 +13,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+import time
 
 
 STOPPED = "stopped"
@@ -43,6 +44,17 @@ def _watch_timer() -> str:
         "METTACLAW_DEPLOYMENT_WATCH_TIMER",
         "godel-deployment-watch.timer",
     )
+
+
+def _deployment_path() -> Path:
+    configured = os.environ.get("METTACLAW_DEPLOYMENT_STATE_PATH", "")
+    if configured:
+        return Path(configured)
+    state_home = os.environ.get(
+        "XDG_STATE_HOME", os.path.expanduser("~/.local/state")
+    )
+    instance = os.environ.get("METTACLAW_INSTANCE", "pettaclaw-godel")
+    return Path(state_home) / instance / "deployment.json"
 
 
 def _read() -> str:
@@ -100,6 +112,33 @@ def watcher_active() -> bool:
     return code == 0 and output == "active"
 
 
+def _fresh_probe_healthy(since: float) -> tuple[bool, str]:
+    try:
+        deployment = json.loads(
+            _deployment_path().read_text(encoding="utf-8")
+        )
+        observation = deployment.get("last_observation") or {}
+        observed_at = float(observation.get("observed_at", 0) or 0)
+        candidate = str(deployment.get("candidate", ""))
+        head = str(observation.get("head", ""))
+        problems = observation.get("problems")
+        active = observation.get("active") is True
+        if observed_at < since:
+            return False, "watcher observation is not fresh"
+        if not candidate or head != candidate:
+            return False, "watcher observed the wrong generation"
+        if not active:
+            return False, "watcher did not observe the control plane active"
+        if problems != []:
+            names = ",".join(str(item) for item in (problems or []))
+            return False, "watcher reported problems" + (
+                ": " + names if names else ""
+            )
+        return True, "healthy"
+    except (OSError, TypeError, ValueError):
+        return False, "watcher observation is missing or invalid"
+
+
 def durable_state() -> str:
     with _lock:
         return _read()
@@ -154,13 +193,15 @@ def start() -> str:
                 "watcher did not become active"
                 + (" (" + output + ")" if output else "")
             )
+        probe_started = time.time()
         probe_code, probe_output = _systemctl("start", _watch_service())
-        if probe_code != 0:
+        probe_healthy, probe_detail = _fresh_probe_healthy(probe_started)
+        if probe_code != 0 or not probe_healthy:
             _systemctl("disable", "--now", _watch_timer())
             return (
                 "start refused: cognition remains stopped; deployment "
-                "watcher probe did not complete"
-                + (" (" + probe_output + ")" if probe_output else "")
+                "watcher probe was not healthy ("
+                + (probe_detail or probe_output or "unknown failure") + ")"
             )
         _write(RUNNING)
     return "started: deployment watcher active; cognition enabled"
