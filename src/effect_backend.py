@@ -41,22 +41,24 @@ def _locked_state():
     with lock_path.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         state = json.loads(path.read_text(encoding="utf-8"))
-        yield state
-        descriptor, temporary = tempfile.mkstemp(
-            prefix=path.name + ".", dir=path.parent
-        )
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(state, stream, ensure_ascii=False, sort_keys=True)
-                stream.write("\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
+            yield state
         finally:
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=path.name + ".", dir=path.parent
+            )
             try:
-                os.unlink(temporary)
-            except FileNotFoundError:
-                pass
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    json.dump(state, stream, ensure_ascii=False, sort_keys=True)
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+            finally:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
 
 
 def _command_parts(command: Any) -> tuple[str, list[str]]:
@@ -137,6 +139,111 @@ def _record(state: dict[str, Any], command: str, result: str,
     return result
 
 
+def _reserve_effect(state: dict[str, Any], command: str,
+                    receipt: str) -> int:
+    """Durably consume a capability before its physical effect."""
+
+    state["operation_serial"] = int(state.get("operation_serial", 0)) + 1
+    operation = state["operation_serial"]
+    state.setdefault("trace", []).append({
+        "operation": operation,
+        "command": command,
+        "result": "EFFECT_RESERVED",
+        "status": "reserved",
+        "effect": False,
+    })
+    state.setdefault("pending_effects", {})[str(operation)] = {
+        "command": command,
+        "receipt": receipt,
+    }
+    state.setdefault("receipts", {}).pop(receipt, None)
+    state["last_result"] = "EFFECT_RESERVED"
+    return operation
+
+
+def _finish_reserved(state: dict[str, Any], operation: int, result: str,
+                     status: str, effect: bool) -> str:
+    entry = next(
+        item for item in state.get("trace", [])
+        if int(item.get("operation", -1)) == int(operation)
+    )
+    was_effect = bool(entry.get("effect"))
+    entry.update({"result": result, "status": status, "effect": bool(effect)})
+    state["last_result"] = result
+    state.setdefault("pending_effects", {}).pop(str(operation), None)
+    if effect and not was_effect:
+        state["effects"] = int(state.get("effects", 0)) + 1
+        if (state.get("auto_stop_after_first_effect")
+                and state["effects"] == 1):
+            state["operator_epoch"] = int(
+                state.get("operator_epoch", 0)
+            ) + 1
+    return result
+
+
+def _dispatch_send(rendered: str, arguments: list[str]) -> list[Any]:
+    receipt, text = arguments
+    with _locked_state() as state:
+        world = _world(state)
+        observed = _receipt(state, receipt)
+        phase = state.get("phase")
+        launch = state["launch_command"]
+        room_name = state["room_name"]
+        timeout = float(state.get("prompt_timeout", 5.0))
+        operation = _reserve_effect(state, rendered, receipt)
+
+    result = world.guarded_send(observed, text)
+    if result.status != "sent":
+        detail = "%s %s" % (result.status.upper(), result.detail)
+        with _locked_state() as state:
+            _finish_reserved(state, operation, detail, result.status, False)
+        return ["handled", detail]
+
+    sent = "SENT exact-pane %s" % observed.pane_id
+    with _locked_state() as state:
+        _finish_reserved(state, operation, sent, "sent", True)
+
+    try:
+        next_phase = None
+        if (phase == "need-launch" and text == launch
+                and observed.window_name == room_name):
+            world.wait_for_stable_text(
+                observed.pane_id, "TRUST_PROMPT>", timeout=timeout
+            )
+            next_phase = "need-trust"
+        elif phase == "need-trust" and text == "yes":
+            world.wait_for_stable_text(
+                observed.pane_id, "SERVER_SELECTION>", timeout=timeout
+            )
+            next_phase = "need-server"
+        elif phase == "need-server" and text == "lean-lsp":
+            world.wait_until(
+                observed.pane_id,
+                lambda pane: (
+                    "CLAUDE_IDLE" in pane.content
+                    and pane.current_command == "bash"
+                ),
+                timeout=timeout,
+            )
+            next_phase = "goal-satisfied"
+        if next_phase is not None:
+            with _locked_state() as state:
+                state["phase"] = next_phase
+        return ["handled", sent]
+    except Exception as error:
+        detail = "SENT_UNVERIFIED %s: %s" % (
+            type(error).__name__, error
+        )
+        with _locked_state() as state:
+            entry = next(
+                item for item in state.get("trace", [])
+                if int(item.get("operation", -1)) == int(operation)
+            )
+            entry.update({"result": detail, "status": "sent-unverified"})
+            state["last_result"] = detail
+        return ["handled", detail]
+
+
 def begin_turn(turn: Any) -> str:
     """Capture the ordinary-activity frontier for one command batch."""
 
@@ -163,6 +270,8 @@ def dispatch(command: Any) -> list[Any]:
     head, arguments = _command_parts(command)
     rendered = "(" + " ".join([head, *arguments]) + ")"
     try:
+        if head == "tmux-send-observed" and len(arguments) == 2:
+            return _dispatch_send(rendered, arguments)
         with _locked_state() as state:
             world = _world(state)
             if head == "tmux-windows" and not arguments:
@@ -192,44 +301,6 @@ def dispatch(command: Any) -> list[Any]:
                 return ["handled", _record(
                     state, rendered,
                     "CREATED shell-owned window %s" % created.window_name,
-                    effect=True,
-                )]
-
-            if head == "tmux-send-observed" and len(arguments) == 2:
-                observed = _receipt(state, arguments[0])
-                text = arguments[1]
-                result = world.guarded_send(observed, text)
-                if result.status != "sent":
-                    return ["handled", _record(
-                        state, rendered,
-                        "%s %s" % (result.status.upper(), result.detail),
-                    )]
-                phase = state.get("phase")
-                launch = state["launch_command"]
-                if (phase == "need-launch" and text == launch
-                        and observed.window_name == state["room_name"]):
-                    world.wait_for_stable_text(observed.pane_id, "TRUST_PROMPT>")
-                    state["phase"] = "need-trust"
-                elif phase == "need-trust" and text == "yes":
-                    world.wait_for_stable_text(
-                        observed.pane_id, "SERVER_SELECTION>"
-                    )
-                    state["phase"] = "need-server"
-                elif phase == "need-server" and text == "lean-lsp":
-                    world.wait_until(
-                        observed.pane_id,
-                        lambda pane: (
-                            "CLAUDE_IDLE" in pane.content
-                            and pane.current_command == "bash"
-                        ),
-                    )
-                    state["phase"] = "goal-satisfied"
-                # A send mutates this pane, not every independently observed
-                # pane. Consume only its capability so a batch may still use
-                # fresh receipts for disjoint panes.
-                state["receipts"].pop(arguments[0], None)
-                return ["handled", _record(
-                    state, rendered, "SENT exact-pane %s" % observed.pane_id,
                     effect=True,
                 )]
 

@@ -29,7 +29,9 @@ LAUNCH_COMMAND = (
 class FullShadow:
     """One isolated world plus the real MeTTa parse/dispatch boundary."""
 
-    def __init__(self, auto_stop_after_first_effect: bool = False):
+    def __init__(self, auto_stop_after_first_effect: bool = False,
+                 backend_selector: str | None = "tmux-shadow",
+                 prompt_timeout: float = 5.0):
         self.temporary = tempfile.TemporaryDirectory(
             prefix="godel-full-shadow-"
         )
@@ -38,6 +40,8 @@ class FullShadow:
         self.socket_name = "godel-full-shadow-%s" % uuid.uuid4().hex[:12]
         self.world = IsolatedTmux(self.socket_name)
         self.auto_stop = auto_stop_after_first_effect
+        self.backend_selector = backend_selector
+        self.prompt_timeout = float(prompt_timeout)
         self.started = False
 
     def __enter__(self):
@@ -67,6 +71,7 @@ class FullShadow:
             "operator_epoch": 0,
             "initial_operator_epoch": 0,
             "auto_stop_after_first_effect": self.auto_stop,
+            "prompt_timeout": self.prompt_timeout,
         })
         self.started = True
 
@@ -95,12 +100,15 @@ class FullShadow:
             "PYTHONPATH": os.pathsep.join(python_paths),
             "METTACLAW_SKIP_INITIALIZE": "1",
             "METTACLAW_ENGINE": "petta",
-            "METTACLAW_EFFECT_BACKEND": "tmux-shadow",
             "METTACLAW_EFFECT_BACKEND_STATE": str(self.state_path),
             "METTACLAW_ENGINE_STATE_PATH": str(
                 self.directory / "engine-selection"
             ),
         })
+        if self.backend_selector is None:
+            environment.pop("METTACLAW_EFFECT_BACKEND", None)
+        else:
+            environment["METTACLAW_EFFECT_BACKEND"] = self.backend_selector
         python_environment = Path(os.environ.get(
             "PETTA_PY_ENV", Path.home() / "miniforge3" / "envs" / "petta"
         ))
@@ -118,18 +126,22 @@ class FullShadow:
         return environment
 
     def _probe_source(self, response: str, turn: int,
-                      batch_limit: int) -> str:
+                      batch_limit: int, begin_frontier: bool = True) -> str:
         # This is the live parser expression from cognitiveTurn, with only
         # logging/history removed. The same explicit quote crosses into the
         # same deterministic Prolog dispatcher.
         literal = json.dumps(str(response), ensure_ascii=False)
+        frontier = (
+            "!(println! (addition-effect-turn-begin %d))\n" % turn
+            if begin_frontier else ""
+        )
         return (
             "!(import! &self (library lib_import))\n"
             "!(import! &self ./src/utils)\n"
             "!(import! &self ./src/skills)\n"
             "!(import! &self ./src/command_pipeline)\n"
             "!(import! &self ./src/turn_additions)\n"
-            "!(println! (addition-effect-turn-begin %d))\n"
+            "%s"
             "!(let* ("
             "($respi %s) "
             "($resp (addition-balance-response $respi)) "
@@ -138,13 +150,17 @@ class FullShadow:
             "($sexpr (addition-command-sequence $parsed)) "
             "($records (addition-effect-broker %d %d (quote $sexpr)))) "
             "(println! (FULL_SHADOW_RECORDS: $records)))\n"
-        ) % (turn, literal, turn, batch_limit)
+        ) % (frontier, literal, turn, batch_limit)
 
     def execute_response(self, response: str, turn: int,
-                         batch_limit: int = 5) -> subprocess.CompletedProcess:
+                         batch_limit: int = 5,
+                         begin_frontier: bool = True
+                         ) -> subprocess.CompletedProcess:
         probe = self.directory / ("turn-%04d.metta" % turn)
         probe.write_text(
-            self._probe_source(response, turn, batch_limit),
+            self._probe_source(
+                response, turn, batch_limit, begin_frontier=begin_frontier
+            ),
             encoding="utf-8",
         )
         petta_root = Path(os.environ.get(

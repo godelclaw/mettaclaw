@@ -138,6 +138,14 @@ command_effect(Command, Value) :-
     getenv('METTACLAW_EFFECT_BACKEND', 'tmux-shadow'), !,
     'py-call'(['effect_backend.dispatch', Command], Outcome),
     shadow_effect_outcome(Outcome, Value).
+command_effect(Command, _Value) :-
+    ( ( getenv('METTACLAW_EFFECT_BACKEND_STATE', State), State \== '' )
+    ; ( getenv('METTACLAW_EFFECT_BACKEND', Backend), Backend \== '',
+        Backend \== 'tmux-shadow' )
+    ), !,
+    throw(error(permission_error(execute, effect_backend, Command),
+                context(command_effect/2,
+                        'inconsistent shadow effect configuration'))).
 command_effect(Command, Value) :-
     eval(Command, Value).
 

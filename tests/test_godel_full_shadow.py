@@ -114,6 +114,78 @@ class FullGodelShadowTests(unittest.TestCase):
             self.assertEqual(state["effects"], 0)
             self.assertFalse(state["finished"])
 
+    def test_corrupt_selector_cannot_fall_through_to_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = pathlib.Path(directory) / "must-not-exist"
+            response = "((shell %s))" % json.dumps("touch %s" % marker)
+            with FullShadow(backend_selector="tmux_shadow") as shadow:
+                result = shadow.execute_response(response, 1)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+                self.assertIn(
+                    "inconsistent effect backend configuration", result.stderr
+                )
+                depth_result = shadow.execute_response(
+                    response, 2, begin_frontier=False
+                )
+                self.assertEqual(
+                    depth_result.returncode, 0, depth_result.stderr[-3000:]
+                )
+                self.assertFalse(marker.exists())
+                self.assertIn(
+                    "inconsistent shadow effect configuration",
+                    depth_result.stdout,
+                )
+
+    def test_receipt_is_reserved_before_send_and_is_single_use(self):
+        with FullShadow() as shadow:
+            receipts = self.observe(shadow, 1)
+            receipt = next(iter(receipts))
+            response = (
+                "((tmux-send-observed %s \":\") "
+                "(tmux-send-observed %s \":\"))"
+                % (json.dumps(receipt), json.dumps(receipt))
+            )
+            result = self.run_ok(shadow, response, 2)
+            state = shadow.state()
+            self.assertEqual(state["effects"], 1)
+            self.assertNotIn(receipt, state["receipts"])
+            self.assertEqual(state["trace"][1]["status"], "sent")
+            self.assertIn("unknown or expired observation receipt",
+                          result.stdout)
+
+    def test_post_send_timeout_is_witnessed_and_not_replayable(self):
+        with FullShadow(prompt_timeout=0.1) as shadow:
+            self.observe(shadow, 1)
+            self.run_ok(
+                shadow,
+                '((tmux-new-shell-after "r1" "claude-room"))', 2,
+            )
+            self.observe(shadow, 3)
+            receipt = self.room_receipt(shadow)
+            state = shadow.state()
+            state["launch_command"] = "printf NO_TRUST"
+            shadow._write_state(state)
+            self.run_ok(
+                shadow,
+                '((tmux-send-observed %s "printf NO_TRUST"))'
+                % json.dumps(receipt),
+                4,
+            )
+            state = shadow.state()
+            self.assertEqual(state["effects"], 2)
+            self.assertNotIn(receipt, state["receipts"])
+            self.assertEqual(state["trace"][-1]["status"], "sent-unverified")
+            self.assertIn("SENT_UNVERIFIED TimeoutError",
+                          state["trace"][-1]["result"])
+            self.run_ok(
+                shadow,
+                '((tmux-send-observed %s "printf AGAIN"))'
+                % json.dumps(receipt),
+                5,
+            )
+            self.assertEqual(shadow.state()["effects"], 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
