@@ -238,7 +238,7 @@
 
 ;; The policy process computes freely.  Only this wrapper converts its result
 ;; to the kernel's success/failure vocabulary.
-(= (turnCandidate $periphery)
+(= (enabledTurnCandidate $periphery)
    (let* (($iteration (loop-iteration $periphery))
           ($selected (py-call (loop_modes.current_mode)))
           ($selectedPeriphery
@@ -280,6 +280,16 @@
           ($next
             (coordinate-set iteration (+ 1 $iteration) $afterTurn)))
      (candidate $next)))
+
+;; Operator authority is an outer lifecycle addition, not a policy encoded in
+;; the two-equation transformation kernel.  A stopped process keeps only its
+;; Telegram control plane alive and cannot drain activity or call the model.
+(= (turnCandidate $periphery)
+   (if (== (py-call (lifecycle.cognition_enabled)) 1)
+       (enabledTurnCandidate $periphery)
+       (candidate
+         (coordinate-set autonomous-ready 0
+           (coordinate-set loops 0 $periphery)))))
 
 (= (protectedOutcome $trial)
    (case $trial
@@ -332,19 +342,27 @@
 ;; adapter; only the resulting readiness bit enters the periphery.
 (= (waitCandidate $periphery)
    (let* (($policy (loop-active-policy $periphery))
+          ($enabled (== (py-call (lifecycle.cognition_enabled)) 1))
           ($loops (loop-budget $periphery))
           ($paused (loop-resting $periphery))
           ($wait
-            (policy-wait-seconds $policy $loops
-                                 (loop-sleep $periphery) $paused))
+            (if $enabled
+                (policy-wait-seconds $policy $loops
+                                     (loop-sleep $periphery) $paused)
+                60))
           ($waitResult (py-call (telegram.sleep_until_message $wait)))
           ($timedOut (py-call (loop_modes.wait_timed_out $waitResult)))
-          ($continued (applyTimedContinuation $periphery $timedOut))
+          ($continued
+            (if $enabled
+                (applyTimedContinuation $periphery $timedOut)
+                $periphery))
           ($restored (applyRestRestore $continued))
           ($continuedLoops (loop-budget $restored))
           ($ready
-            (policy-next-autonomous-ready
-              $policy $continuedLoops $timedOut $paused)))
+            (if $enabled
+                (policy-next-autonomous-ready
+                  $policy $continuedLoops $timedOut $paused)
+                0)))
      (candidate (coordinate-set autonomous-ready $ready $restored))))
 
 (= (waitProcess $periphery)

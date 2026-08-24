@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, os.path.join(ROOT, "channels"))
@@ -31,6 +32,10 @@ def _reset():
 class ActivityBatchTests(unittest.TestCase):
     def setUp(self):
         _reset()
+        self.lifecycle = mock.patch("lifecycle.cognition_enabled",
+                                    return_value=1)
+        self.lifecycle.start()
+        self.addCleanup(self.lifecycle.stop)
 
     def test_batch_drains_all_chronologically(self):
         telegram._set_last("1", "first", from_bot=False, arm_tier="full")
@@ -81,6 +86,16 @@ class ActivityBatchTests(unittest.TestCase):
         telegram.begin_effect_turn("turn-1")
         self.assertEqual(telegram.effect_turn_stimulus_free("turn-1"), 0)
 
+    def test_operator_revocation_interrupts_the_unexecuted_suffix(self):
+        telegram.getActivityBatch()
+        telegram.begin_effect_turn("turn-stop")
+        with mock.patch("lifecycle.cognition_enabled", return_value=1):
+            self.assertEqual(
+                telegram.effect_turn_stimulus_free("turn-stop"), 1)
+        with mock.patch("lifecycle.cognition_enabled", return_value=0):
+            self.assertEqual(
+                telegram.effect_turn_stimulus_free("turn-stop"), 0)
+
     def test_loop_derives_newness_from_nonempty_batch(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         self.assertIn('($message (eval (receive)))', loop)
@@ -101,6 +116,19 @@ class ActivityBatchTests(unittest.TestCase):
         self.assertIn("AUTONOMOUS_POLICY_BURST", loop)
         self.assertIn("cognitive_health.expect_turn", loop)
         self.assertNotIn("telegram.getMode", loop)
+
+    def test_lifecycle_gate_is_outside_the_enabled_turn(self):
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+        enabled_definition = loop.index("(= (enabledTurnCandidate $periphery)")
+        receive = loop.index("($message (eval (receive)))", enabled_definition)
+        wrapper = loop.index("(= (turnCandidate $periphery)")
+        gate = loop.index("(lifecycle.cognition_enabled)", wrapper)
+        enabled_call = loop.index("(enabledTurnCandidate $periphery)", gate)
+        self.assertLess(enabled_definition, receive)
+        self.assertLess(wrapper, gate)
+        self.assertLess(gate, enabled_call)
+        self.assertIn("(if $enabled\n                (applyTimedContinuation",
+                      loop)
 
     def test_attention_graph_brackets_the_model_action(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")

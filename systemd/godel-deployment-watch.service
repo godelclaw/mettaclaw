@@ -1,0 +1,9 @@
+[Unit]
+Description=Gödel deployment health, probation, and automatic rollback
+After=pettaclaw-godel.service
+
+[Service]
+Type=oneshot
+Environment=HOME=/home/oruzi
+ExecStart=/home/oruzi/pettaclaw-godel/scripts/runtime_watch.py --root /home/oruzi/pettaclaw-godel --service pettaclaw-godel.service --health /home/oruzi/.local/state/pettaclaw-godel/telegram-health.json --working-set /home/oruzi/pettaclaw-godel/memory/working_set.json --cognitive-health /home/oruzi/.local/state/godel/cognitive-health.json --canonical-memory /home/oruzi/pettaclaw-godel/memory/remembered/cettaclaw_memory.jsonl --chroma /home/oruzi/pettaclaw-godel/chroma_db --deployment /home/oruzi/.local/state/pettaclaw-godel/deployment.json --log /home/oruzi/archive/godel-deployment-watch.jsonl --failures 3
+SuccessExitStatus=1

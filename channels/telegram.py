@@ -51,6 +51,7 @@ _control_worker = None
 _control_worker_lock = threading.Lock()
 
 _CONTROL_COMMANDS = (
+    "/start", "/stop",
     "/model", "/models", "/mode", "/modes", "/engine", "/engines",
     "/fuel", "/fuels",
     "/quota", "/wake", "/energy", "/health", "/activity",
@@ -58,6 +59,8 @@ _CONTROL_COMMANDS = (
 )
 
 _MENU_COMMANDS = (
+    ("start", "Enable cognition under the deployment watcher"),
+    ("stop", "Stop cognition and its deployment watcher"),
     ("engine", "Show or switch the evaluator engine"),
     ("engines", "List evaluator engines"),
     ("fuel", "Show or switch what a renewal does to the budget"),
@@ -1225,6 +1228,17 @@ def _handle_slash_command(chat, sender, text):
         # flows to the agent as ordinary conversation instead.
         return None
     try:
+        if cmd in ("/start", "/stop"):
+            import lifecycle
+            if cmd == "/start":
+                reply = lifecycle.start()
+                if lifecycle.cognition_enabled():
+                    _request_wake("operator start")
+            else:
+                reply = lifecycle.stop()
+                _request_wake("operator stop")
+            send_message_to_chat(str(chat.get("id", "")), reply)
+            return "slash_command:" + cmd
         if cmd == "/wake":
             # Wake silently. The agent's next real reply is the confirmation;
             # a separate "awake" acknowledgement is just noise in the chat.
@@ -1679,6 +1693,12 @@ def effect_turn_stimulus_free(turn):
     a command already running or to roll back an external effect.
     """
     turn = str(turn)
+    with _effect_lock:
+        registered = _effect_turn == turn and _effect_activity_epoch is not None
+    if registered:
+        import lifecycle
+        if not lifecycle.cognition_enabled():
+            return 0
     with _msg_lock:
         live_epoch = _activity_epoch
     with _effect_lock:

@@ -54,6 +54,8 @@ def status(now=None):
     mode = _read_json(os.environ.get(
         "METTACLAW_LOOP_MODE_PATH", "memory/loop_mode.json"))
     cognition = cognitive_health.snapshot()
+    import lifecycle
+    lifecycle_enabled = bool(lifecycle.cognition_enabled())
     poll_at = float(channel.get("last_poll_ok_at", 0) or 0)
     saved_at = float(working.get("saved_at", 0) or 0)
     waiting_until = float(channel.get("waiting_until", 0) or 0)
@@ -74,7 +76,7 @@ def status(now=None):
     # An autonomous mode expects cognition, but a rest in flight is a
     # legitimate reason for there to be none. Without this, every long rest
     # under iter would report a stale model turn.
-    cognition_required = bool(
+    cognition_required = lifecycle_enabled and bool(
         pending_at or loops > 0 or (autonomous and not legitimate_wait))
     stale_after = _positive_seconds(
         "METTACLAW_COGNITIVE_STALE_SECONDS", 900)
@@ -83,7 +85,7 @@ def status(now=None):
         problems.append("command-menu-not-registered")
     if poll_age is None or poll_age > 120:
         problems.append("telegram-poll-stale")
-    if (not legitimate_wait
+    if (lifecycle_enabled and not legitimate_wait
             and (working_age is None or working_age > 900)):
         problems.append("cognitive-boundary-stale")
     if pending_age is not None:
@@ -101,6 +103,7 @@ def status(now=None):
         problems.append("memory-index-drift")
     return {
         "state": "ok" if not problems else "problem",
+        "lifecycle": lifecycle.view(),
         "problems": problems,
         "generation": _generation(),
         "menu": channel.get("menu_status", "unknown"),
@@ -126,12 +129,14 @@ def report():
     value = status()
     problems = ",".join(value["problems"]) or "none"
     return (
-        "runtime-health: {state} | generation={generation} | menu={menu} | "
+        "runtime-health: {state} | lifecycle={lifecycle} | "
+        "generation={generation} | menu={menu} | "
         "telegram-poll-age={poll}s | loop={loop} | working-set-age={working}s | "
         "model-turn-age={turn}s | model-turn-pending={pending}s | "
         "memory={memories} ({behind}/{threshold} behind) | problems={problems}"
     ).format(
-        state=value["state"], generation=value["generation"],
+        state=value["state"], lifecycle=value["lifecycle"],
+        generation=value["generation"],
         menu=value["menu"], poll=value["telegram_poll_age_seconds"],
         loop=value["loop"], working=value["working_set_age_seconds"],
         turn=value["model_turn_age_seconds"],
@@ -172,8 +177,15 @@ def activity_report(now=None):
     import telegram
     continuation = bool(working.get("continuation_pending"))
     actually_resting, rest_left = telegram.rest_status()
+    import lifecycle
+    lifecycle_enabled = bool(lifecycle.cognition_enabled())
     rest_intent = str(working.get("intent", "") or "").strip()
-    if pending_age is not None:
+    if not lifecycle_enabled:
+        state = "stopped"
+        wake = "/start"
+        steps = 0
+        steps_source = "operator-latch"
+    elif pending_age is not None:
         state = "working"
         wake = "now"
         try:

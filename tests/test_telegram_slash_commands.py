@@ -315,6 +315,8 @@ class SlashCommandTest(unittest.TestCase):
         names = [item["command"] for item in payload["commands"]]
         self.assertIn("mode", names)
         self.assertIn("modes", names)
+        self.assertIn("start", names)
+        self.assertIn("stop", names)
         self.assertIn("engine", names)
         self.assertIn("engines", names)
         self.assertIn("health", names)
@@ -477,10 +479,34 @@ class SlashCommandTest(unittest.TestCase):
             telegram._bot_username = None
 
     def test_unrelated_commands_and_text_pass_through(self):
-        self.assertIsNone(self.handle("/start"))
         self.assertIsNone(self.handle("hello there"))
         self.assertIsNone(self.handle(""))
         self.assertEqual(len(self.sent), 0)
+
+    def test_start_enables_watcher_before_waking_cognition(self):
+        with mock.patch("lifecycle.start",
+                        return_value="started: watcher active"), \
+             mock.patch("lifecycle.cognition_enabled", return_value=1), \
+             mock.patch.object(telegram, "_request_wake") as wake:
+            self.assertEqual(self.handle("/start"), "slash_command:/start")
+        wake.assert_called_once_with("operator start")
+        self.assertIn("watcher active", self.sent[-1][1])
+
+    def test_failed_start_does_not_wake_cognition(self):
+        with mock.patch("lifecycle.start",
+                        return_value="start refused: remains stopped"), \
+             mock.patch("lifecycle.cognition_enabled", return_value=0), \
+             mock.patch.object(telegram, "_request_wake") as wake:
+            self.assertEqual(self.handle("/start"), "slash_command:/start")
+        wake.assert_not_called()
+
+    def test_stop_revokes_and_wakes_control_loop(self):
+        with mock.patch("lifecycle.stop",
+                        return_value="stopped: cognition revoked"), \
+             mock.patch.object(telegram, "_request_wake") as wake:
+            self.assertEqual(self.handle("/stop"), "slash_command:/stop")
+        wake.assert_called_once_with("operator stop")
+        self.assertIn("cognition revoked", self.sent[-1][1])
 
     def test_handler_error_never_raises(self):
         with mock.patch.object(synthetic_llm, "model_ids",

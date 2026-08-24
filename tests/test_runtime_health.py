@@ -32,6 +32,43 @@ class RuntimeHealthTest(unittest.TestCase):
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        self.lifecycle = mock.patch("lifecycle.cognition_enabled",
+                                    return_value=1)
+        self.lifecycle_view = mock.patch("lifecycle.view",
+                                         return_value="running")
+        self.lifecycle.start()
+        self.lifecycle_view.start()
+        self.addCleanup(self.lifecycle.stop)
+        self.addCleanup(self.lifecycle_view.stop)
+
+    def test_stopped_lifecycle_needs_channel_but_not_cognition(self):
+        self.write(self.channel, {
+            "menu_status": "ok", "last_poll_ok_at": 999,
+            "loop_status": "awake", "waiting_until": 0,
+        })
+        self.write(self.working, {"saved_at": 1, "loops": 50})
+        self.write(self.mode, {"mode": "iter"})
+        with mock.patch("lifecycle.cognition_enabled", return_value=0), \
+             mock.patch("lifecycle.view", return_value="stopped"), \
+             mock.patch.object(runtime_health.memory_health, "drift",
+                               return_value=(100, 100, 0)), \
+             mock.patch.object(runtime_health.memory_health, "threshold",
+                               return_value=20):
+            value = runtime_health.status(now=1000)
+        self.assertFalse(value["cognition_required"])
+        self.assertNotIn("cognitive-boundary-stale", value["problems"])
+
+    def test_activity_reports_operator_stop_explicitly(self):
+        self.write(self.working, {"saved_at": 999, "loops": 50})
+        self.write(self.cognitive, {"pending_since": 0})
+        with mock.patch("lifecycle.cognition_enabled", return_value=0), \
+             mock.patch("loop_modes.current_mode", return_value="iter"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("activity: stopped", report)
+        self.assertIn("steps=0@operator-latch", report)
+        self.assertIn("wake=/start", report)
 
     def write(self, path, value):
         path.write_text(json.dumps(value), encoding="utf-8")

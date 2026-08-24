@@ -1,6 +1,7 @@
 """Require semantic witnesses from the real PeTTa runtime probes."""
 
 import os
+import json
 import pathlib
 import re
 import subprocess
@@ -47,6 +48,24 @@ class RuntimeProbeTest(unittest.TestCase):
         if not (petta_root / "run.sh").is_file():
             self.skipTest("PeTTa checkout is unavailable")
         with tempfile.TemporaryDirectory() as directory:
+            test_bin = pathlib.Path(directory) / "bin"
+            test_bin.mkdir()
+            systemctl = test_bin / "systemctl"
+            systemctl.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = --user ] && [ \"$2\" = is-active ]; then\n"
+                "  echo active\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            systemctl.chmod(0o755)
+            lifecycle = pathlib.Path(directory) / "lifecycle.json"
+            lifecycle.write_text(
+                json.dumps({"schema": 1, "state": "running"}) + "\n",
+                encoding="utf-8",
+            )
             for probe, marker in self.PROBES:
                 with self.subTest(probe=probe):
                     env = dict(os.environ)
@@ -65,6 +84,10 @@ class RuntimeProbeTest(unittest.TestCase):
                             directory, "history.metta"),
                         "METTACLAW_WORKING_SET_PATH": os.path.join(
                             directory, "working-set.json"),
+                        "METTACLAW_LIFECYCLE_PATH": os.fspath(lifecycle),
+                        "PATH": os.pathsep.join((
+                            os.fspath(test_bin), env.get("PATH", ""),
+                        )),
                     })
                     result = subprocess.run(
                         ["./run.sh", probe], cwd=ROOT, env=env,

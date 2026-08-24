@@ -1,0 +1,23 @@
+[Unit]
+Description=PeTTaClaw Gödel Telegram control plane and agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/oruzi/pettaclaw-godel
+Environment=HOME=/home/oruzi
+Environment=METTACLAW_SKIP_INITIALIZE=1
+Environment=CETTA_BIN=/home/oruzi/repos/cetta-godel-command-boundary-py312/cetta
+EnvironmentFile=-%h/.config/pettaclaw/godel-runtime.env
+EnvironmentFile=-%h/.config/pettaclaw/godel-telegram.env
+Environment=METTACLAW_LIFECYCLE_PATH=/home/oruzi/.local/state/pettaclaw-godel/lifecycle.json
+Environment=METTACLAW_DEPLOYMENT_STATE_PATH=/home/oruzi/.local/state/pettaclaw-godel/deployment.json
+ExecStart=%h/pettaclaw-godel/run.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
