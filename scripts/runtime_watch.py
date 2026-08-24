@@ -65,6 +65,24 @@ def _service_active(service):
     return _run(["systemctl", "--user", "is-active", "--quiet", service]).returncode == 0
 
 
+def _generation_has_lifecycle_authority(root, revision):
+    """Refuse rollback across the operator-authority safety boundary."""
+    required = {
+        "src/lifecycle.py": ("def cognition_enabled", "def stop", "def start"),
+        "src/loop.metta": ("lifecycle.cognition_enabled",),
+        "channels/telegram.py": ('"/start", "/stop"',),
+    }
+    for relative, markers in required.items():
+        result = _run(
+            ["git", "show", "%s:%s" % (revision, relative)], cwd=root
+        )
+        if result.returncode != 0:
+            return False
+        if any(marker not in result.stdout for marker in markers):
+            return False
+    return True
+
+
 def observe(args, deployment, now=None):
     now = time.time() if now is None else float(now)
     os.environ["METTACLAW_TELEGRAM_HEALTH_PATH"] = str(args.health)
@@ -102,6 +120,9 @@ def _rollback(args, deployment, observation):
     root = args.root
     if observation["head"] != deployment.get("candidate"):
         return False, "rollback-refused-generation-mismatch"
+    if not _generation_has_lifecycle_authority(
+            root, deployment.get("previous", "")):
+        return False, "rollback-refused-lifecycle-regression"
     if (_run(["git", "diff", "--quiet"], cwd=root).returncode != 0
             or _run(["git", "diff", "--cached", "--quiet"], cwd=root).returncode != 0):
         return False, "rollback-refused-dirty-tree"

@@ -68,6 +68,25 @@ class RuntimeWatchTest(unittest.TestCase):
         saved = json.loads(self.args.deployment.read_text(encoding="utf-8"))
         self.assertEqual(saved["status"], "rolled_back")
 
+    def test_rollback_refuses_target_without_lifecycle_authority(self):
+        observation = {"head": "candidate"}
+        with mock.patch.object(
+                runtime_watch, "_generation_has_lifecycle_authority",
+                return_value=False), \
+             mock.patch.object(runtime_watch, "_run") as run:
+            success, action = runtime_watch._rollback(
+                self.args, self.deployment, observation)
+        self.assertFalse(success)
+        self.assertEqual(action, "rollback-refused-lifecycle-regression")
+        run.assert_not_called()
+
+    def test_current_lifecycle_generation_is_admissible(self):
+        if not (ROOT := pathlib.Path(__file__).resolve().parents[1]).is_dir():
+            self.skipTest("repository unavailable")
+        head = runtime_watch._head(ROOT)
+        self.assertTrue(
+            runtime_watch._generation_has_lifecycle_authority(ROOT, head))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
