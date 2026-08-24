@@ -68,7 +68,8 @@ first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
                       "different limit or commands proposed after turn commitment"]]
        )
     ; admit_command_prefix(Limit, Commands, Admitted, Deferred),
-      run_command_list_once(Admitted, ExecutedRecords, Errors),
+      run_command_list_unless_stimulus(Turn, Admitted,
+                                       ExecutedRecords, Errors),
       deferred_command_record(Limit, Deferred, DeferredRecords),
       append(ExecutedRecords, DeferredRecords, Records),
       nb_setval(mettaclaw_command_batch_cache,
@@ -100,11 +101,23 @@ deferred_command_record(Limit, Deferred,
                         [['COMMAND_BATCH_DEFERRED:',
                           [limit, Limit, commands, Deferred]]]).
 
-run_command_list_once([], [], []).
-run_command_list_once([Command|Rest], [Record|Records], Errors) :-
-    run_command_once(Command, Record, CommandErrors),
-    run_command_list_once(Rest, Records, RestErrors),
-    append(CommandErrors, RestErrors, Errors).
+run_command_list_unless_stimulus(_, [], [], []).
+run_command_list_unless_stimulus(Turn, Commands, Records, Errors) :-
+    ( effect_turn_stimulus_free(Turn)
+    -> Commands = [Command|Rest],
+       run_command_once(Command, Record, CommandErrors),
+       run_command_list_unless_stimulus(Turn, Rest, RestRecords, RestErrors),
+       Records = [Record|RestRecords],
+       append(CommandErrors, RestErrors, Errors)
+    ; Records = [['COMMAND_BATCH_INTERRUPTED:',
+                  [reason, new_stimulus, commands, Commands]]],
+      Errors = []
+    ).
+
+effect_turn_stimulus_free(Turn) :-
+    catch('py-call'(['telegram.effect_turn_stimulus_free', Turn], Value),
+          _, fail),
+    ( Value == 1 ; Value == true ; Value == 'True' ), !.
 
 run_command_once(Command, ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-
     catch(( once(eval(Command, Raw)) -> Status = ok(Raw)

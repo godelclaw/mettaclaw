@@ -31,8 +31,8 @@
          ($_ (assertEqual (policy-iter-transformations coding) 0))
          ($_ (assertEqual (policy-iter-transformations iter) 1))
          ($_ (assertEqual (policy-iter-transformations iter-coding) 1))
-         ($_ (assertEqual (policy-command-batch-limit agent) 1))
-         ($_ (assertEqual (policy-command-batch-limit iter) 1))
+         ($_ (assertEqual (policy-command-batch-limit agent) 5))
+         ($_ (assertEqual (policy-command-batch-limit iter) 5))
          ($_ (assertEqual (policy-command-batch-limit coding) 5))
          ($_ (assertEqual (policy-command-batch-limit iter-coding) 5))
          ($_ (assertEqual

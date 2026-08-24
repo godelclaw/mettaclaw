@@ -21,6 +21,8 @@ _last_message_is_human = False
 _last_from_bot = False
 _last_arm_tier = "full"
 _pending_messages = []
+_activity_epoch = 0
+_context_activity_epoch = 0
 _context_frontier_bytes = None
 _current_batch_update_ids = set()
 _offset = None
@@ -42,6 +44,7 @@ _health_state = {}
 _health_last_write = 0.0
 _effect_lock = threading.RLock()
 _effect_turn = None
+_effect_activity_epoch = None
 _effect_sends = set()
 _control_queue = queue.Queue()
 _control_worker = None
@@ -560,13 +563,17 @@ def energy_set(who, tier):
 
 
 def _set_last(chat_id, text, from_bot=False, arm_tier="full", update_id=None):
-    global _last_chat_id
+    global _last_chat_id, _activity_epoch
     with _msg_lock:
         _last_chat_id = str(chat_id)
         _pending_messages.append(
             (_last_chat_id, str(text), bool(from_bot), str(arm_tier),
              update_id))
         del _pending_messages[:-50]
+        # Monotone receipt for ordinary inbound stimuli. The model turn captures
+        # the drained frontier; a later receipt can interrupt its unexecuted
+        # command suffix without dictating how large the proposed batch was.
+        _activity_epoch += 1
 
 
 def getLastMessage():
@@ -604,12 +611,13 @@ def getActivityBatch():
     present (existing tier machinery, unchanged), else the newest message."""
     global _reply_chat_id, _last_message_is_human, _last_from_bot
     global _last_arm_tier, _context_frontier_bytes
-    global _current_batch_update_ids
+    global _current_batch_update_ids, _context_activity_epoch
     with _msg_lock:
         if not _pending_messages:
             _last_message_is_human = False
             _last_arm_tier = "full"
             _current_batch_update_ids = set()
+            _context_activity_epoch = _activity_epoch
             with _log_lock:
                 _context_frontier_bytes = (
                     os.path.getsize(_log_path)
@@ -617,6 +625,7 @@ def getActivityBatch():
             return ""
         items = _pending_messages[:]
         del _pending_messages[:]
+        _context_activity_epoch = _activity_epoch
         # This is the causal frontier for the turn.  The poller records and
         # queues an inbound message while holding the same lock, so activity
         # arriving after this point cannot leak into the prompt early.
@@ -1648,13 +1657,36 @@ def begin_effect_turn(turn):
     reduction while resolving later goals, but an already attempted external
     send must not become a second Telegram message.
     """
-    global _effect_turn
+    global _effect_turn, _effect_activity_epoch
     turn = str(turn)
+    # The context frontier was fixed atomically with the activity drain. A
+    # message received after that drain must not be laundered into this turn by
+    # capturing the newer live epoch here.
+    with _msg_lock:
+        context_epoch = _context_activity_epoch
     with _effect_lock:
         if turn != _effect_turn:
             _effect_turn = turn
+            _effect_activity_epoch = context_epoch
             _effect_sends.clear()
     return turn
+
+
+def effect_turn_stimulus_free(turn):
+    """Whether no ordinary inbound stimulus crossed this turn's frontier.
+
+    This is a cooperative, between-effects guard. It does not claim to cancel
+    a command already running or to roll back an external effect.
+    """
+    turn = str(turn)
+    with _msg_lock:
+        live_epoch = _activity_epoch
+    with _effect_lock:
+        # Direct dispatcher uses outside a registered cognitive turn retain
+        # their old behavior; real model turns always call begin_effect_turn.
+        if _effect_turn != turn or _effect_activity_epoch is None:
+            return 1
+        return 1 if live_epoch == _effect_activity_epoch else 0
 
 
 def send_effect_message(text, chat_id=""):

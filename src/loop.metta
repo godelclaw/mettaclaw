@@ -46,7 +46,7 @@
      (py-str
        (" OUTPUT_FORMAT: Output a ((skillName args) ...) S-expression containing at most "
         (policy-command-batch-limit (loop-active-policy $periphery))
-        " command(s). Each command is selected before any command result is observed; in one-command interactive modes, observe the result on the next model step before choosing a dependent action. Double-check the parentheses: it must be (cmd1 ... cmdn). Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
+        " command(s). You choose whether this turn needs one observation-sensitive command or a batch of independent commands. A new inbound stimulus interrupts the unexecuted suffix. Command results are not observed by you until the next model step, so never precommit a later command whose correctness depends on an earlier result. Double-check the parentheses: it must be (cmd1 ... cmdn). Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
         " each arg is an explicit string hence needs quotes, and variables are forbidden!"
         " LOOPS_LEFT: " (loop-budget $periphery)
         " SLEEP_INTERVAL_SECONDS: " (loop-sleep $periphery)
@@ -313,8 +313,12 @@
           ;; unlike a compound marker it cannot be eagerly reduced away while
           ;; crossing the MeTTa/Prolog call boundary.
           ($turn (- 0 $iteration))
+          ($_ (py-call (telegram.begin_effect_turn $turn)))
           ($records
-            (run-command-batch-once $turn 1 (quote ($continuation))))
+            (run-command-batch-once $turn
+              (policy-command-batch-limit
+                (loop-active-policy $periphery))
+              (quote ($continuation))))
           ($results (CONTINUATION_RESULTS: $records))
           ($_ (println! $results)))
      (coordinate-set pending-continuation no-continuation
