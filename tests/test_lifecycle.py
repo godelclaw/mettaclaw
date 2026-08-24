@@ -57,6 +57,36 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(calls[0],
                          ("unmask", "watch.service", "watch.timer"))
         self.assertEqual(calls[1], ("enable", "--now", "watch.timer"))
+        self.assertEqual(calls[2], ("start", "watch.service"))
+
+    def test_watcher_probe_runs_while_latch_is_still_stopped(self):
+        states = []
+
+        def systemctl(*_args):
+            states.append(lifecycle.durable_state())
+            return (0, "")
+
+        with mock.patch.object(lifecycle, "_systemctl", side_effect=systemctl), \
+             mock.patch.object(lifecycle, "watcher_active", return_value=True):
+            lifecycle.start()
+        self.assertTrue(states)
+        self.assertEqual(set(states), {lifecycle.STOPPED})
+
+    def test_failed_watcher_probe_remains_stopped_and_disables_timer(self):
+        calls = []
+
+        def systemctl(*args):
+            calls.append(args)
+            if args == ("start", "watch.service"):
+                return (1, "probe failed")
+            return (0, "")
+
+        with mock.patch.object(lifecycle, "_systemctl", side_effect=systemctl), \
+             mock.patch.object(lifecycle, "watcher_active", return_value=True):
+            reply = lifecycle.start()
+        self.assertIn("probe did not complete", reply)
+        self.assertEqual(lifecycle.durable_state(), lifecycle.STOPPED)
+        self.assertIn(("disable", "--now", "watch.timer"), calls)
 
     def test_failed_start_leaves_stopped_latch(self):
         lifecycle._write(lifecycle.RUNNING)

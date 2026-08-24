@@ -154,5 +154,13 @@ def start() -> str:
                 "watcher did not become active"
                 + (" (" + output + ")" if output else "")
             )
+        probe_code, probe_output = _systemctl("start", _watch_service())
+        if probe_code != 0:
+            _systemctl("disable", "--now", _watch_timer())
+            return (
+                "start refused: cognition remains stopped; deployment "
+                "watcher probe did not complete"
+                + (" (" + probe_output + ")" if probe_output else "")
+            )
         _write(RUNNING)
     return "started: deployment watcher active; cognition enabled"
