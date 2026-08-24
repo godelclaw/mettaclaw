@@ -1,5 +1,7 @@
 """Deterministic controls are answered without entering the agent loop."""
 import os
+import json
+import random
 import sys
 import tempfile
 import threading
@@ -216,6 +218,80 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(observed, [
             "/activity one", "/activity two", "/activity three",
         ])
+
+    def test_known_and_sampled_read_controls_use_independent_lane(self):
+        known = ["/activity", "/mode", "/modes", "/engine", "/engines"]
+        sample = random.Random(69)
+        for _ in range(100):
+            command = sample.choice(known)
+            suffix = "@SomeBot" if sample.choice((False, True)) else ""
+            self.assertTrue(telegram._is_fast_read_command(command + suffix))
+        for command in ("/start", "/stop", "/wake", "/mode iter",
+                        "/engine cetta"):
+            self.assertFalse(telegram._is_fast_read_command(command))
+
+    def test_lifecycle_controls_use_immediate_lane(self):
+        observed = []
+        done = threading.Event()
+
+        def fake_handle(_chat, _sender, text):
+            observed.append(text)
+            done.set()
+
+        with mock.patch.object(telegram, "_handle_slash_command",
+                               side_effect=fake_handle):
+            for command in ("/start", "/stop", "/wake"):
+                done.clear()
+                self.assertEqual(telegram._dispatch_slash_command(
+                    self.chat, self.operator, command), "immediate")
+                self.assertTrue(done.wait(1))
+        self.assertEqual(observed, ["/start", "/stop", "/wake"])
+
+    def test_stop_bypasses_a_blocked_serialized_control(self):
+        slow_entered = threading.Event()
+        release_slow = threading.Event()
+        stop_seen = threading.Event()
+
+        def fake_handle(_chat, _sender, text):
+            if text == "/quota":
+                slow_entered.set()
+                release_slow.wait(2)
+            elif text == "/stop":
+                stop_seen.set()
+
+        with mock.patch.object(telegram, "_handle_slash_command",
+                               side_effect=fake_handle):
+            telegram._enqueue_slash_command(
+                self.chat, self.operator, "/quota")
+            self.assertTrue(slow_entered.wait(1))
+            self.assertEqual(telegram._dispatch_slash_command(
+                self.chat, self.operator, "/stop"), "immediate")
+            self.assertTrue(stop_seen.wait(1))
+            release_slow.set()
+            telegram._control_queue.join()
+
+    def test_fast_read_bypasses_a_blocked_serialized_control(self):
+        slow_entered = threading.Event()
+        release_slow = threading.Event()
+        fast_seen = threading.Event()
+
+        def fake_handle(_chat, _sender, text):
+            if text == "/start":
+                slow_entered.set()
+                release_slow.wait(2)
+            elif text == "/activity":
+                fast_seen.set()
+
+        with mock.patch.object(telegram, "_handle_slash_command",
+                               side_effect=fake_handle):
+            telegram._enqueue_slash_command(
+                self.chat, self.operator, "/start")
+            self.assertTrue(slow_entered.wait(1))
+            self.assertEqual(telegram._dispatch_slash_command(
+                self.chat, self.operator, "/activity"), "fast-read")
+            self.assertTrue(fast_seen.wait(1))
+            release_slow.set()
+            telegram._control_queue.join()
 
     def test_model_bare_shows_current(self):
         self.assertEqual(self.handle("/model"), "slash_command:/model")
@@ -434,15 +510,124 @@ class SlashCommandTest(unittest.TestCase):
                  mock.patch.object(telegram, "_save_offset"), \
                  mock.patch.object(telegram, "_set_last") as queued, \
                  mock.patch.object(telegram, "_maybe_rest_notice") as notice, \
-                 mock.patch.object(telegram, "_enqueue_slash_command") as enqueue:
+                 mock.patch.object(telegram, "_dispatch_slash_command") as dispatch:
                 telegram._poll_loop()
         finally:
             telegram._running = False
 
-        enqueue.assert_called_once_with(
+        dispatch.assert_called_once_with(
             update["message"]["chat"], self.operator, "/wake")
         notice.assert_not_called()
         queued.assert_not_called()
+
+    def test_captioned_fast_control_never_waits_for_attachment(self):
+        update = {
+            "update_id": 78,
+            "message": {
+                "message_id": 13,
+                "chat": {"id": -4321, "type": "group"},
+                "from": self.operator,
+                "caption": "/activity",
+                "document": {"file_id": "slow-file", "file_size": 10},
+            },
+        }
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"result": [update]}
+
+        def one_poll(*_args, **_kwargs):
+            telegram._running = False
+            return response
+
+        telegram._running = True
+        try:
+            with mock.patch.object(telegram.requests, "get",
+                                   side_effect=one_poll), \
+                 mock.patch.object(telegram, "_chat_is_allowed",
+                                   return_value=True), \
+                 mock.patch.object(telegram, "_dispatch_slash_command") \
+                         as dispatch, \
+                 mock.patch.object(telegram, "_enqueue_attachment") \
+                         as attachment, \
+                 mock.patch.object(telegram, "_append_update_log",
+                                   return_value=True), \
+                 mock.patch.object(telegram, "_save_offset"):
+                telegram._poll_loop()
+        finally:
+            telegram._running = False
+        dispatch.assert_called_once_with(
+            update["message"]["chat"], self.operator, "/activity")
+        attachment.assert_not_called()
+
+    def test_pending_attachment_is_recovered_from_durable_ledger(self):
+        update = {
+            "update_id": 90,
+            "message": {
+                "message_id": 14,
+                "chat": {"id": -4321, "type": "group"},
+                "from": self.operator,
+                "caption": "please inspect",
+                "document": {"file_id": "recover-me", "file_size": 10},
+            },
+        }
+        telegram._log_path = os.path.join(self.tmp.name, "updates.jsonl")
+        record = {
+            "update_id": 90,
+            "chat_id": "-4321",
+            "message_id": 14,
+            "note": "attachment_dispatched",
+            "raw": update,
+        }
+        with open(telegram._log_path, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(record) + "\n")
+        with mock.patch.object(telegram, "_enqueue_attachment") as enqueue:
+            self.assertEqual(telegram._recover_pending_attachments(), 1)
+        enqueue.assert_called_once()
+
+    def test_each_attachment_starts_without_waiting_for_another(self):
+        entered = []
+        both_started = threading.Event()
+        both_finished = threading.Event()
+        release = threading.Event()
+        finished = []
+
+        def blocked_download(message):
+            entered.append(message["message_id"])
+            if len(entered) == 2:
+                both_started.set()
+            release.wait(2)
+            return "[attachment saved]"
+
+        def record_finished(*_args, **_kwargs):
+            finished.append(True)
+            if len(finished) == 2:
+                both_finished.set()
+
+        def update(number):
+            return {
+                "update_id": number,
+                "message": {
+                    "message_id": number,
+                    "chat": {"id": -4321, "type": "group"},
+                    "from": self.operator,
+                },
+            }
+
+        with mock.patch.object(telegram, "_download_attachment",
+                               side_effect=blocked_download), \
+             mock.patch.object(telegram, "_append_update_log",
+                               return_value=True), \
+             mock.patch.object(telegram, "_set_last",
+                               side_effect=record_finished), \
+             mock.patch.object(telegram, "_wake_for_operator_message"):
+            for number in (101, 102):
+                item = update(number)
+                telegram._enqueue_attachment(
+                    item, "message", item["message"], "inspect")
+            self.assertTrue(both_started.wait(1))
+            release.set()
+            self.assertTrue(both_finished.wait(1))
+        self.assertCountEqual(entered, [101, 102])
 
     def test_botname_suffix_for_self_is_handled(self):
         telegram._bot_username = "SomeBot"

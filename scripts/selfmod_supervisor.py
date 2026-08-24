@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Verify and atomically promote a PettaClaw self-modification proposal.
 
-Run this outside the agent sandbox with a writable protected-root mount.  The
-agent runtime should see that same root read-only and must not possess this
-process's filesystem authority.
+Install the promoter outside the tree it may replace so a proposed rewrite
+cannot redefine its own digest and stale-base checks. This is authority
+separation, not process or filesystem confinement of the running agent.
 """
 
 import argparse

@@ -6,6 +6,7 @@ import pathlib
 import re
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -66,6 +67,20 @@ class RuntimeProbeTest(unittest.TestCase):
                 json.dumps({"schema": 1, "state": "running"}) + "\n",
                 encoding="utf-8",
             )
+            deployment = pathlib.Path(directory) / "deployment.json"
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT,
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            deployment.write_text(json.dumps({
+                "candidate": head,
+                "last_observation": {
+                    "observed_at": time.time(),
+                    "head": head,
+                    "active": True,
+                    "problems": [],
+                },
+            }) + "\n", encoding="utf-8")
             for probe, marker in self.PROBES:
                 with self.subTest(probe=probe):
                     env = dict(os.environ)
@@ -85,6 +100,8 @@ class RuntimeProbeTest(unittest.TestCase):
                         "METTACLAW_WORKING_SET_PATH": os.path.join(
                             directory, "working-set.json"),
                         "METTACLAW_LIFECYCLE_PATH": os.fspath(lifecycle),
+                        "METTACLAW_DEPLOYMENT_STATE_PATH": os.fspath(
+                            deployment),
                         "PATH": os.pathsep.join((
                             os.fspath(test_bin), env.get("PATH", ""),
                         )),

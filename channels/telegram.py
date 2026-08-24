@@ -76,6 +76,15 @@ _MENU_COMMANDS = (
     ("wake", "End the current rest"),
 )
 
+# Pure observations do not share the serialized mutation queue.  The poller
+# dispatches each on its own short-lived thread, so a slow lifecycle change or
+# provider-backed control cannot make an earlier state query trail a later
+# model reply.  Commands with arguments remain serialized mutations.
+_FAST_READ_COMMANDS = frozenset({
+    "/activity", "/mode", "/modes", "/engine", "/engines",
+})
+_IMMEDIATE_COMMANDS = frozenset({"/start", "/stop", "/wake"})
+
 
 def _health_path():
     configured = os.environ.get("METTACLAW_TELEGRAM_HEALTH_PATH", "")
@@ -374,6 +383,85 @@ def _download_attachment(message):
         return f"[attachment saved: {dest} ({label})]"
     except Exception as exc:
         return f"[attachment {label} — download failed: {type(exc).__name__}]"
+
+
+def _attachment_job(update, kind, message, base_text):
+    try:
+        attachment_note = _download_attachment(message)
+        text = (str(base_text) + "\n" if base_text else "") + str(
+            attachment_note or "[attachment unavailable]"
+        )
+        chat = message.get("chat") or {}
+        sender = message.get("from") or {}
+        ready_message = dict(message)
+        ready_message["text"] = text
+        ready_message.pop("caption", None)
+        with _msg_lock:
+            _append_update_log(
+                update, kind, ready_message, True, True,
+                "attachment_ready"
+            )
+            _set_last(
+                chat.get("id", ""),
+                _format_message(update, kind, ready_message, text),
+                bool(sender.get("is_bot")),
+                _tier_for_sender(sender),
+                update_id=int(update["update_id"]),
+            )
+        _wake_for_operator_message(sender)
+    except Exception as exc:
+        print("[telegram] attachment worker error:", type(exc).__name__)
+
+
+def _enqueue_attachment(update, kind, message, base_text):
+    # Each received file begins transport immediately. One slow Telegram file
+    # must not consume another file's download opportunity.
+    threading.Thread(
+        target=_attachment_job,
+        args=(update, kind, message, base_text),
+        name="telegram-attachment-download",
+        daemon=True,
+    ).start()
+    return 1
+
+
+def _recover_pending_attachments(limit=100):
+    """Retry received attachments that lack a completed ledger revision."""
+    if not _log_path or not os.path.isfile(_log_path):
+        return 0
+    pending = {}
+    try:
+        with _log_lock:
+            with open(_log_path, encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    key = (str(record.get("chat_id", "")),
+                           str(record.get("message_id", "")))
+                    note = record.get("note")
+                    if note == "attachment_dispatched" and record.get("raw"):
+                        pending[key] = record
+                    elif note == "attachment_ready":
+                        pending.pop(key, None)
+    except OSError:
+        return 0
+    recovered = 0
+    records = sorted(
+        pending.values(), key=lambda item: int(item.get("update_id", 0) or 0)
+    )[-max(1, int(limit)):]
+    for record in records:
+        update = record.get("raw") or {}
+        kind, message = _extract_message(update)
+        if not message or not _attachment_info(message):
+            continue
+        _enqueue_attachment(
+            update, kind, message,
+            message.get("text") or message.get("caption") or "",
+        )
+        recovered += 1
+    return recovered
 
 
 def _append_update_log(update, kind, message, allowed, queued, note=""):
@@ -1371,6 +1459,43 @@ def _enqueue_slash_command(chat, sender, text):
     return 1
 
 
+def _is_fast_read_command(text):
+    stripped = str(text or "").strip()
+    if not stripped.startswith("/"):
+        return False
+    parts = stripped.split(None, 1)
+    command = parts[0].split("@", 1)[0].lower()
+    argument = parts[1].strip() if len(parts) > 1 else ""
+    if command not in _FAST_READ_COMMANDS:
+        return False
+    return command in {"/activity", "/modes", "/engines"} or not argument
+
+
+def _dispatch_slash_command(chat, sender, text):
+    """Route observations and lifecycle authority off the shared FIFO."""
+    stripped = str(text or "").strip()
+    command = stripped.split(None, 1)[0].split("@", 1)[0].lower() \
+        if stripped.startswith("/") else ""
+    if command in _IMMEDIATE_COMMANDS:
+        threading.Thread(
+            target=_handle_slash_command,
+            args=(chat, sender, text),
+            name="telegram-lifecycle-control",
+            daemon=True,
+        ).start()
+        return "immediate"
+    if _is_fast_read_command(text):
+        threading.Thread(
+            target=_handle_slash_command,
+            args=(chat, sender, text),
+            name="telegram-fast-control",
+            daemon=True,
+        ).start()
+        return "fast-read"
+    _enqueue_slash_command(chat, sender, text)
+    return "serialized"
+
+
 def _poll_loop():
     global _offset
     while _running:
@@ -1426,29 +1551,31 @@ def _poll_loop():
                     if not allowed:
                         note = "disallowed_chat"
                     else:
-                        attachment_note = _download_attachment(message)
-                        if attachment_note:
-                            text = (text + "\n" if text else "") + attachment_note
-                        if not text:
+                        command_note = _peek_slash_command(
+                            text, message.get("from")) if text else None
+                        if command_note:
+                            # Controls are classified before any attachment
+                            # transport. A file captioned `/activity` remains a
+                            # control request, not a 120-second poll blockage.
+                            note = command_note
+                            _dispatch_slash_command(
+                                chat, message.get("from"), text)
+                        elif _attachment_info(message):
+                            sender = message.get("from") or {}
+                            if not _wake_for_operator_message(sender):
+                                _maybe_rest_notice(chat, sender)
+                            note = "attachment_dispatched"
+                            _enqueue_attachment(
+                                update, kind, message, text or "")
+                        elif not text:
                             note = "no_text_or_caption"
                         else:
-                            command_note = _peek_slash_command(text,
-                                                              message.get("from"))
-                            if command_note:
-                                # Operator commands answer on their own thread:
-                                # a slow provider call must not stall polling
-                                # for every other message behind it.
-                                note = command_note
-                                _enqueue_slash_command(
-                                    chat, message.get("from"), text)
-                            else:
-                                # Only ordinary messages are queued. Slash
-                                # commands execute immediately, so claiming
-                                # that one was queued would be a lying notice.
-                                sender = message.get("from")
-                                if not _wake_for_operator_message(sender):
-                                    _maybe_rest_notice(chat, sender)
-                                queued = True
+                            # Only ordinary messages are queued. Slash
+                            # commands and attachments have independent lanes.
+                            sender = message.get("from")
+                            if not _wake_for_operator_message(sender):
+                                _maybe_rest_notice(chat, sender)
+                            queued = True
                 # Ordinary inbound activity is logged and queued under the
                 # same lock used to freeze a model turn's causal frontier.
                 # Without this pairing a newly logged message could leak into
@@ -1550,6 +1677,7 @@ def start_telegram(token="", chat_id=""):
     if _thread and _thread.is_alive():
         return _thread
     _load_offset()
+    _recover_pending_attachments()
     _running = True
     _health_update(force=True, running=True, started_at=time.time(),
                    menu_status="pending", poll_status="starting")

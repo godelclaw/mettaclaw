@@ -78,6 +78,22 @@ class PublicTreeAuditTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("memory/history.metta", result.stderr)
 
+    def test_no_unconsented_process_jail_in_tracked_runtime(self):
+        forbidden = ("b" + "wrap", "bubble" + "wrap")
+        tracked = run("git", "ls-files", "-z", cwd=ROOT).stdout.split("\0")
+        found = []
+        for relative in tracked:
+            if not relative:
+                continue
+            path = ROOT / relative
+            try:
+                text = path.read_text(encoding="utf-8").lower()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if any(token in text for token in forbidden):
+                found.append(relative)
+        self.assertEqual(found, [])
+
 
 if __name__ == "__main__":
     unittest.main()
