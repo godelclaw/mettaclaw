@@ -105,25 +105,29 @@ class ActivityBatchTests(unittest.TestCase):
     def test_attention_graph_brackets_the_model_action(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         begin = loop.index("(attention-begin")
-        model = loop.index("(synthetic_llm.chat")
+        model = loop.index("(addition-model-call")
         complete = loop.index("(attention-complete")
         self.assertLess(begin, model)
         self.assertLess(model, complete)
 
     def test_model_call_is_committed_before_response_parsing(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
-        model = loop.index("(synthetic_llm.chat")
+        model = loop.index("(addition-model-call")
         commitment = loop.index("($_ (cut))", model)
-        parse = loop.index("(sread", model)
+        parse = loop.index("(addition-read-response", model)
         self.assertLess(model, commitment)
         self.assertLess(commitment, parse)
-        self.assertIn("((Error $a $b) ())", loop)
+        pipeline = (ROOT / "src" / "command_pipeline.metta").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("(sread", pipeline)
+        self.assertIn("((Error $a $b) ())", pipeline)
 
     def test_commands_cross_one_committed_effect_boundary(self):
         loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         response = loop.index("(RESPONSE: $sexpr)")
         commitment = loop.index("($_ (cut))", response)
-        dispatcher = loop.index("(run-command-batch-once", response)
+        dispatcher = loop.index("(addition-effect-broker", response)
         results = loop.index("($results (RESULTS:", response)
         self.assertLess(response, commitment)
         self.assertLess(commitment, dispatcher)

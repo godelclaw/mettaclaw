@@ -171,6 +171,18 @@
 (= (tmux-send $win $text)
    (py-call (tmux_bridge.send $win (py-call (helper.decode_safe_text $text)))))
 
+;; Receipt-bound terminal capabilities used by qualification and by a future
+;; live broker only after it passes qualification. With the shadow effect
+;; provider, the dispatcher intercepts these already-parsed commands before
+;; eval and handles them on an isolated tmux socket. In ordinary operation the
+;; equations are inert refusal values and grant no authority.
+(= (tmux-new-shell-after $receipt $name)
+   (SHADOW_EFFECT_REQUIRES_QUALIFICATION_BACKEND $receipt $name))
+(= (tmux-send-observed $receipt $text)
+   (SHADOW_EFFECT_REQUIRES_QUALIFICATION_BACKEND $receipt $text))
+(= (shadow-finish $summary)
+   (SHADOW_EFFECT_REQUIRES_QUALIFICATION_BACKEND $summary))
+
 ;; Progressive disclosure: one-line catalog above, full page on demand.
 ;; check parses with the loop's OWN reader (sread), so its verdict is the
 ;; loop's verdict — nothing is executed either way.

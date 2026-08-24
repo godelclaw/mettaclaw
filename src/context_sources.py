@@ -25,6 +25,7 @@ class Observation:
 
 SOURCE_SPECS = (
     SourceSpec("work-state", 8000),
+    SourceSpec("commitment-state", 2000),
     SourceSpec("affect-gestalt", 2000),
     SourceSpec("pins", 6000, True),
     SourceSpec("recent-actions", 12000, True),
@@ -89,6 +90,7 @@ _PROJECTOR = Projector()
 
 
 def _loaders():
+    import commitment_projection
     import goals
     import helper
     import pins
@@ -101,14 +103,15 @@ def _loaders():
     events = helper.int_env("METTACLAW_CONVERSATION_EVENTS", 64)
     return (
         (SOURCE_SPECS[0], goals.work_state_view),
-        (SOURCE_SPECS[1], goals.affect_view),
-        (SOURCE_SPECS[2], pins.view),
-        (SOURCE_SPECS[3],
-         lambda: helper.recent_actions(history, limit=turns)),
+        (SOURCE_SPECS[1], commitment_projection.view),
+        (SOURCE_SPECS[2], goals.affect_view),
+        (SOURCE_SPECS[3], pins.view),
         (SOURCE_SPECS[4],
+         lambda: helper.recent_actions(history, limit=turns)),
+        (SOURCE_SPECS[5],
          lambda: helper.relevant_files(history, limit=turns)),
-        (SOURCE_SPECS[5], project_capabilities.view),
-        (SOURCE_SPECS[6],
+        (SOURCE_SPECS[6], project_capabilities.view),
+        (SOURCE_SPECS[7],
          lambda: telegram.conversation_window(max_events=events)),
     )
 

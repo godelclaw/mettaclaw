@@ -115,17 +115,36 @@ run_command_list_unless_stimulus(Turn, Commands, Records, Errors) :-
     ).
 
 effect_turn_stimulus_free(Turn) :-
-    catch('py-call'(['telegram.effect_turn_stimulus_free', Turn], Value),
-          _, fail),
+    ( getenv('METTACLAW_EFFECT_BACKEND', 'tmux-shadow')
+    -> catch('py-call'(['effect_backend.turn_stimulus_free', Turn], Value),
+             _, fail)
+    ;  catch('py-call'(['telegram.effect_turn_stimulus_free', Turn], Value),
+             _, fail)
+    ),
     ( Value == 1 ; Value == true ; Value == 'True' ), !.
 
 run_command_once(Command, ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-
-    catch(( once(eval(Command, Raw)) -> Status = ok(Raw)
-                                    ; Status = failed ),
+    catch(( once(command_effect(Command, Raw)) -> Status = ok(Raw)
+                                              ; Status = failed ),
           Exception,
           Status = exception(Exception)),
     command_status(Status, Command, Value, Errors),
     normalize_command_value(Value, Normalized).
+
+%% Qualification replaces only the effect provider beneath the real parser
+%% and batch dispatcher. Shadow mode is fail-closed: its Python provider has
+%% no passthrough result, so an unsupported command cannot reach eval/2.
+command_effect(Command, Value) :-
+    getenv('METTACLAW_EFFECT_BACKEND', 'tmux-shadow'), !,
+    'py-call'(['effect_backend.dispatch', Command], Outcome),
+    shadow_effect_outcome(Outcome, Value).
+command_effect(Command, Value) :-
+    eval(Command, Value).
+
+shadow_effect_outcome([handled, Value], Value) :- !.
+shadow_effect_outcome(["handled", Value], Value) :- !.
+shadow_effect_outcome(Outcome,
+                      ['Error', invalid_shadow_effect_outcome, Outcome]).
 
 command_status(ok(Value), _Command, Value, []).
 command_status(failed, Command, ['Error', command_failed],

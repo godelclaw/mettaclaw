@@ -146,8 +146,12 @@ class ContextContinuityTest(unittest.TestCase):
         source = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
         context = source[source.index("(= (getContext"):source.index(
             "(= (HandleError")]
-        self.assertIn("context_sources.bundle", context)
-        self.assertEqual(context.count("context_sources.bundle"), 1)
+        self.assertIn("addition-context-sources", context)
+        self.assertEqual(context.count("addition-context-sources"), 1)
+        additions = (ROOT / "src" / "turn_additions.metta").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(additions.count("context_sources.bundle"), 1)
         self.assertNotIn("(getHistory)", context)
         self.assertNotIn("telegram.recent_activity", context)
         self.assertNotIn("telegram.conversation_window", context)

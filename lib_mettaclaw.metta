@@ -23,6 +23,8 @@
 !(import! &self ./src/iter_process_policy)
 !(import! &self ./src/metta_coding_policy)
 !(import! &self ./src/skills)
+!(import! &self ./src/command_pipeline)
+!(import! &self ./src/turn_additions)
 !(import! &self ./src/memory)
 !(import! &self ./src/attention_graph)
 !(import! &self ./src/loop)

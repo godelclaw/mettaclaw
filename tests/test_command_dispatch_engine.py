@@ -253,6 +253,8 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 ROOT / "src" / "open_assemblage.metta",
                 ROOT / "src" / "loop_policy.metta",
                 ROOT / "src" / "skills.metta",
+                ROOT / "src" / "command_pipeline.metta",
+                ROOT / "src" / "turn_additions.metta",
                 ROOT / "src" / "memory.metta",
                 ROOT / "src" / "attention_graph.metta",
                 ROOT / "src" / "loop.metta", probe,
