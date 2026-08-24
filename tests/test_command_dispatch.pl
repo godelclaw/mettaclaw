@@ -19,13 +19,32 @@ reset_probe :-
 
 test(reentry_reuses_cache_and_new_turn_executes) :-
     reset_probe,
-    'run-command-batch-once'(7, [[probe]], First),
-    'run-command-batch-once'(7, [[probe]], Replay),
+    'run-command-batch-once'(7, 5, [[probe]], First),
+    'run-command-batch-once'(7, 5, [[probe]], Replay),
     probe_count(1),
     assertion(First == Replay),
     assertion(First == [['COMMAND_RETURN:', [[probe], 1]]]),
-    'run-command-batch-once'(8, [[probe]], SecondTurn),
+    'run-command-batch-once'(8, 5, [[probe]], SecondTurn),
     probe_count(2),
     assertion(SecondTurn == [['COMMAND_RETURN:', [[probe], 2]]]).
+
+test(interactive_limit_executes_only_the_first_command) :-
+    reset_probe,
+    'run-command-batch-once'(9, 1,
+                             [[probe], [probe], [probe]], Records),
+    probe_count(1),
+    assertion(Records == [
+        ['COMMAND_RETURN:', [[probe], 1]],
+        ['COMMAND_BATCH_DEFERRED:',
+         [limit, 1, commands, [[probe], [probe]]]]
+    ]).
+
+test(coding_limit_retains_five_commands) :-
+    reset_probe,
+    'run-command-batch-once'(10, 5,
+                             [[probe], [probe], [probe], [probe], [probe]],
+                             Records),
+    probe_count(5),
+    length(Records, 5).
 
 :- end_tests(command_dispatch).

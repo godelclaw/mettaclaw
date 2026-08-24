@@ -39,7 +39,8 @@
          (coordinate autonomous-renewal False
            (coordinate reasoning inherit
              (coordinate structured-request 0
-               (coordinate iter-transformations 0 coordinates-empty))))))
+               (coordinate iter-transformations 0
+                 (coordinate command-batch-limit 1 coordinates-empty)))))))
      (coordinate iter-renewal
        (coordinate idle-wait 60
          (coordinate autonomous-renewal True
@@ -47,7 +48,8 @@
              (coordinate iter-transformations 1 coordinates-empty))))
        (coordinate coding-reasoning
          (coordinate reasoning high
-           (coordinate structured-request 1 coordinates-empty))
+           (coordinate structured-request 1
+             (coordinate command-batch-limit 5 coordinates-empty)))
          coordinates-empty))))
 (= (policy-stage $name)
    (coordinate-get $name (policy-registry)))
@@ -95,6 +97,8 @@
    (coordinate-get-or structured-request 0 (policy-record $selected)))
 (= (policy-iter-transformations $selected)
    (coordinate-get-or iter-transformations 0 (policy-record $selected)))
+(= (policy-command-batch-limit $selected)
+   (coordinate-get-or command-batch-limit 1 (policy-record $selected)))
 
 ;; A rest in flight is exactly a banked budget waiting to be handed back,
 ;; so the periphery already answers "is renewal suspended?" and no separate

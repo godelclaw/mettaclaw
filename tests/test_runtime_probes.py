@@ -27,6 +27,8 @@ class RuntimeProbeTest(unittest.TestCase):
         ("tests/structured_request_probe.metta", "STRUCTURED_REQUEST_OK"),
         ("tests/integrated_coding_turn_probe.metta",
          "INTEGRATED_CODING_TURN_OK"),
+        ("tests/interactive_batch_policy_probe.metta",
+         "INTERACTIVE_BATCH_POLICY_OK"),
     )
 
     def assert_witness(self, result, marker, engine):

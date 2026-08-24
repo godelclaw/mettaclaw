@@ -55,29 +55,50 @@ first_char(Str, C) :- sub_string(Str, 0, 1, _, C).
 %% quote keeps them inert until this deterministic dispatcher evaluates each
 %% item once.  The turn cache also makes reduction retries observationally
 %% silent.
-'run-command-batch-once'(Turn, Commands, Records) :-
+'run-command-batch-once'(Turn, RequestedLimit, Commands, Records) :-
+    command_batch_limit(RequestedLimit, Limit),
     ( nb_current(mettaclaw_command_batch_cache,
-                 command_batch(CachedTurn, CachedCommands,
+                 command_batch(CachedTurn, CachedLimit, CachedCommands,
                                CachedRecords, _CachedErrors)),
       CachedTurn == Turn
-    -> ( CachedCommands =@= Commands
+    -> ( CachedLimit == Limit,
+         CachedCommands =@= Commands
        -> copy_term(CachedRecords, Records)
        ;  Records = [['COMMAND_BATCH_REJECTED:',
-                      "different commands proposed after turn commitment"]]
+                      "different limit or commands proposed after turn commitment"]]
        )
-    ; run_command_list_once(Commands, Records, Errors),
+    ; admit_command_prefix(Limit, Commands, Admitted, Deferred),
+      run_command_list_once(Admitted, ExecutedRecords, Errors),
+      deferred_command_record(Limit, Deferred, DeferredRecords),
+      append(ExecutedRecords, DeferredRecords, Records),
       nb_setval(mettaclaw_command_batch_cache,
-                command_batch(Turn, Commands, Records, Errors))
+                command_batch(Turn, Limit, Commands, Records, Errors))
     ), !.
 
 'command-batch-errors'(Turn, Errors) :-
     ( nb_current(mettaclaw_command_batch_cache,
-                 command_batch(CachedTurn, _Commands, _Records,
+                 command_batch(CachedTurn, _Limit, _Commands, _Records,
                                CachedErrors)),
       CachedTurn == Turn
     -> copy_term(CachedErrors, Errors)
     ; Errors = []
     ), !.
+
+command_batch_limit(Requested, Requested) :-
+    integer(Requested),
+    Requested > 0, !.
+command_batch_limit(_, 1).
+
+admit_command_prefix(0, Commands, [], Commands) :- !.
+admit_command_prefix(_, [], [], []) :- !.
+admit_command_prefix(Limit, [Command|Rest], [Command|Admitted], Deferred) :-
+    Next is Limit - 1,
+    admit_command_prefix(Next, Rest, Admitted, Deferred).
+
+deferred_command_record(_, [], []) :- !.
+deferred_command_record(Limit, Deferred,
+                        [['COMMAND_BATCH_DEFERRED:',
+                          [limit, Limit, commands, Deferred]]]).
 
 run_command_list_once([], [], []).
 run_command_list_once([Command|Rest], [Record|Records], Errors) :-

@@ -56,7 +56,7 @@ class CommandDispatchEngineTest(unittest.TestCase):
             probe.write_text(
                 "!(import! &self (library lib_import))\n"
                 "!(import! &self ./src/skills)\n"
-                "!(println! (run-command-batch-once 424242 "
+                "!(println! (run-command-batch-once 424242 5 "
                 "(quote %s)))\n" % response,
                 encoding="utf-8",
             )
@@ -90,7 +90,7 @@ class CommandDispatchEngineTest(unittest.TestCase):
             command = "printf 'effect-once\\n' >> %s" % shlex.quote(
                 os.fspath(effect))
             probe.write_text(
-                "!(println! (run-command-batch-once 424243 (quote ("
+                "!(println! (run-command-batch-once 424243 5 (quote ("
                 "(py-call (str \"agent — a complete Unicode message\")) "
                 "(shell %s) "
                 "(py-call (str \"second complete result\"))"
@@ -197,7 +197,7 @@ class CommandDispatchEngineTest(unittest.TestCase):
             command = "printf 'effect-once\\n' >> %s" % shlex.quote(
                 os.fspath(effect))
             probe.write_text(
-                "!(println! (run-command-batch-once 424242 "
+                "!(println! (run-command-batch-once 424242 5 "
                 "(quote ((shell %s)))))\n" % json.dumps(command),
                 encoding="utf-8",
             )

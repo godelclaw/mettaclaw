@@ -33,7 +33,9 @@ ARITY = {
 PAGES = {
     "shell": (
         'usage: (shell "command string")\n'
-        'One string, no apostrophes inside. Output comes back as the result.\n'
+        'One string, no apostrophes inside. Hard timeout: 5 seconds. Output\n'
+        'comes back as the result. Never mutate, sleep, then inspect in one\n'
+        'call: a timeout does not roll back an earlier external effect.\n'
         'fails: (shell ls /tmp) — unquoted args make it a 3-arg call and no\n'
         '3-arg shell exists. Quote the whole command: (shell "ls /tmp").'),
     "goal-write": (
