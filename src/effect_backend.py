@@ -20,6 +20,9 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+import action_graph
+import stimulus_frontier
+import task_phase
 from tmux_qualification import IsolatedTmux, PaneObservation
 
 
@@ -94,6 +97,26 @@ def _world(state: dict[str, Any]) -> IsolatedTmux:
     return IsolatedTmux(state["socket_name"])
 
 
+def _phase_revision(state: dict[str, Any]) -> str:
+    return "turn:%s:effects:%s" % (
+        state.get("turn", 0), state.get("effects", 0)
+    )
+
+
+def _advance_task_phase(state: dict[str, Any], previous: str,
+                        following: str | None, evidence: str) -> None:
+    """Mirror witnessed shadow progress into the generic phase projection."""
+
+    if not os.environ.get("METTACLAW_TASK_PHASE_PATH", "").strip():
+        return
+    revision = _phase_revision(state)
+    task_phase.transition(
+        previous, "completed", revision, evidence_ref=evidence
+    )
+    if following is not None:
+        task_phase.transition(following, "active", revision)
+
+
 def _issue_receipts(state: dict[str, Any]) -> str:
     world = _world(state)
     state["receipts"] = {}
@@ -136,6 +159,11 @@ def _record(state: dict[str, Any], command: str, result: str,
             state["operator_epoch"] = int(
                 state.get("operator_epoch", 0)
             ) + 1
+            stimulus_frontier.publish(
+                state.get("turn", -1),
+                state.get("turn_operator_epoch", -1),
+                state["operator_epoch"],
+            )
     return result
 
 
@@ -178,6 +206,11 @@ def _finish_reserved(state: dict[str, Any], operation: int, result: str,
             state["operator_epoch"] = int(
                 state.get("operator_epoch", 0)
             ) + 1
+            stimulus_frontier.publish(
+                state.get("turn", -1),
+                state.get("turn_operator_epoch", -1),
+                state["operator_epoch"],
+            )
     return result
 
 
@@ -228,7 +261,9 @@ def _dispatch_send(rendered: str, arguments: list[str]) -> list[Any]:
             next_phase = "goal-satisfied"
         if next_phase is not None:
             with _locked_state() as state:
+                previous = state.get("phase")
                 state["phase"] = next_phase
+                _advance_task_phase(state, previous, next_phase, sent)
         return ["handled", sent]
     except Exception as error:
         detail = "SENT_UNVERIFIED %s: %s" % (
@@ -250,6 +285,9 @@ def begin_turn(turn: Any) -> str:
     with _locked_state() as state:
         state["turn"] = int(turn)
         state["turn_operator_epoch"] = int(state.get("operator_epoch", 0))
+        stimulus_frontier.publish(
+            turn, state["turn_operator_epoch"], state["operator_epoch"]
+        )
     return "SHADOW_EFFECT_TURN_READY"
 
 
@@ -270,6 +308,15 @@ def dispatch(command: Any) -> list[Any]:
     head, arguments = _command_parts(command)
     rendered = "(" + " ".join([head, *arguments]) + ")"
     try:
+        with _locked_state() as state:
+            node = action_graph.classify(command)
+            if not action_graph.coordination_admitted(
+                    node, state.get("receipts", {}).keys()):
+                return ["handled", _record(
+                    state, rendered,
+                    "WITHHELD coordination-needs-current-observation "
+                    "(unknown or expired observation receipt)",
+                )]
         if head == "tmux-send-observed" and len(arguments) == 2:
             return _dispatch_send(rendered, arguments)
         with _locked_state() as state:
@@ -294,15 +341,20 @@ def dispatch(command: Any) -> list[Any]:
                 created = world.create_shell_window_after(
                     observed.window_id, arguments[1]
                 )
+                previous = state.get("phase")
                 state["phase"] = "need-launch"
                 # A topology edit changes window indices and therefore the
                 # recorded metadata of the full observation snapshot.
                 state["receipts"] = {}
-                return ["handled", _record(
+                outcome = _record(
                     state, rendered,
                     "CREATED shell-owned window %s" % created.window_name,
                     effect=True,
-                )]
+                )
+                _advance_task_phase(
+                    state, previous, "need-launch", outcome
+                )
+                return ["handled", outcome]
 
             if head == "shadow-finish" and len(arguments) <= 1:
                 if state.get("operator_epoch", 0) != state.get(
@@ -331,9 +383,13 @@ def dispatch(command: Any) -> list[Any]:
                         state, rendered, "REJECTED goal-not-verified"
                     )]
                 state["finished"] = True
-                return ["handled", _record(
+                outcome = _record(
                     state, rendered, "TASK_VERIFIED"
-                )]
+                )
+                _advance_task_phase(
+                    state, "goal-satisfied", None, outcome
+                )
+                return ["handled", outcome]
 
             return ["handled", _record(
                 state, rendered,

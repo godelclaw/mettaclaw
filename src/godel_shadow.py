@@ -18,6 +18,7 @@ import tempfile
 import uuid
 from typing import Any
 
+import task_phase
 from tmux_qualification import IsolatedTmux
 
 
@@ -45,6 +46,7 @@ class FullShadow:
         )
         self.directory = Path(self.temporary.name)
         self.state_path = self.directory / "state.json"
+        self.task_phase_path = self.directory / "task-phase.json"
         self.socket_name = "godel-full-shadow-%s" % uuid.uuid4().hex[:12]
         self.world = IsolatedTmux(self.socket_name)
         self.auto_stop = auto_stop_after_first_effect
@@ -81,6 +83,17 @@ class FullShadow:
             "auto_stop_after_first_effect": self.auto_stop,
             "prompt_timeout": self.prompt_timeout,
         })
+        task_phase.initialize(
+            "tmux-room-qualification",
+            ("need-create", "need-launch", "need-trust", "need-server",
+             "goal-satisfied"),
+            evidence_revision="turn:0:effects:0",
+            path=self.task_phase_path,
+        )
+        task_phase.transition(
+            "need-create", "active", "turn:0:effects:0",
+            path=self.task_phase_path,
+        )
         self.started = True
 
     def stop(self) -> None:
@@ -130,6 +143,10 @@ class FullShadow:
             "METTACLAW_EFFECT_RECEIPT_PATH": str(
                 self.directory / "effect-receipts.jsonl"
             ),
+            "METTACLAW_STIMULUS_FRONTIER_PATH": str(
+                self.directory / "stimulus-frontier"
+            ),
+            "METTACLAW_TASK_PHASE_PATH": str(self.task_phase_path),
         })
         if self.backend_selector is None:
             environment.pop("METTACLAW_EFFECT_BACKEND", None)

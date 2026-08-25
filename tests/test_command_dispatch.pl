@@ -12,6 +12,7 @@ eval([probe], Count) :-
 eval([stimulate], ok) :-
     retractall(stimulus_free(_)),
     assertz(stimulus_free(0)).
+eval([observe], observed).
 
 'py-call'(['helper.normalize_string', Value], Value).
 'py-call'(['effect_receipts.record_command', Turn, Disposition,
@@ -22,6 +23,15 @@ eval([stimulate], ok) :-
     assertz(effect_receipt(Turn, Disposition, Commands, Reason)).
 'py-call'(['telegram.effect_turn_stimulus_free', _], Value) :-
     stimulus_free(Value).
+'py-call'(['action_graph.partition_after_stimulus', Commands],
+          [Independent, Dependent]) :-
+    partition_test_commands(Commands, Independent, Dependent).
+
+partition_test_commands([], [], []).
+partition_test_commands([[observe]|Rest], [[observe]|Independent], Dependent) :-
+    !, partition_test_commands(Rest, Independent, Dependent).
+partition_test_commands([Command|Rest], Independent, [Command|Dependent]) :-
+    partition_test_commands(Rest, Independent, Dependent).
 
 reset_probe :-
     retractall(probe_count(_)),
@@ -68,6 +78,20 @@ test(new_stimulus_interrupts_only_the_unexecuted_suffix) :-
     ]),
     assertion(effect_receipt(11, returned, [stimulate], ok)),
     assertion(effect_receipt(11, withheld, [[probe]], new_stimulus)).
+
+test(new_stimulus_allows_only_certified_observation_suffix) :-
+    reset_probe,
+    'run-command-batch-once'(12, 5,
+                             [[stimulate], [probe], [observe]], Records),
+    probe_count(0),
+    assertion(Records == [
+        ['COMMAND_RETURN:', [[stimulate], ok]],
+        ['COMMAND_BATCH_INTERRUPTED:',
+         [reason, new_stimulus, commands, [[probe]]]],
+        ['COMMAND_RETURN:', [[observe], observed]]
+    ]),
+    assertion(effect_receipt(12, withheld, [[probe]], new_stimulus)),
+    assertion(effect_receipt(12, returned, [observe], observed)).
 
 test(coding_limit_retains_five_commands) :-
     reset_probe,

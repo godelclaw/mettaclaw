@@ -53,26 +53,40 @@ def _append(entry: dict) -> int:
 
 def record_command(turn, disposition, command, result) -> int:
     """Record one command after the dispatcher has classified its return."""
-    return _append({
+    entry = {
         "schema": 1,
         "recorded_at": time.time(),
         "turn": int(turn),
         "disposition": _text(disposition, 80),
         "command": _text(command),
         "result": _text(result),
-    })
+    }
+    try:
+        import action_graph
+        entry["action_graph"] = action_graph.metadata(command)
+    except Exception:
+        pass
+    return _append(entry)
 
 
 def record_suffix(turn, disposition, commands, reason) -> int:
     """Record a suffix which the broker explicitly did not execute."""
-    return _append({
+    entry = {
         "schema": 1,
         "recorded_at": time.time(),
         "turn": int(turn),
         "disposition": _text(disposition, 80),
         "commands": _text(commands),
         "reason": _text(reason, 240),
-    })
+    }
+    try:
+        import action_graph
+        entry["action_graph"] = [
+            action_graph.metadata(command) for command in commands
+        ]
+    except Exception:
+        pass
+    return _append(entry)
 
 
 def _tail_lines(path: Path, max_bytes=180_000) -> list[str]:

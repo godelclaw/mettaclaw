@@ -12,6 +12,13 @@ SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class EngineLauncherTests(unittest.TestCase):
+    def test_service_uses_stable_cetta_selector(self):
+        service = (SOURCE_ROOT / "systemd" / "pettaclaw-godel.service").read_text(
+            encoding="utf-8")
+        self.assertIn("Environment=CETTA_BIN=%h/repos/CeTTa-runtime/cetta",
+                      service)
+        self.assertNotIn("cetta-godel-command-boundary", service)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.base = pathlib.Path(self.tmp.name)

@@ -110,20 +110,69 @@ run_command_list_unless_stimulus(Turn, Commands, Records, Errors) :-
        run_command_list_unless_stimulus(Turn, Rest, RestRecords, RestErrors),
        Records = [Record|RestRecords],
        append(CommandErrors, RestErrors, Errors)
-    ; Records = [['COMMAND_BATCH_INTERRUPTED:',
-                  [reason, new_stimulus, commands, Commands]]],
-      record_suffix_receipt(Turn, withheld, Commands, new_stimulus),
-      Errors = []
+    ; partition_after_stimulus(Commands, Independent, Dependent),
+      stimulus_interrupted_record(Turn, Dependent, InterruptedRecords),
+      run_command_list_once(Turn, Independent,
+                            IndependentRecords, Errors),
+      append(InterruptedRecords, IndependentRecords, Records)
     ).
 
+partition_after_stimulus(Commands, Independent, Dependent) :-
+    catch('py-call'(['action_graph.partition_after_stimulus', Commands],
+                    [Independent, Dependent]), _, fail), !.
+partition_after_stimulus(Commands, [], Commands).
+
+stimulus_interrupted_record(_, [], []) :- !.
+stimulus_interrupted_record(Turn, Commands,
+                            [['COMMAND_BATCH_INTERRUPTED:',
+                              [reason, new_stimulus, commands, Commands]]]) :-
+    record_suffix_receipt(Turn, withheld, Commands, new_stimulus).
+
+run_command_list_once(_, [], [], []).
+run_command_list_once(Turn, [Command|Rest],
+                      [Record|RestRecords], Errors) :-
+    run_command_once(Turn, Command, Record, CommandErrors),
+    run_command_list_once(Turn, Rest, RestRecords, RestErrors),
+    append(CommandErrors, RestErrors, Errors).
+
 effect_turn_stimulus_free(Turn) :-
+    effect_turn_stimulus_value(Turn, Value),
+    ( Value == unavailable
+    -> ( stimulus_frontier_free(Turn)
+       ; \+ getenv('METTACLAW_STIMULUS_FRONTIER_PATH', _) )
+    ; stimulus_free_value(Value)
+    ), !.
+
+effect_turn_stimulus_value(Turn, Value) :-
     ( getenv('METTACLAW_EFFECT_BACKEND', 'tmux-shadow')
-    -> catch('py-call'(['effect_backend.turn_stimulus_free', Turn], Value),
-             _, fail)
-    ;  catch('py-call'(['telegram.effect_turn_stimulus_free', Turn], Value),
-             _, fail)
+    -> Goal = 'py-call'(['effect_backend.turn_stimulus_free', Turn], Value)
+    ;  Goal = 'py-call'(['telegram.effect_turn_stimulus_free', Turn], Value)
     ),
-    ( Value == 1 ; Value == true ; Value == 'True' ), !.
+    ( catch(Goal, _, fail) -> true ; Value = unavailable ).
+
+%% SWI-PeTTa and CeTTa's lib-prolog bridge preserve the same truth value with
+%% slightly different scalar representations.  Admit only explicit true/one
+%% witnesses; everything else still fails closed as a newer stimulus.
+stimulus_free_value(Value) :-
+    ( Value == 1
+    ; Value == 1.0
+    ; Value == true
+    ; Value == 'True'
+    ; Value == "1"
+    ; Value == "true"
+    ; Value == "True"
+    ).
+
+stimulus_frontier_free(Turn) :-
+    getenv('METTACLAW_STIMULUS_FRONTIER_PATH', Path),
+    catch(read_file_to_string(Path, Text, []), _, fail),
+    split_string(Text, " \t\r\n", " \t\r\n", Parts),
+    Parts = ["1", TurnText, CapturedText, LiveText],
+    number_string(RecordedTurn, TurnText),
+    number_string(Captured, CapturedText),
+    number_string(Live, LiveText),
+    RecordedTurn =:= Turn,
+    Captured =:= Live.
 
 run_command_once(Turn, Command,
                  ['COMMAND_RETURN:', [Command, Normalized]], Errors) :-

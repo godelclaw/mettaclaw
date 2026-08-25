@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "description": "Redacted event reconstruction of the repeated terminal-management failure pattern.",
+  "events": [
+    {"type": "context", "evidence_revision": "r1", "context_chars": 50000},
+    {"type": "phase", "phase": "create-room", "status": "active"},
+    {"type": "effect", "action_id": "a1", "effect_key": "create-room", "issued_revision": "r1", "depends_on_stimulus": true, "result": "success", "receipt": "e1"},
+    {"type": "phase", "phase": "create-room", "status": "completed"},
+    {"type": "phase", "phase": "create-room", "status": "active"},
+    {"type": "effect", "action_id": "a2", "effect_key": "create-room", "issued_revision": "r1", "depends_on_stimulus": true, "result": "success", "receipt": "e2"},
+    {"type": "stimulus", "evidence_revision": "r2", "at_ms": 100},
+    {"type": "effect", "action_id": "a3", "effect_key": "send-input", "issued_revision": "r1", "depends_on_stimulus": true, "result": "success", "receipt": "e3"},
+    {"type": "interrupt", "at_ms": 250},
+    {"type": "claim", "claim": "completed", "supported_by": "missing"},
+    {"type": "recovery", "required_sources": ["repository", "reports", "goals"], "recovered_sources": ["repository"]}
+  ]
+}

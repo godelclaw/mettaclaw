@@ -64,6 +64,9 @@ class ContextSourcesTest(unittest.TestCase):
         self.assertLess(ids.index("effect-receipts"),
                         ids.index("recent-proposals"))
         self.assertIn("project-capabilities", ids)
+        self.assertIn("project-evidence", ids)
+        self.assertIn("task-phase", ids)
+        self.assertIn("active-query-declaration", ids)
         self.assertEqual(ids[-1], "conversation")
 
     def test_broker_receipt_crosses_the_real_context_bundle(self):
@@ -81,9 +84,32 @@ class ContextSourcesTest(unittest.TestCase):
                     "partial(failed)",
                 )
                 rendered = context_sources.bundle()
+        self.assertTrue(rendered.startswith("CONTEXT_CERTIFICATE "))
         self.assertIn("SOURCE[effect-receipts] status=known", rendered)
         self.assertIn("partial(failed)", rendered)
         self.assertIn("SOURCE[recent-proposals]", rendered)
+
+    def test_bad_optional_query_file_does_not_erase_base_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "queries.json"
+            path.write_text("not-json", encoding="utf-8")
+            with mock.patch.dict(os.environ, {
+                "METTACLAW_ACTIVE_QUERIES_PATH": str(path),
+                "METTACLAW_HISTORY_PATH": str(
+                    pathlib.Path(directory) / "history.metta"),
+                "METTACLAW_TELEGRAM_LOG_PATH": str(
+                    pathlib.Path(directory) / "updates.jsonl"),
+            }):
+                rendered = context_sources.bundle()
+        certificate_line = rendered.splitlines()[0].partition(" ")[2]
+        import json
+        certificate = json.loads(certificate_line)
+        self.assertIn("operator-stimulus", certificate["active_queries"])
+        self.assertRegex(
+            rendered,
+            r"SOURCE\[active-query-declaration\] "
+            r"status=(?:unavailable|stale-known)",
+        )
 
 
 if __name__ == "__main__":
