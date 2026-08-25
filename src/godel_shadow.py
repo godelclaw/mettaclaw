@@ -1,9 +1,10 @@
 """Full-path Gödel qualification against a disposable effect world.
 
-Each model response is parsed by PeTTa's ``sread`` and executed by the same
-``run-command-batch-once`` predicate as a live cognitive turn.  Only the final
-effect provider is replaced.  This makes historical-failure replay useful as
-an agent test rather than merely a test of a parallel JSON controller.
+Each model response is parsed by the selected PeTTa-compatible engine and
+executed by the same ``run-command-batch-once`` predicate as a live cognitive
+turn.  Only the final effect provider is replaced.  This makes historical-
+failure replay useful as an agent and engine conformance test rather than
+merely a test of a parallel JSON controller.
 """
 
 from __future__ import annotations
@@ -32,7 +33,11 @@ class FullShadow:
 
     def __init__(self, auto_stop_after_first_effect: bool = False,
                  backend_selector: str | None = "tmux-shadow",
-                 prompt_timeout: float = 5.0):
+                 prompt_timeout: float = 5.0,
+                 engine: str = "petta"):
+        if engine not in ("petta", "cetta"):
+            raise ValueError("shadow engine must be petta or cetta")
+        self.engine = engine
         self.temporary = tempfile.TemporaryDirectory(
             prefix="godel-full-shadow-"
         )
@@ -112,7 +117,8 @@ class FullShadow:
         environment.update({
             "PYTHONPATH": os.pathsep.join(python_paths),
             "METTACLAW_SKIP_INITIALIZE": "1",
-            "METTACLAW_ENGINE": "petta",
+            "METTACLAW_ENGINE": self.engine,
+            "METTACLAW_ACTIVE_ENGINE": self.engine,
             "METTACLAW_EFFECT_BACKEND_STATE": str(self.state_path),
             "METTACLAW_ENGINE_STATE_PATH": str(
                 self.directory / "engine-selection"
@@ -170,12 +176,17 @@ class FullShadow:
             "!(println! (addition-effect-turn-begin %d))\n" % turn
             if begin_frontier else ""
         )
+        imports = ""
+        if self.engine == "petta":
+            imports = (
+                "!(import! &self (library lib_import))\n"
+                "!(import! &self ./src/utils)\n"
+                "!(import! &self ./src/skills)\n"
+                "!(import! &self ./src/command_pipeline)\n"
+                "!(import! &self ./src/turn_additions)\n"
+            )
         return (
-            "!(import! &self (library lib_import))\n"
-            "!(import! &self ./src/utils)\n"
-            "!(import! &self ./src/skills)\n"
-            "!(import! &self ./src/command_pipeline)\n"
-            "!(import! &self ./src/turn_additions)\n"
+            "%s"
             "%s"
             "!(let* ("
             "($respi %s) "
@@ -185,7 +196,7 @@ class FullShadow:
             "($sexpr (addition-command-sequence $parsed)) "
             "($records (addition-effect-broker %d %d (quote $sexpr)))) "
             "(println! (FULL_SHADOW_RECORDS: $records)))\n"
-        ) % (frontier, literal, turn, batch_limit)
+        ) % (imports, frontier, literal, turn, batch_limit)
 
     def execute_response(self, response: str, turn: int,
                          batch_limit: int = 5,
@@ -198,13 +209,9 @@ class FullShadow:
             ),
             encoding="utf-8",
         )
-        petta_root = Path(os.environ.get(
-            "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
-        ))
-        if not (petta_root / "run.sh").is_file():
-            raise FileNotFoundError("PeTTa run.sh is unavailable")
+        command = self.engine_command(probe)
         return subprocess.run(
-            ["bash", str(petta_root / "run.sh"), str(probe)],
+            command,
             cwd=ROOT,
             env=self.environment(),
             stdin=subprocess.DEVNULL,
@@ -212,6 +219,40 @@ class FullShadow:
             text=True,
             timeout=30,
         )
+
+    def engine_command(self, probe: Path) -> list[str]:
+        petta_root = Path(os.environ.get(
+            "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
+        ))
+        if self.engine == "petta":
+            runner = petta_root / "run.sh"
+            if not runner.is_file():
+                raise FileNotFoundError("PeTTa run.sh is unavailable")
+            return ["bash", str(runner), str(probe)]
+
+        binary = Path(os.environ.get(
+            "CETTA_BIN", Path.home() / "repos" / "CeTTa-runtime" / "cetta"
+        ))
+        if not binary.is_file():
+            raise FileNotFoundError("CeTTa executable is unavailable")
+        files = (
+            petta_root / "lib" / "lib_import.metta",
+            ROOT / "src" / "utils.metta",
+            ROOT / "src" / "skills.metta",
+            ROOT / "src" / "command_pipeline.metta",
+            ROOT / "src" / "turn_additions.metta",
+            probe,
+        )
+        missing = [str(path) for path in files if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                "CeTTa shadow manifest is incomplete: %s"
+                % ", ".join(missing)
+            )
+        return [
+            str(binary), "--lang", "petta", "--import-mode",
+            "ancestor-walk", *(str(path) for path in files),
+        ]
 
     def world_state_projection(self) -> str:
         state = self.state()

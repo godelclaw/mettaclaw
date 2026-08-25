@@ -142,6 +142,9 @@ class FullGodelShadowTests(unittest.TestCase):
                 self.assertIn(
                     "inconsistent effect backend configuration", result.stderr
                 )
+                (shadow.directory / "stimulus-frontier").write_text(
+                    "1 2 0 0\n", encoding="ascii"
+                )
                 depth_result = shadow.execute_response(
                     response, 2, begin_frontier=False
                 )
