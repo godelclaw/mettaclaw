@@ -10,6 +10,8 @@ import time
 
 import requests
 
+import stimulus_frontier
+
 _running = False
 _thread = None
 _token = ""
@@ -665,6 +667,10 @@ def _set_last(chat_id, text, from_bot=False, arm_tier="full", update_id=None):
         # the drained frontier; a later receipt can interrupt its unexecuted
         # command suffix without dictating how large the proposed batch was.
         _activity_epoch += 1
+        if _effect_turn is not None and _effect_activity_epoch is not None:
+            stimulus_frontier.publish(
+                _effect_turn, _effect_activity_epoch, _activity_epoch
+            )
 
 
 def getLastMessage():
@@ -1811,6 +1817,9 @@ def begin_effect_turn(turn):
             _effect_turn = turn
             _effect_activity_epoch = context_epoch
             _effect_sends.clear()
+        stimulus_frontier.publish(
+            turn, _effect_activity_epoch, _activity_epoch
+        )
     return turn
 
 

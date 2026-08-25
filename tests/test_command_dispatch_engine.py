@@ -75,6 +75,12 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertTrue(
+                effect.is_file(),
+                "Evaluator returned success without dispatching the shell effect:\n"
+                f"stdout:\n{result.stdout[-4000:]}\n"
+                f"stderr:\n{result.stderr[-2000:]}",
+            )
             self.assertEqual(effect.read_text(encoding="utf-8"),
                              "effect-once\n")
             self.assertIn("COMMAND_RETURN:", result.stdout)
@@ -114,6 +120,12 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertTrue(
+                effect.is_file(),
+                "CeTTa returned success without dispatching the shell effect:\n"
+                f"stdout:\n{result.stdout[-4000:]}\n"
+                f"stderr:\n{result.stderr[-2000:]}",
+            )
             self.assertEqual(effect.read_text(encoding="utf-8"),
                              "effect-once\n")
             self.assertEqual(result.stdout.count("COMMAND_RETURN:"), 3,
@@ -218,8 +230,47 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertTrue(
+                effect.is_file(),
+                "CeTTa returned success without dispatching the shell effect:\n"
+                f"stdout:\n{result.stdout[-4000:]}\n"
+                f"stderr:\n{result.stderr[-2000:]}",
+            )
             self.assertEqual(effect.read_text(encoding="utf-8"),
                              "effect-once\n")
+
+    def test_cetta_withholds_effect_after_witnessed_new_stimulus(self):
+        petta = self._petta_root()
+        cetta = self._cetta_binary()
+        if not cetta.is_file() or not (petta / "lib" / "lib_import.metta").is_file():
+            self.skipTest("CeTTa/PeTTa checkouts are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            directory = pathlib.Path(directory)
+            effect = directory / "effect.log"
+            frontier = directory / "stimulus-frontier"
+            probe = directory / "probe.metta"
+            command = "printf 'must-not-run\\n' >> %s" % shlex.quote(
+                os.fspath(effect))
+            frontier.write_text("1 424244 3 4\n", encoding="ascii")
+            probe.write_text(
+                "!(println! (run-command-batch-once 424244 5 "
+                "(quote ((shell %s)))))\n" % json.dumps(command),
+                encoding="utf-8",
+            )
+            environment = self._cetta_env()
+            environment["METTACLAW_STIMULUS_FRONTIER_PATH"] = os.fspath(
+                frontier
+            )
+            result = subprocess.run(
+                [os.fspath(cetta), "--lang", "petta", "--import-mode",
+                 "ancestor-walk", os.fspath(petta / "lib" / "lib_import.metta"),
+                 os.fspath(ROOT / "src" / "skills.metta"), os.fspath(probe)],
+                cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            self.assertFalse(effect.exists(), result.stdout)
+            self.assertIn("COMMAND_BATCH_INTERRUPTED:", result.stdout)
 
     def test_cetta_runs_timed_continuation(self):
         petta = self._petta_root()

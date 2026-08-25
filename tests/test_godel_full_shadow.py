@@ -64,6 +64,13 @@ class FullGodelShadowTests(unittest.TestCase):
             self.assertEqual(state["phase"], "goal-satisfied")
             self.assertEqual(state["effects"], 4)
             self.assertEqual(state["last_result"], "TASK_VERIFIED")
+            phase_state = json.loads(
+                shadow.task_phase_path.read_text(encoding="utf-8")
+            )
+            self.assertTrue(all(
+                value["status"] == "completed"
+                for value in phase_state["phases"].values()
+            ))
 
     def test_shadow_denies_shell_without_falling_through(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -88,7 +95,7 @@ class FullGodelShadowTests(unittest.TestCase):
                 shadow.state()["last_result"],
             )
 
-    def test_new_operator_stimulus_interrupts_batch_suffix(self):
+    def test_new_operator_stimulus_interrupts_effect_but_allows_observation(self):
         with FullShadow(auto_stop_after_first_effect=True) as shadow:
             self.observe(shadow, 1)
             response = (
@@ -98,8 +105,9 @@ class FullGodelShadowTests(unittest.TestCase):
             result = self.run_ok(shadow, response, 2)
             state = shadow.state()
             self.assertEqual(state["effects"], 1)
-            self.assertEqual(len(state["trace"]), 2)  # observe + create only
-            self.assertIn("COMMAND_BATCH_INTERRUPTED:", result.stdout)
+            self.assertEqual(len(state["trace"]), 3)  # observe, create, observe
+            self.assertNotIn("COMMAND_BATCH_INTERRUPTED:", result.stdout)
+            self.assertIn("COMMAND_RETURN:", result.stdout)
 
     def test_independent_receipt_batch_remains_permitted(self):
         with FullShadow() as shadow:

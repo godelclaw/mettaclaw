@@ -4,7 +4,7 @@
 # These are expanded by initialize.sh when it generates .env.
 petta_root = "$HOME/repos/PeTTa"
 # CeTTa checkout used by `/engine cetta`; it must provide `--lang petta`.
-cetta_root = "$HOME/repos/CeTTa"
+cetta_root = "$HOME/repos/CeTTa-runtime"
 # Python env PeTTa/swipl links against; install requirements.txt into it.
 # Point this at YOUR env -- the name below is only a placeholder.
 petta_py_env = "$HOME/miniforge3/envs/petta"

@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=/home/oruzi/pettaclaw-godel
 Environment=HOME=/home/oruzi
 Environment=METTACLAW_SKIP_INITIALIZE=1
-Environment=CETTA_BIN=/home/oruzi/repos/cetta-godel-command-boundary-py312/cetta
+Environment=CETTA_BIN=%h/repos/CeTTa-runtime/cetta
 EnvironmentFile=-%h/.config/pettaclaw/godel-runtime.env
 EnvironmentFile=-%h/.config/pettaclaw/godel-telegram.env
 Environment=METTACLAW_LIFECYCLE_PATH=/home/oruzi/.local/state/pettaclaw-godel/lifecycle.json

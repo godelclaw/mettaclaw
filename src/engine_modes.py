@@ -43,7 +43,7 @@ def _engine_paths(name):
         root = os.environ.get("PETTA_ROOT", os.path.join(home, "repos", "PeTTa"))
         return (os.path.join(root, "run.sh"),)
     if name == "cetta":
-        root = os.environ.get("CETTA_ROOT", os.path.join(home, "repos", "CeTTa"))
+        root = os.environ.get("CETTA_ROOT", os.path.join(home, "repos", "CeTTa-runtime"))
         return (os.environ.get("CETTA_BIN", os.path.join(root, "cetta")),)
     return ()
 
