@@ -62,6 +62,73 @@ class CommandDispatchEngineTest(unittest.TestCase):
         self.assertRegex(result.stdout, r"CETTA_FAST_PATH_OK:[0-9]+ms")
         self.assertNotIn("CETTA_FAST_PATH_FAIL", result.stdout)
 
+    def test_cetta_live_manifest_prepares_structured_request(self):
+        """Exercise the request seam omitted by the former live manifest."""
+        petta = self._petta_root()
+        cetta = self._cetta_binary()
+        if not cetta.is_file() or not (
+                petta / "lib" / "lib_import.metta").is_file():
+            self.skipTest("CeTTa/PeTTa checkouts are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            directory = pathlib.Path(directory)
+            probe = directory / "request.metta"
+            channel = directory / "channel.metta"
+            channel.write_text(
+                "(= (configureChannel) (configure commchannel telegram))\n",
+                encoding="utf-8",
+            )
+            probe.write_text(
+                "(= (assertLive $A $B) (assert (== $A $B)))\n"
+                "!(let* (($request (coding-prepare-request coding legacy "
+                "system activity advertised)) "
+                "($prompt (coding-request-prompt $request)) "
+                "($observations (coding-request-observations $request)) "
+                "($_ (assertLive (== $prompt legacy) False)) "
+                "($_ (assertLive (== $observations \"\") False))) "
+                "(println! CETTA_LIVE_REQUEST_OK))\n",
+                encoding="utf-8",
+            )
+            files = [
+                ROOT / "cetta_bootstrap.metta",
+                petta / "lib" / "lib_import.metta",
+                petta / "lib" / "lib_patrick.metta",
+                petta / "lib" / "lib_llm.metta",
+                petta / "lib" / "lib_vector.metta",
+                petta / "lib" / "lib_combinatorics.metta",
+                ROOT / "lib_nal.metta", ROOT / "lib_nal7.metta",
+                ROOT / "src" / "utils.metta",
+                channel,
+                ROOT / "src" / "channels.metta",
+                ROOT / "src" / "weak_process_core.metta",
+                ROOT / "src" / "open_assemblage.metta",
+                ROOT / "src" / "loop_policy.metta",
+                ROOT / "src" / "iter_process_policy.metta",
+                ROOT / "src" / "metta_coding_policy.metta",
+                ROOT / "src" / "skills.metta",
+                ROOT / "src" / "command_pipeline.metta",
+                ROOT / "src" / "turn_additions.metta",
+                ROOT / "src" / "memory.metta",
+                ROOT / "src" / "attention_graph.metta",
+                ROOT / "src" / "loop.metta", probe,
+            ]
+            environment = self._cetta_env()
+            environment.update({
+                "METTACLAW_HISTORY_PATH": os.fspath(
+                    directory / "history.metta"),
+                "METTACLAW_TELEGRAM_LOG_PATH": os.fspath(
+                    directory / "updates.jsonl"),
+            })
+            result = subprocess.run(
+                [os.fspath(cetta), "--lang", "petta", "--import-mode",
+                 "ancestor-walk", *(os.fspath(path) for path in files)],
+                cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertIn("CETTA_LIVE_REQUEST_OK", result.stdout)
+        self.assertNotIn("coding-request-observations (coding-prepare-request",
+                         result.stdout)
+
     def test_cetta_bridges_nested_python_from_imported_prolog(self):
         """Pin the former live-loop ``PettaSearchHostError`` boundary."""
 
@@ -383,6 +450,8 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 ROOT / "src" / "weak_process_core.metta",
                 ROOT / "src" / "open_assemblage.metta",
                 ROOT / "src" / "loop_policy.metta",
+                ROOT / "src" / "iter_process_policy.metta",
+                ROOT / "src" / "metta_coding_policy.metta",
                 ROOT / "src" / "skills.metta",
                 ROOT / "src" / "command_pipeline.metta",
                 ROOT / "src" / "turn_additions.metta",

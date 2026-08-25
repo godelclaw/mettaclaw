@@ -255,6 +255,8 @@ class FullShadow:
                 ROOT / "src" / "weak_process_core.metta",
                 ROOT / "src" / "open_assemblage.metta",
                 ROOT / "src" / "loop_policy.metta",
+                ROOT / "src" / "iter_process_policy.metta",
+                ROOT / "src" / "metta_coding_policy.metta",
                 ROOT / "src" / "skills.metta",
                 ROOT / "src" / "command_pipeline.metta",
                 ROOT / "src" / "turn_additions.metta",
