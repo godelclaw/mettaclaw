@@ -222,11 +222,15 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "(quote ((shell %s)))))\n" % json.dumps(command),
                 encoding="utf-8",
             )
+            receipt_path = directory / "effect-receipts.jsonl"
+            environment = self._cetta_env()
+            environment["METTACLAW_EFFECT_RECEIPT_PATH"] = os.fspath(
+                receipt_path)
             result = subprocess.run(
                 [os.fspath(cetta), "--lang", "petta", "--import-mode",
                  "ancestor-walk", os.fspath(petta / "lib" / "lib_import.metta"),
                  os.fspath(ROOT / "src" / "skills.metta"), os.fspath(probe)],
-                cwd=ROOT, env=self._cetta_env(), stdin=subprocess.DEVNULL,
+                cwd=ROOT, env=environment, stdin=subprocess.DEVNULL,
                 capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
@@ -238,6 +242,12 @@ class CommandDispatchEngineTest(unittest.TestCase):
             )
             self.assertEqual(effect.read_text(encoding="utf-8"),
                              "effect-once\n")
+            receipts = [json.loads(line) for line in
+                        receipt_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(receipts[0]["turn"], 424242)
+            self.assertEqual(receipts[0]["disposition"], "returned")
+            self.assertEqual(receipt_path.stat().st_mode & 0o777, 0o600)
 
     def test_cetta_withholds_effect_after_witnessed_new_stimulus(self):
         petta = self._petta_root()
