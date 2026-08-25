@@ -1,3 +1,6 @@
+:- use_module(library(http/json), [json_write_dict/3]).
+:- use_module(library(filesex), [make_directory_path/1, chmod/2]).
+
 %Gets shell command return, plus the process if time limit is not met, returning timeout_error:
 shell(Cmd, Out) :-
     tmp_file_stream(text, TmpFile, TmpInit),
@@ -190,12 +193,66 @@ command_disposition(failed, no_result).
 command_disposition(exception(_), exception).
 
 record_command_receipt(Turn, Disposition, Command, Result) :-
-    catch('py-call'(['effect_receipts.record_command', Turn, Disposition,
-                     Command, Result], _), _, true).
+    ( catch('py-call'(['effect_receipts.record_command', Turn, Disposition,
+                       Command, Result], _), _, fail)
+    -> true
+    ;  fallback_command_receipt(Turn, Disposition, Command, Result)
+    ).
 
 record_suffix_receipt(Turn, Disposition, Commands, Reason) :-
-    catch('py-call'(['effect_receipts.record_suffix', Turn, Disposition,
-                     Commands, Reason], _), _, true).
+    ( catch('py-call'(['effect_receipts.record_suffix', Turn, Disposition,
+                       Commands, Reason], _), _, fail)
+    -> true
+    ;  fallback_suffix_receipt(Turn, Disposition, Commands, Reason)
+    ).
+
+fallback_command_receipt(Turn, Disposition, Command, Result) :-
+    receipt_text(Disposition, DispositionText),
+    receipt_text(Command, CommandText),
+    receipt_text(Result, ResultText),
+    get_time(RecordedAt),
+    append_fallback_receipt(_{
+        schema: 1,
+        recorded_at: RecordedAt,
+        turn: Turn,
+        disposition: DispositionText,
+        command: CommandText,
+        result: ResultText
+    }).
+
+fallback_suffix_receipt(Turn, Disposition, Commands, Reason) :-
+    receipt_text(Disposition, DispositionText),
+    receipt_text(Commands, CommandsText),
+    receipt_text(Reason, ReasonText),
+    get_time(RecordedAt),
+    append_fallback_receipt(_{
+        schema: 1,
+        recorded_at: RecordedAt,
+        turn: Turn,
+        disposition: DispositionText,
+        commands: CommandsText,
+        reason: ReasonText
+    }).
+
+receipt_text(Value, Text) :-
+    with_output_to(string(Text),
+                   write_term(Value, [quoted(true), max_depth(40)])).
+
+append_fallback_receipt(Entry) :-
+    ( getenv('METTACLAW_EFFECT_RECEIPT_PATH', Path), Path \== ''
+    -> file_directory_name(Path, Directory),
+       make_directory_path(Directory),
+       setup_call_cleanup(
+           open(Path, append, Stream,
+                [encoding(utf8), create([]), lock(write)]),
+           ( chmod(Path, 0o600),
+             json_write_dict(Stream, Entry, [width(0)]),
+             nl(Stream),
+             flush_output(Stream)
+           ),
+           close(Stream))
+    ; true
+    ).
 
 %% Qualification replaces only the effect provider beneath the real parser
 %% and batch dispatcher. Shadow mode is fail-closed: its Python provider has
