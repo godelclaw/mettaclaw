@@ -2,9 +2,11 @@
 
 import os
 import pathlib
+import signal
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -45,6 +47,9 @@ class EngineLauncherTests(unittest.TestCase):
             self.cetta,
             'printf "cetta:%s:%s\\n" "$METTACLAW_ACTIVE_ENGINE" "$*" '
             '>>"$ENGINE_TEST_RESULT"; '
+            'if [ "${CETTA_WAIT_FOR_TERM:-0}" = 1 ]; then '
+            ': >"$CETTA_READY"; trap "exit 0" TERM INT HUP; '
+            'while :; do sleep 1; done; fi; '
             'if [ "${CETTA_REQUEST_RECYCLE:-0}" = 1 ]; then '
             'mkdir -p "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")"; '
             ': >"$METTACLAW_RECYCLE_REQUEST_PATH"; fi; '
@@ -144,6 +149,33 @@ class EngineLauncherTests(unittest.TestCase):
         failure = self.failure_path.read_text(encoding="utf-8")
         self.assertIn("status=7\n", failure)
         self.assertIn("reason=CeTTa process exited\n", failure)
+
+    def test_intentional_service_stop_preserves_cetta_selection(self):
+        self.select("cetta")
+        ready = self.base / "cetta-ready"
+        env = dict(self.env)
+        env.update({
+            "CETTA_WAIT_FOR_TERM": "1",
+            "CETTA_READY": str(ready),
+        })
+        process = subprocess.Popen(
+            [str(self.root / "run.sh")], env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True)
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(ready.exists(), "mock CeTTa did not start")
+        os.killpg(process.pid, signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=5)
+
+        self.assertEqual(process.returncode, 0, stderr)
+        self.assertEqual([line.split(":", 1)[0]
+                          for line in self.result_lines()], ["cetta"])
+        self.assertEqual(self.state_path.read_text(encoding="utf-8"),
+                         "cetta\n")
+        self.assertFalse(self.failure_path.exists())
+        self.assertNotIn("restoring stable engine", stderr)
 
     def test_unwritable_failure_receipt_does_not_block_fallback(self):
         self.select("cetta")

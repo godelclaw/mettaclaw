@@ -264,6 +264,14 @@ case "$METTACLAW_ENGINE" in
             "$CETTA_BIN" --lang petta --import-mode ancestor-walk "$TARGET"
             exit $?
         fi
+        # systemd stops the launcher and its CeTTa child as one control group.
+        # CeTTa may turn that TERM into a clean exit; without this independent
+        # witness the launcher mistakes an intentional service lifecycle event
+        # for an engine failure and permanently rewrites the selection to
+        # PeTTa.  The trap changes no crash/fallback policy: it only remembers
+        # that this launcher itself was explicitly asked to stop.
+        shutdown_requested=0
+        trap 'shutdown_requested=1' TERM INT HUP
         set +e
         "$CETTA_BIN" --lang petta --import-mode ancestor-walk \
             "$ROOT/cetta_bootstrap.metta" \
@@ -290,6 +298,10 @@ case "$METTACLAW_ENGINE" in
             default
         status=$?
         set -e
+        trap - TERM INT HUP
+        if [ "$shutdown_requested" -eq 1 ]; then
+            exit 0
+        fi
         if [ "$status" -eq 0 ] && [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ]; then
             exit 0
         fi
