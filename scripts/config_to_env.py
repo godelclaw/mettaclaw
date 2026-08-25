@@ -97,6 +97,10 @@ def main():
          context.get("recent_action_turns"))
     emit("METTACLAW_CONVERSATION_EVENTS",
          context.get("conversation_events"))
+    emit("METTACLAW_REPORTS_ROOT",
+         expand(context.get("reports_root"), root))
+    emit("METTACLAW_PROJECT_REGISTRY_PATH",
+         expand(context.get("project_registry_path"), root))
 
     emit("METTACLAW_CHROMA_COLLECTION", memory.get("collection"))
     emit("METTACLAW_CHROMA_METRIC", memory.get("metric"))

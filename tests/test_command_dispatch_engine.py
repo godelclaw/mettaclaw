@@ -124,7 +124,12 @@ class CommandDispatchEngineTest(unittest.TestCase):
                     directory / "engine-selection"),
                 "METTACLAW_EFFECT_RECEIPT_PATH": os.fspath(
                     directory / "effect-receipts.jsonl"),
+                "METTACLAW_STIMULUS_FRONTIER_PATH": os.fspath(
+                    directory / "stimulus-frontier"),
             })
+            (directory / "stimulus-frontier").write_text(
+                "1 424242 0 0\n", encoding="ascii"
+            )
             result = subprocess.run(
                 ["./run.sh", os.fspath(probe)], cwd=ROOT, env=env,
                 stdin=subprocess.DEVNULL, capture_output=True, text=True,

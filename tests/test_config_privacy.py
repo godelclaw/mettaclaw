@@ -30,6 +30,8 @@ class ConfigPrivacyTest(unittest.TestCase):
         self.assertIn("/repos/CeTTa-runtime'", result.stdout)
         self.assertIn("METTACLAW_RECENT_ACTION_TURNS='12'", result.stdout)
         self.assertIn("METTACLAW_CONVERSATION_EVENTS='64'", result.stdout)
+        self.assertNotIn("METTACLAW_REPORTS_ROOT", result.stdout)
+        self.assertNotIn("METTACLAW_PROJECT_REGISTRY_PATH", result.stdout)
         self.assertNotIn(str(ROOT / "telegram_offset.txt"), result.stdout)
         self.assertNotIn(str(ROOT / "telegram_updates.jsonl"), result.stdout)
 

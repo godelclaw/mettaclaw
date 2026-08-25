@@ -51,6 +51,11 @@ provider = "auto"
 # Views remain bounded, but their horizons are ordinary replaceable policy.
 recent_action_turns = 12
 conversation_events = 64
+# Optional evidence adapters. Empty means absent, not a machine-specific
+# default. A local deployment may point these at an immutable report garden
+# and a schema-1 project registry without changing the agent kernel.
+reports_root = ""
+project_registry_path = ""
 
 [memory]
 collection = "memories"

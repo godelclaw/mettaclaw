@@ -15,6 +15,25 @@ import project_evidence  # noqa: E402
 
 
 class ProjectEvidenceTests(unittest.TestCase):
+    def test_report_garden_is_an_explicit_optional_adapter(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(project_evidence._report_metadata("demo"), [])
+            project_evidence._cache = None
+            self.assertIn(
+                "reports-adapter=unconfigured", project_evidence.view()
+            )
+
+    def test_configured_garden_with_no_matching_reports_is_a_true_absence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {
+                "METTACLAW_REPORTS_ROOT": directory,
+            }, clear=True):
+                project_evidence._cache = None
+                view = project_evidence.view()
+
+        self.assertIn("reports=absent", view)
+        self.assertNotIn("reports-adapter=unconfigured", view)
+
     def test_view_is_regenerated_from_git_and_immutable_report(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

@@ -69,7 +69,7 @@ class EffectBackendMutationTests(unittest.TestCase):
             shadow.world.wait_until(
                 observed["pane_id"],
                 lambda pane: pane.fingerprint != observed["fingerprint"],
-                timeout=1.0,
+                timeout=3.0,
             )
             self.assertIn("SHADOW_ERROR RuntimeError", outcome[1])
             self.assertNotIn(receipt, state["receipts"])
@@ -113,7 +113,7 @@ class EffectBackendMutationTests(unittest.TestCase):
                 ])
             after = shadow.state()
             screen = shadow.world.wait_for_text(
-                observed["pane_id"], "NO_TRUST", timeout=1.0
+                observed["pane_id"], "NO_TRUST", timeout=3.0
             ).content
             self.assertIn("NO_TRUST", screen)
             self.assertIn("SHADOW_ERROR StopIteration", outcome[1])

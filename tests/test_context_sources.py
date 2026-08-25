@@ -8,6 +8,7 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "channels"))
 
 import context_sources  # noqa: E402
 import effect_receipts  # noqa: E402
@@ -88,6 +89,33 @@ class ContextSourcesTest(unittest.TestCase):
         self.assertIn("SOURCE[effect-receipts] status=known", rendered)
         self.assertIn("partial(failed)", rendered)
         self.assertIn("SOURCE[recent-proposals]", rendered)
+
+    def test_atlas_query_receipt_enters_the_next_certificate_projection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "receipts.jsonl"
+            with mock.patch.dict(os.environ, {
+                "METTACLAW_EFFECT_RECEIPT_PATH": str(path),
+                "METTACLAW_HISTORY_PATH": str(
+                    pathlib.Path(directory) / "history.metta"),
+                "METTACLAW_TELEGRAM_LOG_PATH": str(
+                    pathlib.Path(directory) / "updates.jsonl"),
+            }):
+                effect_receipts.record_command(
+                    9, "returned",
+                    ["mcp-call", "zahrada-atlas-shadow", "atlas_extract",
+                     "{\"query\":\"current CeTTa state\"}"],
+                    "revision=zahrada:42 evidence=report:abc",
+                )
+                rendered = context_sources.bundle()
+        certificate_line = rendered.splitlines()[0].partition(" ")[2]
+        import json
+        certificate = json.loads(certificate_line)
+        self.assertIn(
+            "effect-receipts",
+            {source["source_id"] for source in certificate["sources"]},
+        )
+        self.assertIn("zahrada-atlas-shadow", rendered)
+        self.assertIn("revision=zahrada:42", rendered)
 
     def test_bad_optional_query_file_does_not_erase_base_context(self):
         with tempfile.TemporaryDirectory() as directory:

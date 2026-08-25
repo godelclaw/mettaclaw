@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import uuid
 from typing import Any
@@ -35,18 +36,23 @@ class FullShadow:
     def __init__(self, auto_stop_after_first_effect: bool = False,
                  backend_selector: str | None = "tmux-shadow",
                  prompt_timeout: float = 5.0,
-                 engine: str | None = None):
+                 engine: str | None = None,
+                 channel: str = "telegram"):
         self.engine = str(
             engine or os.environ.get("GODEL_SHADOW_ENGINE", "petta")
         ).strip().lower()
         if self.engine not in {"petta", "cetta"}:
             raise ValueError("shadow engine must be petta or cetta")
+        self.channel = str(channel).strip().lower()
+        if self.channel not in {"telegram", "irc", "mattermost"}:
+            raise ValueError("unsupported shadow channel")
         self.temporary = tempfile.TemporaryDirectory(
             prefix="godel-full-shadow-"
         )
         self.directory = Path(self.temporary.name)
         self.state_path = self.directory / "state.json"
         self.task_phase_path = self.directory / "task-phase.json"
+        self.channel_config_path = self.directory / "channel.metta"
         self.socket_name = "godel-full-shadow-%s" % uuid.uuid4().hex[:12]
         self.world = IsolatedTmux(self.socket_name)
         self.auto_stop = auto_stop_after_first_effect
@@ -83,6 +89,18 @@ class FullShadow:
             "auto_stop_after_first_effect": self.auto_stop,
             "prompt_timeout": self.prompt_timeout,
         })
+        # Qualify the same literal specialization renderer as initialize.sh,
+        # while keeping the disposable shadow independent of operator config.
+        rendered_channel = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "render_channel_config.py"),
+             self.channel],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.channel_config_path.write_text(
+            rendered_channel.stdout, encoding="utf-8"
+        )
         task_phase.initialize(
             "tmux-room-qualification",
             ("need-create", "need-launch", "need-trust", "need-server",
@@ -232,7 +250,7 @@ class FullShadow:
                 ROOT / "lib_nal.metta",
                 ROOT / "lib_nal7.metta",
                 ROOT / "src" / "utils.metta",
-                ROOT / "config" / "channel.metta",
+                self.channel_config_path,
                 ROOT / "src" / "channels.metta",
                 ROOT / "src" / "weak_process_core.metta",
                 ROOT / "src" / "open_assemblage.metta",

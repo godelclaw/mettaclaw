@@ -146,13 +146,12 @@ class FullGodelShadowTests(unittest.TestCase):
                 diagnostic = result.stdout + result.stderr
                 self.assertIn("inconsistent effect backend configuration",
                               diagnostic)
-                # SWI-PeTTa propagates the Python exception as process
-                # failure. CeTTa represents it as a witnessed error value and
-                # reaches the independent broker guard. Both are fail-closed;
-                # neither engine may turn the corrupt selector into an effect.
-                if result.returncode == 0:
-                    self.assertIn("inconsistent shadow effect configuration",
-                                  diagnostic)
+                # The failed begin may stop in Python or at the shared epoch
+                # witness.  Seed a matching epoch next so this second probe
+                # reaches and independently qualifies the broker guard.
+                (shadow.directory / "stimulus-frontier").write_text(
+                    "1 2 0 0\n", encoding="ascii"
+                )
                 depth_result = shadow.execute_response(
                     response, 2, begin_frontier=False
                 )

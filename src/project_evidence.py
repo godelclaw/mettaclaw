@@ -56,9 +56,10 @@ def _registry() -> dict:
 
 
 def _report_metadata(namespace: str, limit=4) -> list[str]:
-    reports_root = Path(os.environ.get(
-        "METTACLAW_REPORTS_ROOT", "/shared/zahrada/reports"
-    ))
+    raw_root = os.environ.get("METTACLAW_REPORTS_ROOT", "").strip()
+    if not raw_root:
+        return []
+    reports_root = Path(raw_root)
     directory = reports_root / namespace
     if not directory.is_dir():
         return []
@@ -106,8 +107,11 @@ def _render() -> str:
                 % (role, branch, head, str(dirty).lower())
             )
         namespace = str(project.get("report_namespace", project_id))
-        report_rows = _report_metadata(namespace)
-        lines.extend(report_rows or ["reports=absent"])
+        if not os.environ.get("METTACLAW_REPORTS_ROOT", "").strip():
+            lines.append("reports-adapter=unconfigured")
+        else:
+            report_rows = _report_metadata(namespace)
+            lines.extend(report_rows or ["reports=absent"])
     return "\n".join(lines)
 
 

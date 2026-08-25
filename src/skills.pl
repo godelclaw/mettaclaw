@@ -139,10 +139,13 @@ run_command_list_once(Turn, [Command|Rest],
     append(CommandErrors, RestErrors, Errors).
 
 effect_turn_stimulus_free(Turn) :-
+    ( getenv('METTACLAW_STIMULUS_FRONTIER_PATH', _)
+    -> stimulus_frontier_free(Turn)
+    ;  true
+    ),
     effect_turn_stimulus_value(Turn, Value),
     ( Value == unavailable
-    -> ( stimulus_frontier_free(Turn)
-       ; \+ getenv('METTACLAW_STIMULUS_FRONTIER_PATH', _) )
+    -> true
     ; stimulus_free_value(Value)
     ), !.
 
