@@ -18,6 +18,7 @@ class EngineModeTests(unittest.TestCase):
                 "METTACLAW_ENGINE",
                 "METTACLAW_ACTIVE_ENGINE",
                 "METTACLAW_ENGINE_STATE_PATH",
+                "METTACLAW_ENGINE_FAILURE_PATH",
                 "METTACLAW_RECYCLE_REQUEST_PATH",
             )
         }
@@ -25,6 +26,8 @@ class EngineModeTests(unittest.TestCase):
         os.environ["METTACLAW_ACTIVE_ENGINE"] = "petta"
         os.environ["METTACLAW_ENGINE_STATE_PATH"] = os.path.join(
             self.tmp.name, "state", "engine")
+        os.environ["METTACLAW_ENGINE_FAILURE_PATH"] = os.path.join(
+            self.tmp.name, "state", "engine-failure")
         os.environ["METTACLAW_RECYCLE_REQUEST_PATH"] = os.path.join(
             self.tmp.name, "state", "recycle.requested")
 
@@ -81,6 +84,17 @@ class EngineModeTests(unittest.TestCase):
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
         with open(path, encoding="utf-8") as stream:
             self.assertIn("reason=engine-switch", stream.read())
+
+    def test_last_engine_failure_is_visible_without_changing_selection(self):
+        path = os.environ["METTACLAW_ENGINE_FAILURE_PATH"]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as stream:
+            stream.write(
+                "schema=1\nengine=cetta\nstatus=7\n"
+                "reason=CeTTa process exited\n")
+        self.assertEqual(engine_modes.selected_engine(), "petta")
+        self.assertIn("last cetta failure", engine_modes.engine_view())
+        self.assertIn("CeTTa process exited", engine_modes.engines_view())
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ class EngineLauncherTests(unittest.TestCase):
         for name in (
                 "METTACLAW_ENGINE", "METTACLAW_ACTIVE_ENGINE",
                 "METTACLAW_ENGINE_STATE_PATH",
+                "METTACLAW_ENGINE_FAILURE_PATH",
                 "METTACLAW_RECYCLE_REQUEST_PATH"):
             self.env.pop(name, None)
         self.env.update({
@@ -74,6 +75,10 @@ class EngineLauncherTests(unittest.TestCase):
     def select(self, name):
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state_path.write_text(name + "\n", encoding="utf-8")
+
+    @property
+    def failure_path(self):
+        return self.base / "state" / "agent" / "engine-failure"
 
     def launch(self, **extra_env):
         env = dict(self.env)
@@ -112,6 +117,12 @@ class EngineLauncherTests(unittest.TestCase):
         self.assertEqual(self.state_path.read_text(encoding="utf-8"),
                          "petta\n")
         self.assertIn("stopped without a recycle request", result.stderr)
+        failure = self.failure_path.read_text(encoding="utf-8")
+        self.assertIn("engine=cetta\n", failure)
+        self.assertIn("status=1\n", failure)
+        self.assertIn("reason=CeTTa stopped without a recycle request\n",
+                      failure)
+        self.assertEqual(self.failure_path.stat().st_mode & 0o777, 0o600)
 
     def test_cetta_failure_heals_selection_and_falls_back(self):
         self.select("cetta")
@@ -123,6 +134,29 @@ class EngineLauncherTests(unittest.TestCase):
         self.assertEqual(self.state_path.read_text(encoding="utf-8"),
                          "petta\n")
         self.assertIn("restoring stable engine 'petta'", result.stderr)
+        failure = self.failure_path.read_text(encoding="utf-8")
+        self.assertIn("status=7\n", failure)
+        self.assertIn("reason=CeTTa process exited\n", failure)
+
+    def test_unwritable_failure_receipt_does_not_block_fallback(self):
+        self.select("cetta")
+        failure_parent = self.base / "unwritable"
+        failure_parent.mkdir()
+        failure_parent.chmod(0o500)
+        try:
+            result = self.launch(
+                CETTA_EXIT_CODE=7,
+                METTACLAW_ENGINE_FAILURE_PATH=(
+                    failure_parent / "engine-failure"),
+            )
+        finally:
+            failure_parent.chmod(0o700)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line.split(":", 1)[0]
+                          for line in self.result_lines()],
+                         ["cetta", "petta"])
+        self.assertIn("could not persist engine failure receipt",
+                      result.stderr)
 
     def test_invalid_selection_uses_petta(self):
         self.select("not-an-engine")

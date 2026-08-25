@@ -1,9 +1,11 @@
 """Full-path Gödel qualification against a disposable effect world.
 
-Each model response is parsed by PeTTa's ``sread`` and executed by the same
-``run-command-batch-once`` predicate as a live cognitive turn.  Only the final
-effect provider is replaced.  This makes historical-failure replay useful as
-an agent test rather than merely a test of a parallel JSON controller.
+Each model response is parsed by the selected live evaluator and executed by
+the same ``run-command-batch-once`` predicate as a live cognitive turn.  Only
+the final effect provider is replaced.  This makes historical-failure replay
+useful as an agent test rather than merely a test of a parallel JSON
+controller.  Set ``GODEL_SHADOW_ENGINE=cetta`` to cross the real
+``cetta --lang petta`` boundary.
 """
 
 from __future__ import annotations
@@ -31,7 +33,13 @@ class FullShadow:
 
     def __init__(self, auto_stop_after_first_effect: bool = False,
                  backend_selector: str | None = "tmux-shadow",
-                 prompt_timeout: float = 5.0):
+                 prompt_timeout: float = 5.0,
+                 engine: str | None = None):
+        self.engine = str(
+            engine or os.environ.get("GODEL_SHADOW_ENGINE", "petta")
+        ).strip().lower()
+        if self.engine not in {"petta", "cetta"}:
+            raise ValueError("shadow engine must be petta or cetta")
         self.temporary = tempfile.TemporaryDirectory(
             prefix="godel-full-shadow-"
         )
@@ -99,7 +107,7 @@ class FullShadow:
         environment.update({
             "PYTHONPATH": os.pathsep.join(python_paths),
             "METTACLAW_SKIP_INITIALIZE": "1",
-            "METTACLAW_ENGINE": "petta",
+            "METTACLAW_ENGINE": self.engine,
             "METTACLAW_EFFECT_BACKEND_STATE": str(self.state_path),
             "METTACLAW_ENGINE_STATE_PATH": str(
                 self.directory / "engine-selection"
@@ -127,6 +135,11 @@ class FullShadow:
             environment.pop("METTACLAW_EFFECT_BACKEND", None)
         else:
             environment["METTACLAW_EFFECT_BACKEND"] = self.backend_selector
+        if self.engine == "cetta":
+            environment["CETTA_BIN"] = os.environ.get(
+                "CETTA_BIN",
+                str(Path.home() / "repos" / "CeTTa-runtime" / "cetta"),
+            )
         python_environment = Path(os.environ.get(
             "PETTA_PY_ENV", Path.home() / "miniforge3" / "envs" / "petta"
         ))
@@ -181,13 +194,53 @@ class FullShadow:
             ),
             encoding="utf-8",
         )
-        petta_root = Path(os.environ.get(
-            "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
-        ))
-        if not (petta_root / "run.sh").is_file():
-            raise FileNotFoundError("PeTTa run.sh is unavailable")
+        if self.engine == "cetta":
+            petta_root = Path(os.environ.get(
+                "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
+            ))
+            cetta = Path(self.environment()["CETTA_BIN"])
+            if not cetta.is_file():
+                raise FileNotFoundError("CeTTa executable is unavailable")
+            # Match run.sh's live CeTTa source order.  A one-file probe whose
+            # body imports relative modules is not equivalent: CeTTa and
+            # SWI-PeTTa intentionally differ in import ownership.  The live
+            # service crosses this explicit preloaded-program boundary.
+            sources = [
+                ROOT / "cetta_bootstrap.metta",
+                petta_root / "lib" / "lib_import.metta",
+                petta_root / "lib" / "lib_patrick.metta",
+                petta_root / "lib" / "lib_llm.metta",
+                petta_root / "lib" / "lib_vector.metta",
+                petta_root / "lib" / "lib_combinatorics.metta",
+                ROOT / "lib_nal.metta",
+                ROOT / "lib_nal7.metta",
+                ROOT / "src" / "utils.metta",
+                ROOT / "config" / "channel.metta",
+                ROOT / "src" / "channels.metta",
+                ROOT / "src" / "weak_process_core.metta",
+                ROOT / "src" / "open_assemblage.metta",
+                ROOT / "src" / "loop_policy.metta",
+                ROOT / "src" / "skills.metta",
+                ROOT / "src" / "command_pipeline.metta",
+                ROOT / "src" / "turn_additions.metta",
+                ROOT / "src" / "memory.metta",
+                ROOT / "src" / "attention_graph.metta",
+                ROOT / "src" / "loop.metta",
+                probe,
+            ]
+            command = [
+                str(cetta), "--lang", "petta", "--import-mode",
+                "ancestor-walk", *(str(source) for source in sources),
+            ]
+        else:
+            petta_root = Path(os.environ.get(
+                "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
+            ))
+            if not (petta_root / "run.sh").is_file():
+                raise FileNotFoundError("PeTTa run.sh is unavailable")
+            command = ["bash", str(petta_root / "run.sh"), str(probe)]
         return subprocess.run(
-            ["bash", str(petta_root / "run.sh"), str(probe)],
+            command,
             cwd=ROOT,
             env=self.environment(),
             stdin=subprocess.DEVNULL,

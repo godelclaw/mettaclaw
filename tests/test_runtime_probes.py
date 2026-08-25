@@ -134,7 +134,8 @@ class RuntimeProbeTest(unittest.TestCase):
 
     def test_context_projection_crosses_cetta_provider_boundary(self):
         cetta = pathlib.Path(os.environ.get(
-            "CETTA_BIN", pathlib.Path.home() / "repos" / "CeTTa" / "cetta"))
+            "CETTA_BIN",
+            pathlib.Path.home() / "repos" / "CeTTa-runtime" / "cetta"))
         if not cetta.is_file():
             self.skipTest("CeTTa executable is unavailable")
         with tempfile.TemporaryDirectory() as directory:

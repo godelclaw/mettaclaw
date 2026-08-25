@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "$0")" && pwd)"
 PETTA_ROOT="${PETTA_ROOT:-${HOME:-}/repos/PeTTa}"
 PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
-CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/CeTTa}"
+CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/CeTTa-runtime}"
 STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
 
@@ -19,7 +19,8 @@ case "$REQUESTED_TARGET" in
     *) NONLIVE_TARGET=1 ;;
 esac
 STATE_PATH_NAMES=(
-    METTACLAW_ENGINE_STATE_PATH METTACLAW_TELEGRAM_OFFSET_PATH
+    METTACLAW_ENGINE_STATE_PATH METTACLAW_ENGINE_FAILURE_PATH
+    METTACLAW_TELEGRAM_OFFSET_PATH
     METTACLAW_TELEGRAM_LOG_PATH METTACLAW_TELEGRAM_HEALTH_PATH
     METTACLAW_COGNITIVE_HEALTH_PATH METTACLAW_LIFECYCLE_PATH
     METTACLAW_DEPLOYMENT_STATE_PATH METTACLAW_RECYCLE_REQUEST_PATH
@@ -85,6 +86,7 @@ fi
 # exported separately so the Telegram UI can distinguish this process from a
 # newly requested engine that will take effect after recycling.
 export METTACLAW_ENGINE_STATE_PATH="${METTACLAW_ENGINE_STATE_PATH:-$STATE_HOME/$INSTANCE/engine}"
+export METTACLAW_ENGINE_FAILURE_PATH="${METTACLAW_ENGINE_FAILURE_PATH:-$STATE_HOME/$INSTANCE/engine-failure}"
 ENGINE_DEFAULT="${METTACLAW_ENGINE:-petta}"
 SELECTED_ENGINE="$ENGINE_DEFAULT"
 HEAL_ENGINE_SELECTION=0
@@ -157,6 +159,7 @@ export METTACLAW_RECYCLE_REQUEST_PATH="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_
 mkdir -p \
     "$(dirname "$METTACLAW_RECYCLE_REQUEST_PATH")" \
     "$(dirname "$METTACLAW_ENGINE_STATE_PATH")" \
+    "$(dirname "$METTACLAW_ENGINE_FAILURE_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_OFFSET_PATH")" \
     "$(dirname "$METTACLAW_TELEGRAM_LOG_PATH")" \
     "$(dirname "$METTACLAW_COGNITIVE_HEALTH_PATH")" \
@@ -199,9 +202,29 @@ persist_engine_selection() {
     mv -f "$temporary" "$METTACLAW_ENGINE_STATE_PATH"
 }
 
+record_engine_failure() {
+    local status="$1"
+    local reason="$2"
+    local temporary="${METTACLAW_ENGINE_FAILURE_PATH}.tmp.$$"
+    umask 077
+    {
+        printf 'schema=1\n'
+        printf 'observed_at=%s\n' "$(date +%s)"
+        printf 'engine=%s\n' "$METTACLAW_ENGINE"
+        printf 'status=%s\n' "$status"
+        printf 'reason=%s\n' "$reason"
+        printf 'binary=%s\n' "${CETTA_BIN:-$CETTA_ROOT/cetta}"
+    } >"$temporary"
+    chmod 600 "$temporary"
+    mv -f "$temporary" "$METTACLAW_ENGINE_FAILURE_PATH"
+}
+
 fallback_to_petta() {
     local status="$1"
     local reason="$2"
+    if ! record_engine_failure "$status" "$reason"; then
+        echo "warning: could not persist engine failure receipt" >&2
+    fi
     echo "engine '$METTACLAW_ENGINE' failed ($reason, status $status)" >&2
     if [ "$TARGET" != "$ROOT/run.metta" ]; then
         exit "$status"

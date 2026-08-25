@@ -37,13 +37,36 @@ def _state_path():
     return os.path.join(state_home, instance, "engine")
 
 
+def _failure_path():
+    configured = os.environ.get("METTACLAW_ENGINE_FAILURE_PATH", "")
+    if configured:
+        return configured
+    return os.path.join(os.path.dirname(_state_path()), "engine-failure")
+
+
+def _last_failure():
+    fields = {}
+    try:
+        with open(_failure_path(), "r", encoding="utf-8") as stream:
+            for line in stream:
+                key, separator, value = line.rstrip("\n").partition("=")
+                if separator:
+                    fields[key] = value
+    except OSError:
+        return None
+    if fields.get("engine") not in ENGINES or not fields.get("reason"):
+        return None
+    return fields
+
+
 def _engine_paths(name):
     home = os.path.expanduser("~")
     if name == "petta":
         root = os.environ.get("PETTA_ROOT", os.path.join(home, "repos", "PeTTa"))
         return (os.path.join(root, "run.sh"),)
     if name == "cetta":
-        root = os.environ.get("CETTA_ROOT", os.path.join(home, "repos", "CeTTa"))
+        root = os.environ.get(
+            "CETTA_ROOT", os.path.join(home, "repos", "CeTTa-runtime"))
         return (os.environ.get("CETTA_BIN", os.path.join(root, "cetta")),)
     return ()
 
@@ -91,6 +114,11 @@ def engine_view():
     suffix = ""
     if selected != active:
         suffix = "; requested %s for next process" % selected
+    failure = _last_failure()
+    if failure:
+        suffix += "; last %s failure: %s (status %s)" % (
+            failure["engine"], failure["reason"],
+            failure.get("status", "unknown"))
     return "active engine: %s — %s%s" % (
         active, ENGINES[active], suffix)
 
@@ -112,6 +140,11 @@ def engines_view():
         lines.append(prefix + name + state + " — " + description)
     for name, notice in DISABLED_ENGINES.items():
         lines.append("  %s [disabled] — %s" % (name, notice))
+    failure = _last_failure()
+    if failure:
+        lines.append("  last failure — %s: %s (status %s)" % (
+            failure["engine"], failure["reason"],
+            failure.get("status", "unknown")))
     return "\n".join(lines)
 
 

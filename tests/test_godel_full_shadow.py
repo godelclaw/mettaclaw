@@ -1,6 +1,7 @@
 """The actual MeTTa parser/dispatcher over a disposable terminal world."""
 
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -14,6 +15,8 @@ from godel_shadow import FullShadow, LAUNCH_COMMAND  # noqa: E402
 
 
 class FullGodelShadowTests(unittest.TestCase):
+    ENGINE = "petta"
+
     def run_ok(self, shadow, response, turn):
         result = shadow.execute_response(response, turn)
         self.assertEqual(result.returncode, 0, result.stderr[-3000:])
@@ -31,7 +34,7 @@ class FullGodelShadowTests(unittest.TestCase):
         )
 
     def test_complete_episode_crosses_real_parser_and_dispatcher(self):
-        with FullShadow() as shadow:
+        with FullShadow(engine=self.ENGINE) as shadow:
             self.observe(shadow, 1)
             self.run_ok(
                 shadow,
@@ -71,7 +74,7 @@ class FullGodelShadowTests(unittest.TestCase):
             response = "((shell %s))" % json.dumps(
                 "touch %s" % marker
             )
-            with FullShadow() as shadow:
+            with FullShadow(engine=self.ENGINE) as shadow:
                 self.run_ok(shadow, response, 1)
                 self.assertFalse(marker.exists())
                 self.assertIn(
@@ -80,7 +83,7 @@ class FullGodelShadowTests(unittest.TestCase):
                 )
 
     def test_unsupported_grounded_skill_is_inert_before_shadow_broker(self):
-        with FullShadow() as shadow:
+        with FullShadow(engine=self.ENGINE) as shadow:
             self.run_ok(shadow, '((pin "must remain a proposal"))', 1)
             self.assertFalse((shadow.directory / "pins.txt").exists())
             self.assertIn(
@@ -89,7 +92,8 @@ class FullGodelShadowTests(unittest.TestCase):
             )
 
     def test_new_operator_stimulus_interrupts_batch_suffix(self):
-        with FullShadow(auto_stop_after_first_effect=True) as shadow:
+        with FullShadow(auto_stop_after_first_effect=True,
+                        engine=self.ENGINE) as shadow:
             self.observe(shadow, 1)
             response = (
                 '((tmux-new-shell-after "r1" "claude-room") '
@@ -102,7 +106,7 @@ class FullGodelShadowTests(unittest.TestCase):
             self.assertIn("COMMAND_BATCH_INTERRUPTED:", result.stdout)
 
     def test_independent_receipt_batch_remains_permitted(self):
-        with FullShadow() as shadow:
+        with FullShadow(engine=self.ENGINE) as shadow:
             receipts = self.observe(shadow, 1)
             by_window = {
                 value["window_name"]: key for key, value in receipts.items()
@@ -117,7 +121,7 @@ class FullGodelShadowTests(unittest.TestCase):
             self.assertEqual(shadow.state()["effects"], 2)
 
     def test_prose_cannot_escape_the_shadow_boundary(self):
-        with FullShadow() as shadow:
+        with FullShadow(engine=self.ENGINE) as shadow:
             self.run_ok(shadow, "I will do it now.", 1)
             state = shadow.state()
             self.assertEqual(state["effects"], 0)
@@ -127,13 +131,20 @@ class FullGodelShadowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             marker = pathlib.Path(directory) / "must-not-exist"
             response = "((shell %s))" % json.dumps("touch %s" % marker)
-            with FullShadow(backend_selector="tmux_shadow") as shadow:
+            with FullShadow(backend_selector="tmux_shadow",
+                            engine=self.ENGINE) as shadow:
                 result = shadow.execute_response(response, 1)
-                self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(marker.exists())
-                self.assertIn(
-                    "inconsistent effect backend configuration", result.stderr
-                )
+                diagnostic = result.stdout + result.stderr
+                self.assertIn("inconsistent effect backend configuration",
+                              diagnostic)
+                # SWI-PeTTa propagates the Python exception as process
+                # failure. CeTTa represents it as a witnessed error value and
+                # reaches the independent broker guard. Both are fail-closed;
+                # neither engine may turn the corrupt selector into an effect.
+                if result.returncode == 0:
+                    self.assertIn("inconsistent shadow effect configuration",
+                                  diagnostic)
                 depth_result = shadow.execute_response(
                     response, 2, begin_frontier=False
                 )
@@ -147,7 +158,7 @@ class FullGodelShadowTests(unittest.TestCase):
                 )
 
     def test_receipt_is_reserved_before_send_and_is_single_use(self):
-        with FullShadow() as shadow:
+        with FullShadow(engine=self.ENGINE) as shadow:
             receipts = self.observe(shadow, 1)
             receipt = next(iter(receipts))
             response = (
@@ -164,7 +175,8 @@ class FullGodelShadowTests(unittest.TestCase):
                           result.stdout)
 
     def test_post_send_timeout_is_witnessed_and_not_replayable(self):
-        with FullShadow(prompt_timeout=0.1) as shadow:
+        with FullShadow(prompt_timeout=0.1,
+                        engine=self.ENGINE) as shadow:
             self.observe(shadow, 1)
             self.run_ok(
                 shadow,
@@ -194,6 +206,21 @@ class FullGodelShadowTests(unittest.TestCase):
                 5,
             )
             self.assertEqual(shadow.state()["effects"], 2)
+
+
+class FullGodelShadowCettaTests(FullGodelShadowTests):
+    """Run every historical episode through ``cetta --lang petta`` too."""
+
+    ENGINE = "cetta"
+
+    @classmethod
+    def setUpClass(cls):
+        cetta = pathlib.Path(os.environ.get(
+            "CETTA_BIN",
+            pathlib.Path.home() / "repos" / "CeTTa-runtime" / "cetta",
+        ))
+        if not cetta.is_file():
+            raise unittest.SkipTest("CeTTa executable is unavailable")
 
 
 if __name__ == "__main__":

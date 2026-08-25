@@ -19,7 +19,8 @@ class CommandDispatchEngineTest(unittest.TestCase):
 
     def _cetta_binary(self):
         return pathlib.Path(os.environ.get(
-            "CETTA_BIN", pathlib.Path.home() / "repos" / "CeTTa" / "cetta"))
+            "CETTA_BIN",
+            pathlib.Path.home() / "repos" / "CeTTa-runtime" / "cetta"))
 
     def _cetta_env(self):
         env = dict(os.environ)
@@ -41,6 +42,61 @@ class CommandDispatchEngineTest(unittest.TestCase):
             env["PYTHONHOME"] = os.fspath(python_env)
             env["PYTHONNOUSERSITE"] = "1"
         return env
+
+    def test_cetta_keeps_mode_read_fast_while_control_lane_is_blocked(self):
+        cetta = self._cetta_binary()
+        if not cetta.is_file():
+            self.skipTest("CeTTa executable is unavailable")
+        env = self._cetta_env()
+        env["PYTHONPATH"] = os.pathsep.join((
+            os.fspath(ROOT / "tests"), env["PYTHONPATH"],
+        ))
+        result = subprocess.run(
+            [os.fspath(cetta), "--lang", "petta", "--import-mode",
+             "ancestor-walk",
+             os.fspath(ROOT / "tests" / "cetta_fast_path_probe.metta")],
+            cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        self.assertRegex(result.stdout, r"CETTA_FAST_PATH_OK:[0-9]+ms")
+        self.assertNotIn("CETTA_FAST_PATH_FAIL", result.stdout)
+
+    def test_cetta_bridges_nested_python_from_imported_prolog(self):
+        """Pin the former live-loop ``PettaSearchHostError`` boundary."""
+
+        petta = self._petta_root()
+        cetta = self._cetta_binary()
+        if not cetta.is_file() or not (
+                petta / "lib" / "lib_import.metta").is_file():
+            self.skipTest("CeTTa/PeTTa checkouts are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            directory = pathlib.Path(directory)
+            fixture = directory / "nested_python.pl"
+            fixture.write_text(
+                "nested_python(Value, Result) :-\n"
+                "    'py-call'(['builtins.str', Value], Result).\n",
+                encoding="utf-8",
+            )
+            probe = directory / "nested_python.metta"
+            probe.write_text(
+                "!(import_prolog_functions_from_file %s (nested_python))\n"
+                "!(println! (NESTED_PYTHON_OK "
+                "(nested_python \"agent — bridge\")))\n"
+                % json.dumps(os.fspath(fixture)),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [os.fspath(cetta), "--lang", "petta", "--import-mode",
+                 "ancestor-walk",
+                 os.fspath(petta / "lib" / "lib_import.metta"),
+                 os.fspath(probe)],
+                cwd=ROOT, env=self._cetta_env(), stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        self.assertIn("(NESTED_PYTHON_OK agent — bridge)", result.stdout)
+        self.assertNotIn("PettaSearchHostError", result.stdout + result.stderr)
 
     def test_petta_executes_quoted_batch_once(self):
         petta = self._petta_root()
