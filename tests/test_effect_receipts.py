@@ -53,6 +53,31 @@ class EffectReceiptTest(unittest.TestCase):
         self.assertEqual([entry["disposition"] for entry in entries],
                          ["returned", "deferred"])
 
+    def test_atlas_view_requires_and_retains_paired_identities(self):
+        result = {
+            "view_id": "view:" + "a" * 64,
+            "state_revision": "state:" + "b" * 64,
+            "status": "ContextualFamily",
+            "receipt": {"receipt_id": "receipt:" + "c" * 64},
+        }
+        self.assertEqual(
+            effect_receipts.record_atlas_result(
+                "zahrada", "atlas_query", result
+            ),
+            1,
+        )
+        self.assertEqual(
+            effect_receipts.record_atlas_result(
+                "zahrada", "atlas_query", {"view_id": "unreceipted"}
+            ),
+            0,
+        )
+        rendered = effect_receipts.view()
+        self.assertIn(result["view_id"], rendered)
+        self.assertIn(result["state_revision"], rendered)
+        self.assertIn(result["receipt"]["receipt_id"], rendered)
+        self.assertIn("atlas-result-returned", rendered)
+
     def test_no_configured_path_is_a_noop(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(

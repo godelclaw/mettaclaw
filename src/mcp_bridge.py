@@ -4,13 +4,6 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 
-import anyio
-from mcp import ClientSession
-from mcp.client.sse import sse_client
-from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamablehttp_client
-
-
 def _json(data):
     text = json.dumps(data, ensure_ascii=True, sort_keys=True)
     try:
@@ -106,6 +99,8 @@ def _timeout(spec, key, default):
 async def _streams(spec):
     transport = str(spec.get("type", "stdio")).lower().replace("_", "-")
     if transport == "stdio":
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+
         command = spec.get("command")
         if not command:
             raise ValueError("stdio MCP server needs command")
@@ -120,6 +115,8 @@ async def _streams(spec):
         return
 
     if transport in ("sse", "http-sse"):
+        from mcp.client.sse import sse_client
+
         url = spec.get("url")
         if not url:
             raise ValueError("sse MCP server needs url")
@@ -133,6 +130,8 @@ async def _streams(spec):
         return
 
     if transport in ("streamable-http", "http"):
+        from mcp.client.streamable_http import streamablehttp_client
+
         url = spec.get("url")
         if not url:
             raise ValueError("streamable-http MCP server needs url")
@@ -149,6 +148,9 @@ async def _streams(spec):
 
 
 async def _with_session(server_name, operation):
+    import anyio
+    from mcp import ClientSession
+
     spec = _server(server_name)
     read_timeout = _timeout(spec, "readTimeoutSeconds", 30.0)
     total_timeout = _timeout(spec, "totalTimeoutSeconds", max(60.0, read_timeout + 10.0))
@@ -163,10 +165,48 @@ async def _with_session(server_name, operation):
                 return await operation(session, spec)
 
 
+def _run(operation, server_name):
+    import anyio
+
+    return anyio.run(_with_session, str(server_name), operation)
+
+
 def _model_dump(value):
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return value
+
+
+def _atlas_payload(result):
+    """Recover the structured Atlas result without trusting rendered output."""
+
+    value = _model_dump(result)
+    if (
+        not isinstance(value, dict)
+        or value.get("isError") is True
+        or value.get("is_error") is True
+    ):
+        return None
+    for key in ("structuredContent", "structured_content"):
+        structured = value.get(key)
+        if isinstance(structured, dict):
+            return structured
+    if "receipt" in value:
+        return value
+    content = value.get("content")
+    if not isinstance(content, list):
+        return None
+    for item in content:
+        item = _model_dump(item)
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        try:
+            parsed = json.loads(str(item.get("text", "")))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def servers():
@@ -203,7 +243,7 @@ def tools(server_name):
         }
 
     try:
-        return _json(anyio.run(_with_session, str(server_name), run))
+        return _json(_run(run, server_name))
     except Exception as exc:
         return _error(exc)
 
@@ -218,7 +258,7 @@ def tool_info(server_name, tool_name):
         return {"error": f"unknown tool {tool_name!r}", "available": available}
 
     try:
-        return _json(anyio.run(_with_session, str(server_name), run))
+        return _json(_run(run, server_name))
     except Exception as exc:
         return _error(exc)
 
@@ -241,6 +281,20 @@ def call_tool(server_name, tool_name, arguments_json="{}"):
         return _model_dump(result)
 
     try:
-        return _json(anyio.run(_with_session, str(server_name), run))
+        result = _run(run, server_name)
+        if str(tool_name) in {"atlas_query", "atlas_revise"}:
+            payload = _atlas_payload(result)
+            if payload is not None:
+                try:
+                    import effect_receipts
+
+                    effect_receipts.record_atlas_result(
+                        server_name, tool_name, payload
+                    )
+                except Exception:
+                    # The optional receipt projection must not alter the MCP
+                    # call's result.  Its absence remains visible next turn.
+                    pass
+        return _json(result)
     except Exception as exc:
         return _error(exc)

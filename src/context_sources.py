@@ -33,6 +33,7 @@ SOURCE_SPECS = (
     SourceSpec("affect-gestalt", 2000),
     SourceSpec("pins", 6000, True),
     SourceSpec("effect-receipts", 14000, True),
+    SourceSpec("development-state", 10000, True),
     SourceSpec("recent-proposals", 10000, True),
     SourceSpec("relevant-files", 4000),
     SourceSpec("project-evidence", 8000),
@@ -115,6 +116,7 @@ _PROJECTOR = Projector()
 def _loaders():
     import active_queries
     import commitment_projection
+    import development_state
     import effect_receipts
     import goals
     import helper
@@ -128,21 +130,23 @@ def _loaders():
         "METTACLAW_HISTORY_PATH", "./memory/history.metta")
     turns = helper.int_env("METTACLAW_RECENT_ACTION_TURNS", 12)
     events = helper.int_env("METTACLAW_CONVERSATION_EVENTS", 64)
+    specs = {spec.source_id: spec for spec in SOURCE_SPECS}
     return (
-        (SOURCE_SPECS[0], goals.work_state_view),
-        (SOURCE_SPECS[1], commitment_projection.view),
-        (SOURCE_SPECS[2], task_phase.view),
-        (SOURCE_SPECS[3], active_queries.view),
-        (SOURCE_SPECS[4], goals.affect_view),
-        (SOURCE_SPECS[5], pins.view),
-        (SOURCE_SPECS[6], effect_receipts.view),
-        (SOURCE_SPECS[7],
+        (specs["work-state"], goals.work_state_view),
+        (specs["commitment-state"], commitment_projection.view),
+        (specs["task-phase"], task_phase.view),
+        (specs["active-query-declaration"], active_queries.view),
+        (specs["affect-gestalt"], goals.affect_view),
+        (specs["pins"], pins.view),
+        (specs["effect-receipts"], effect_receipts.view),
+        (specs["development-state"], development_state.view),
+        (specs["recent-proposals"],
          lambda: helper.recent_actions(history, limit=turns)),
-        (SOURCE_SPECS[8],
+        (specs["relevant-files"],
          lambda: helper.relevant_files(history, limit=turns)),
-        (SOURCE_SPECS[9], project_evidence.view),
-        (SOURCE_SPECS[10], project_capabilities.view),
-        (SOURCE_SPECS[11],
+        (specs["project-evidence"], project_evidence.view),
+        (specs["project-capabilities"], project_capabilities.view),
+        (specs["conversation"],
          lambda: telegram.conversation_window(max_events=events)),
     )
 

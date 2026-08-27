@@ -89,6 +89,57 @@ def record_suffix(turn, disposition, commands, reason) -> int:
     return _append(entry)
 
 
+def record_atlas_result(server, tool, result) -> int:
+    """Record an exact Atlas view/revision identity returned by MCP.
+
+    This witnesses transport of an Atlas result, not the truth of its claims.
+    Results lacking the paired Atlas receipt and output identities are ignored
+    rather than upgraded from generic command text.
+    """
+
+    if not isinstance(result, dict):
+        return 0
+    receipt = result.get("receipt")
+    if not isinstance(receipt, dict):
+        return 0
+    receipt_id = str(receipt.get("receipt_id", ""))
+    tool = str(tool)
+    if tool == "atlas_query":
+        output_id = str(result.get("view_id", ""))
+        state_revision = str(result.get("state_revision", ""))
+        if not output_id or not state_revision or not receipt_id:
+            return 0
+        identity = {
+            "kind": "view",
+            "view_id": output_id,
+            "state_revision": state_revision,
+            "receipt_id": receipt_id,
+            "status": str(result.get("status", "unknown")),
+        }
+    elif tool == "atlas_revise":
+        output_id = str(result.get("revision_id", ""))
+        if not output_id or not receipt_id:
+            return 0
+        identity = {
+            "kind": "revision",
+            "revision_id": output_id,
+            "receipt_id": receipt_id,
+            "conflicts_witnessed": bool(
+                result.get("conflicts_witnessed", False)
+            ),
+        }
+    else:
+        return 0
+    return _append({
+        "schema": 1,
+        "recorded_at": time.time(),
+        "disposition": "atlas-result-returned",
+        "server": _text(server, 200),
+        "tool": tool,
+        "atlas": identity,
+    })
+
+
 def _tail_lines(path: Path, max_bytes=180_000) -> list[str]:
     with path.open("rb") as stream:
         stream.seek(0, os.SEEK_END)
@@ -129,7 +180,21 @@ def view(max_records=_VIEW_RECORDS) -> str:
         head = "turn=%s disposition=%s" % (
             entry.get("turn", "?"), entry.get("disposition", "unknown")
         )
-        if "command" in entry:
+        if "atlas" in entry:
+            rendered.append(
+                "disposition=%s server=%s tool=%s atlas=%s" % (
+                    entry.get("disposition", "unknown"),
+                    entry.get("server", ""),
+                    entry.get("tool", ""),
+                    json.dumps(
+                        entry.get("atlas", {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                )
+            )
+        elif "command" in entry:
             rendered.append(
                 "%s command=%s result=%s" % (
                     head, entry.get("command", ""), entry.get("result", "")
