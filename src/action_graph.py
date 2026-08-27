@@ -15,6 +15,10 @@ from typing import Any, Iterable
 
 COORDINATION_HEADS = {"tmux-new-shell-after", "tmux-send-observed"}
 OBSERVATION_HEADS = {"tmux-windows"}
+FALLIBLE_EFFECT_HEADS = {
+    "delete-my-recent", "delete-message-exact",
+    "send", "send-telegram-chat", "send-file", "send-image",
+}
 
 
 def command_parts(command: Any) -> tuple[str, list[str]]:
@@ -109,3 +113,26 @@ def partition_after_stimulus(commands: Iterable[Any]) -> list[list[Any]]:
         node = classify(command)
         (dependent if node.depends_on_stimulus else independent).append(command)
     return [independent, dependent]
+
+
+def result_permits_dependent_suffix(command: Any, result: Any) -> bool:
+    """Whether a known fallible effect's result permits dependent actions.
+
+    Unknown commands remain permissive. For exact deletion the provider
+    already returns an unambiguous textual receipt; a failed or empty cleanup
+    must not be followed in the same unobserved batch by a dependent "done"
+    message. Broker-known read-only observations may still continue.
+    """
+
+    head, _ = command_parts(command)
+    if head not in FALLIBLE_EFFECT_HEADS:
+        return True
+    rendered = str(result).strip().lower()
+    if head == "delete-message-exact":
+        return rendered.startswith("deleted message ")
+    if head in {"send", "send-telegram-chat", "send-file", "send-image"}:
+        return rendered.startswith("sent ")
+    parts = [part.strip() for part in rendered.split("|")]
+    return bool(parts) and all(
+        part.startswith("deleted message ") for part in parts
+    )

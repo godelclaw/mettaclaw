@@ -135,6 +135,32 @@ class FullGodelShadowTests(unittest.TestCase):
             self.assertEqual(state["effects"], 0)
             self.assertFalse(state["finished"])
 
+    def test_failed_delete_cannot_be_followed_by_unwitnessed_done_claim(self):
+        with FullShadow(engine=self.ENGINE) as shadow:
+            result = self.run_ok(
+                shadow,
+                '((delete-my-recent "research-group" 3) '
+                '(send "Done — deleted the messages"))',
+                1,
+            )
+            self.assertIn("SHADOW_DENIED unsupported-command", result.stdout)
+            self.assertIn("reason failed_effect", result.stdout)
+            self.assertIn("send Done — deleted the messages", result.stdout)
+            self.assertEqual(shadow.state()["effects"], 0)
+
+    def test_failed_send_cannot_be_followed_by_unwitnessed_report_claim(self):
+        with FullShadow(engine=self.ENGINE) as shadow:
+            result = self.run_ok(
+                shadow,
+                '((send-telegram-chat "not-allowed" "report") '
+                '(send "reported to the group"))',
+                1,
+            )
+            self.assertIn("SHADOW_DENIED unsupported-command", result.stdout)
+            self.assertIn("reason failed_effect", result.stdout)
+            self.assertIn("send reported to the group", result.stdout)
+            self.assertEqual(shadow.state()["effects"], 0)
+
     def test_corrupt_selector_cannot_fall_through_to_shell(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = pathlib.Path(directory) / "must-not-exist"

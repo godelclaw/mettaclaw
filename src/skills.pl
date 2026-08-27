@@ -110,7 +110,16 @@ run_command_list_unless_stimulus(Turn, Commands, Records, Errors) :-
     ( effect_turn_stimulus_free(Turn)
     -> Commands = [Command|Rest],
        run_command_once(Turn, Command, Record, CommandErrors),
-       run_command_list_unless_stimulus(Turn, Rest, RestRecords, RestErrors),
+       ( command_result_permits_suffix(Command, Record)
+       -> run_command_list_unless_stimulus(Turn, Rest,
+                                           RestRecords, RestErrors)
+       ;  partition_after_stimulus(Rest, Independent, Dependent),
+          failed_effect_record(Turn, Command, Dependent,
+                               InterruptedRecords),
+          run_command_list_once(Turn, Independent,
+                                IndependentRecords, RestErrors),
+          append(InterruptedRecords, IndependentRecords, RestRecords)
+       ),
        Records = [Record|RestRecords],
        append(CommandErrors, RestErrors, Errors)
     ; partition_after_stimulus(Commands, Independent, Dependent),
@@ -124,6 +133,53 @@ partition_after_stimulus(Commands, Independent, Dependent) :-
     catch('py-call'(['action_graph.partition_after_stimulus', Commands],
                     [Independent, Dependent]), _, fail), !.
 partition_after_stimulus(Commands, [], Commands).
+
+command_result_permits_suffix(Command,
+                              ['COMMAND_RETURN:', [Command, Result]]) :-
+    known_fallible_effect(Command), !,
+    successful_effect_result(Command, Result).
+command_result_permits_suffix(Command, _Record) :-
+    \+ known_fallible_effect(Command).
+
+known_fallible_effect(['delete-my-recent'|_]).
+known_fallible_effect(['delete-message-exact'|_]).
+known_fallible_effect([send|_]).
+known_fallible_effect(['send-telegram-chat'|_]).
+known_fallible_effect(['send-file'|_]).
+known_fallible_effect(['send-image'|_]).
+
+successful_effect_result(['delete-message-exact'|_], Result) :- !,
+    effect_result_prefix(Result, "deleted message ").
+successful_effect_result(['delete-my-recent'|_], Result) :- !,
+    effect_result_string(Result, Text),
+    split_string(Text, "|", " ", Parts),
+    Parts \== [],
+    forall(member(Part, Parts),
+           effect_result_prefix(Part, "deleted message ")).
+successful_effect_result([send|_], Result) :- !,
+    effect_result_prefix(Result, "sent ").
+successful_effect_result(['send-telegram-chat'|_], Result) :- !,
+    effect_result_prefix(Result, "sent ").
+successful_effect_result(['send-file'|_], Result) :- !,
+    effect_result_prefix(Result, "sent ").
+successful_effect_result(['send-image'|_], Result) :- !,
+    effect_result_prefix(Result, "sent ").
+
+effect_result_prefix(Result, Prefix) :-
+    effect_result_string(Result, Text),
+    string_lower(Text, Lower),
+    string_lower(Prefix, LowerPrefix),
+    sub_string(Lower, 0, _, _, LowerPrefix).
+
+effect_result_string(Result, Result) :- string(Result), !.
+effect_result_string(Result, Text) :- atom(Result), atom_string(Result, Text).
+
+failed_effect_record(_, _, [], []) :- !.
+failed_effect_record(Turn, Command, Commands,
+                     [['COMMAND_BATCH_INTERRUPTED:',
+                       [reason, failed_effect, after, Command,
+                        commands, Commands]]]) :-
+    record_suffix_receipt(Turn, withheld, Commands, failed_effect).
 
 stimulus_interrupted_record(_, [], []) :- !.
 stimulus_interrupted_record(Turn, Commands,

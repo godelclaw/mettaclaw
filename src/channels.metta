@@ -66,6 +66,13 @@
 (= (delete-my-recent $chat_id $k)
    (py-call (telegram.delete_my_recent $chat_id $k)))
 
+;; Exact-address cleanup for a receipt-backed bot-owned Telegram message.
+;; Legacy ids absent from the own-send ledger require the authenticated
+;; operator's /delete fast path; group-admin deletion authority is not exposed
+;; through the model skill.
+(= (delete-message-exact $chat_id $message_id)
+   (py-call (telegram.delete_recorded_message $chat_id $message_id)))
+
 ;Search the internet for some information:
 (= (search $msg)
    (let $query (py-call (helper.decode_safe_text $msg))

@@ -44,6 +44,10 @@ class SlashCommandTest(unittest.TestCase):
             self.tmp.name, "fuel_mode.json")
         telegram._health_state.clear()
         telegram._health_last_write = 0.0
+        telegram._allowed_chat_ids = set()
+        telegram._primary_chat_id = ""
+        telegram._log_path = os.path.join(
+            self.tmp.name, "telegram-updates.jsonl")
         self.sent = []
         self.p1 = mock.patch.object(
             telegram, "send_message_to_chat",
@@ -444,6 +448,29 @@ class SlashCommandTest(unittest.TestCase):
         self.assertEqual(
             telegram._peek_slash_command("/wake", self.operator),
             "slash_command:/wake")
+
+    def test_operator_exact_delete_is_fast_and_explicitly_addressed(self):
+        with open(telegram._log_path, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps({
+                "chat_id": "-7", "chat_title": "Research Group",
+                "message_id": 42, "kind": "message",
+            }) + "\n")
+        telegram._allowed_chat_ids = {"-7"}
+        with mock.patch.object(
+                telegram, "delete_message",
+                return_value="deleted message 42 from chat -7") as delete:
+            self.assertEqual(
+                self.handle("/delete Research Group 42"),
+                "slash_command:/delete",
+            )
+        delete.assert_called_once_with("-7", "42")
+        self.assertIn("deleted message 42", self.sent[-1][1])
+
+    def test_operator_delete_refuses_unknown_chat(self):
+        self.assertEqual(
+            self.handle("/delete Unknown 42"), "slash_command:/delete"
+        )
+        self.assertIn("delete refused", self.sent[-1][1])
 
     def test_wake_does_not_depend_on_model_backend(self):
         real_import = __import__

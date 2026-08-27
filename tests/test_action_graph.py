@@ -45,6 +45,33 @@ class ActionGraphTests(unittest.TestCase):
             left, right, {"r1": "%1", "r2": "%1"}
         ))
 
+    def test_failed_delete_withholds_dependent_suffix(self):
+        self.assertFalse(action_graph.result_permits_dependent_suffix(
+            ["delete-my-recent", "research-group", 3],
+            "no recorded own-sends to chat research-group — nothing to delete",
+        ))
+        self.assertFalse(action_graph.result_permits_dependent_suffix(
+            ["send-telegram-chat", "research-group", "report"],
+            "send failed: target chat is not allowed",
+        ))
+        self.assertFalse(action_graph.result_permits_dependent_suffix(
+            ["delete-message-exact", "research-group", 42],
+            "delete failed: message not found",
+        ))
+
+    def test_successful_or_unrelated_effect_remains_permissive(self):
+        self.assertTrue(action_graph.result_permits_dependent_suffix(
+            ["delete-my-recent", "research-group", 2],
+            "deleted message 43 from chat x | "
+            "deleted message 42 from chat x",
+        ))
+        self.assertTrue(action_graph.result_permits_dependent_suffix(
+            ["future-skill"], "anything",
+        ))
+        self.assertTrue(action_graph.result_permits_dependent_suffix(
+            ["send", "report"], "sent message 9 to chat private",
+        ))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

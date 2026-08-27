@@ -13,6 +13,10 @@ eval([stimulate], ok) :-
     retractall(stimulus_free(_)),
     assertz(stimulus_free(0)).
 eval([observe], observed).
+eval(['delete-my-recent'], "no recorded own-sends — nothing to delete").
+eval([announce_done], sent).
+eval([send, fail], "send failed: provider rejected request").
+eval([send, ok], "sent message 9 to chat private").
 
 'py-call'(['helper.normalize_string', Value], Value).
 'py-call'(['effect_receipts.record_command', Turn, Disposition,
@@ -26,6 +30,9 @@ eval([observe], observed).
 'py-call'(['action_graph.partition_after_stimulus', Commands],
           [Independent, Dependent]) :-
     partition_test_commands(Commands, Independent, Dependent).
+'py-call'(['action_graph.result_permits_dependent_suffix',
+           ['delete-my-recent'], _], 0) :- !.
+'py-call'(['action_graph.result_permits_dependent_suffix', _, _], 1).
 
 partition_test_commands([], [], []).
 partition_test_commands([[observe]|Rest], [[observe]|Independent], Dependent) :-
@@ -100,5 +107,44 @@ test(coding_limit_retains_five_commands) :-
                              Records),
     probe_count(5),
     length(Records, 5).
+
+test(failed_delete_withholds_done_but_keeps_observation) :-
+    reset_probe,
+    'run-command-batch-once'(13, 5,
+                             [['delete-my-recent'], [announce_done],
+                              [observe]], Records),
+    assertion(Records == [
+        ['COMMAND_RETURN:',
+         [['delete-my-recent'],
+          "no recorded own-sends — nothing to delete"]],
+        ['COMMAND_BATCH_INTERRUPTED:',
+         [reason, failed_effect, after, ['delete-my-recent'],
+          commands, [[announce_done]]]],
+        ['COMMAND_RETURN:', [[observe], observed]]
+    ]),
+    assertion(effect_receipt(
+        13, withheld, [[announce_done]], failed_effect)).
+
+test(failed_send_withholds_claim) :-
+    reset_probe,
+    'run-command-batch-once'(14, 5,
+                             [[send, fail], [announce_done]], Records),
+    assertion(Records == [
+        ['COMMAND_RETURN:',
+         [[send, fail], "send failed: provider rejected request"]],
+        ['COMMAND_BATCH_INTERRUPTED:',
+         [reason, failed_effect, after, [send, fail],
+          commands, [[announce_done]]]]
+    ]).
+
+test(successful_send_keeps_permissive_suffix) :-
+    reset_probe,
+    'run-command-batch-once'(15, 5,
+                             [[send, ok], [announce_done]], Records),
+    assertion(Records == [
+        ['COMMAND_RETURN:', [[send, ok],
+                             "sent message 9 to chat private"]],
+        ['COMMAND_RETURN:', [[announce_done], sent]]
+    ]).
 
 :- end_tests(command_dispatch).

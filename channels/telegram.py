@@ -19,6 +19,7 @@ _allowed_chat_ids = set()
 _allow_private_chats = True
 _last_chat_id = ""
 _reply_chat_id = ""
+_primary_chat_id = ""
 _last_message_is_human = False
 _last_from_bot = False
 _last_arm_tier = "full"
@@ -56,7 +57,7 @@ _CONTROL_COMMANDS = (
     "/start", "/stop",
     "/model", "/models", "/mode", "/modes", "/engine", "/engines",
     "/fuel", "/fuels",
-    "/quota", "/wake", "/energy", "/health", "/activity",
+    "/quota", "/wake", "/energy", "/health", "/activity", "/delete",
     "/claude_code_authorization",
 )
 
@@ -857,7 +858,8 @@ def recent_activity(n=10, chat=None, snippet_chars=110):
 _CONTROL_REPLY_PREFIXES = (
     "activity:", "runtime-health:", "active engine:", "active model:",
     "active mode:", "arming energy", "model set to ", "mode set to ",
-    "engine set to ", "tap to switch:",
+    "engine set to ", "tap to switch:", "deleted message ",
+    "delete refused:", "delete failed:", "cannot delete message ",
 )
 
 _REVISION_KINDS = frozenset((
@@ -911,7 +913,7 @@ def conversation_window(max_chars=30000, max_events=48,
         event_limit = max(1, int(max_events))
         item_limit = max(200, int(max_event_chars))
         if not _log_path or not os.path.exists(_log_path):
-            return "(no prior conversation events)"
+            return route_view() + "\n\n(no prior conversation events)"
         with _msg_lock:
             frontier = _context_frontier_bytes
             excluded = set(_current_batch_update_ids)
@@ -978,7 +980,8 @@ def conversation_window(max_chars=30000, max_events=48,
             chosen.append(event)
             used += cost
         chosen.reverse()
-        return "\n\n".join(chosen) or "(no prior conversation events)"
+        history = "\n\n".join(chosen) or "(no prior conversation events)"
+        return route_view() + "\n\n" + history
     except Exception as exc:
         print("[telegram] conversation window error:", type(exc).__name__)
         return "(conversation window unavailable)"
@@ -1338,6 +1341,22 @@ def _handle_slash_command(chat, sender, text):
             # a separate "awake" acknowledgement is just noise in the chat.
             _request_wake("/wake")
             return "slash_command:/wake"
+        if cmd == "/delete":
+            fields = arg.rsplit(None, 1)
+            if len(fields) != 2:
+                reply = "usage: /delete <known-chat-id-or-title> <message-id>"
+            else:
+                target = _resolve_known_chat_id(fields[0])
+                if not target:
+                    reply = "delete refused: chat is not in the local ledger"
+                elif (_allowed_chat_ids
+                      and target not in _allowed_chat_ids
+                      and target != str(chat.get("id", ""))):
+                    reply = "delete refused: chat is not allowed"
+                else:
+                    reply = delete_message(target, fields[1])
+            send_message_to_chat(str(chat.get("id", "")), reply)
+            return "slash_command:/delete"
         if cmd == "/claude_code_authorization":
             import claude_bridge
             state = not claude_bridge.authorized()
@@ -1649,7 +1668,7 @@ def _register_menu_commands():
 
 def start_telegram(token="", chat_id=""):
     global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats
-    global _offset_path, _log_path, _bot_username
+    global _offset_path, _log_path, _bot_username, _primary_chat_id
     _token = str(
         token
         or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN")
@@ -1667,6 +1686,9 @@ def start_telegram(token="", chat_id=""):
         if part
     )
     _allowed_chat_ids = _split_chat_ids(configured_ids)
+    _primary_chat_id = str(
+        os.environ.get("METTACLAW_TELEGRAM_PRIMARY_CHAT_ID", "").strip()
+    )
     _allow_private_chats = (
         os.environ.get("METTACLAW_TELEGRAM_ALLOW_PRIVATE", "1").lower()
         not in {"0", "false", "no"}
@@ -1703,7 +1725,32 @@ def _reply_target(chat_id=""):
     if chat_id:
         return str(chat_id)
     with _msg_lock:
-        return _reply_chat_id or _last_chat_id
+        # A plain `(send ...)` means "send to the primary operator", not
+        # "send wherever the last cross-chat observation happened to come
+        # from". Other audiences remain available through the explicit
+        # addressed send. Deployments without a configured primary retain the
+        # legacy reply behavior.
+        return _primary_chat_id or _reply_chat_id or _last_chat_id
+
+
+def route_view():
+    """Project the actual default-send rule into model context."""
+    with _msg_lock:
+        if _primary_chat_id:
+            title = _chat_titles.get(_primary_chat_id, "primary operator")
+            return (
+                "TELEGRAM ROUTE: plain (send ...) is bound to %s chat_id=%s. "
+                "For every other audience use (send-telegram-chat chat_id "
+                '"message"). Reading another chat cannot change this route.'
+                % (title, _primary_chat_id)
+            )
+        current = _reply_chat_id or _last_chat_id
+        return (
+            "TELEGRAM ROUTE: no primary chat is configured; plain (send ...) "
+            "uses the current reply chat%s. Prefer an explicit addressed "
+            "send when multiple chats are visible."
+            % ((" chat_id=" + current) if current else "")
+        )
 
 
 def _log_outbound(chat_id, text, message_id=None):
@@ -1770,7 +1817,10 @@ def send_message(text, chat_id=""):
     chat_id = _reply_target(chat_id)
     if not _token or not chat_id:
         print("[telegram] cannot send: missing token or chat id")
-        return
+        return "send failed: missing token or chat id"
+    if (_allowed_chat_ids and str(chat_id) not in _allowed_chat_ids
+            and str(chat_id) != _primary_chat_id):
+        return "send failed: target chat is not allowed"
     try:
         body = str(text).replace("\\n", "\n")
         resp = requests.post(
@@ -1790,12 +1840,15 @@ def send_message(text, chat_id=""):
             # STM records only what Telegram actually accepted — with the id,
             # so the agent can delete its own message later.
             _log_outbound(chat_id, body, message_id)
+            return "sent message %s to chat %s" % (message_id, chat_id)
         else:
             print(f"[telegram] send rejected (HTTP {resp.status_code})")
+            return "send failed: Telegram rejected HTTP %s" % resp.status_code
     except requests.exceptions.RequestException as exc:
         # A transient network failure on send must never cross Janus and kill the
         # loop (the same failure class as a provider exception crossing Janus).
         print(f"[telegram] send failed ({type(exc).__name__})")
+        return "send failed: %s" % type(exc).__name__
 
 
 def begin_effect_turn(turn):
@@ -1914,34 +1967,104 @@ def send_message_to_chat(chat_id, text):
 
 
 def delete_message(chat_id, message_id):
-    """Delete one message the bot sent. Returns a string the agent can read.
+    """Execute one exact deletion after the caller has authorized its target.
 
-    Telegram only lets a bot delete its OWN messages, and only within 48h
-    (unless it is a group admin). A forward of the bot's message counts as the
-    forwarder's message, so the bot cannot delete that — the person who
-    forwarded it must. The result string says which case occurred rather than
-    failing silently."""
+    This provider primitive is intentionally not the model skill: a Telegram
+    group administrator may be able to delete messages written by others.
+    Model calls go through ``delete_recorded_message``; the authenticated
+    operator slash path may authorize a legacy id absent from the ledger.
+    The result says which provider case occurred rather than failing silently.
+    """
     token = _token or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN", "")
     if not token:
         return "delete failed: no bot token configured"
+    target = str(chat_id)
+    if (_allowed_chat_ids and target not in _allowed_chat_ids
+            and target != _primary_chat_id):
+        return "delete refused: target chat is not allowed"
     try:
         resp = requests.post(_api("deleteMessage", token),
-                             json={"chat_id": str(chat_id),
+                             json={"chat_id": target,
                                    "message_id": int(message_id)},
                              timeout=15)
         payload = resp.json()
         if payload.get("ok"):
-            _log_own_delete(chat_id, message_id)
-            return "deleted message %s from chat %s" % (message_id, chat_id)
+            _log_own_delete(target, message_id)
+            return "deleted message %s from chat %s" % (message_id, target)
         desc = str(payload.get("description", "")).lower()
         if "can't be deleted" in desc or "message to delete not found" in desc:
-            _log_own_delete(chat_id, message_id, "own_delete_terminal")
+            _log_own_delete(target, message_id, "own_delete_terminal")
             return ("cannot delete message %s: it is older than 48h, or a "
                     "forward (whoever forwarded it must delete it), or not the "
                     "bot's own message" % message_id)
         return "delete failed: %s" % payload.get("description", resp.status_code)
     except (requests.exceptions.RequestException, ValueError, TypeError) as exc:
         return "delete failed (%s): %s" % (type(exc).__name__, exc)
+
+
+def _resolve_known_chat_id(chat):
+    """Resolve one exact id or title already present in the local ledger."""
+    wanted = str(chat).strip()
+    if not wanted:
+        return ""
+    matches = set()
+    if _log_path and os.path.isfile(_log_path):
+        try:
+            with _log_lock:
+                with open(_log_path, "r", encoding="utf-8") as stream:
+                    for line in stream:
+                        try:
+                            record = json.loads(line)
+                        except ValueError:
+                            continue
+                        chat_id = str(record.get("chat_id", ""))
+                        title = str(record.get("chat_title", ""))
+                        if wanted == chat_id or wanted.casefold() == title.casefold():
+                            if chat_id:
+                                matches.add(chat_id)
+        except OSError:
+            return ""
+    return next(iter(matches)) if len(matches) == 1 else ""
+
+
+def _recorded_own_send(chat_id, message_id):
+    """Whether the append-only ledger witnesses this exact bot send."""
+    target, wanted = str(chat_id), str(message_id)
+    witnessed = False
+    terminal = False
+    if not _log_path or not os.path.isfile(_log_path):
+        return False
+    try:
+        with _log_lock:
+            with open(_log_path, "r", encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    if (str(record.get("chat_id")) != target
+                            or str(record.get("message_id")) != wanted):
+                        continue
+                    if record.get("note") == "own_send":
+                        witnessed = True
+                    elif record.get("note") in (
+                            "own_delete", "own_delete_terminal"):
+                        terminal = True
+    except OSError:
+        return False
+    return witnessed and not terminal
+
+
+def delete_recorded_message(chat_id, message_id):
+    """Delete one exact send only when an own-send receipt is recorded."""
+    target = str(_reply_target(chat_id))
+    if not _recorded_own_send(target, message_id):
+        return (
+            "delete refused: no current own-send receipt for message %s in "
+            "chat %s; an authenticated operator may use /delete for an "
+            "explicit legacy id" % (message_id, target)
+        )
+    return delete_message(target, message_id)
 
 
 def delete_my_recent(chat_id, count=1):
@@ -1998,6 +2121,9 @@ def _send_upload(method, field, path, caption, chat_id):
     if not chat_id:
         return ("send failed: no chat to send to — pass one explicitly, "
                 "e.g. (send-image \"/path.svg\" \"caption\" \"123456789\")")
+    if (_allowed_chat_ids and str(chat_id) not in _allowed_chat_ids
+            and str(chat_id) != _primary_chat_id):
+        return "send failed: target chat is not allowed"
     size = os.path.getsize(path)
     if size > 50 * 1024 * 1024:
         return "send failed: %s is %d bytes; Telegram's limit is 50MB" % (path, size)

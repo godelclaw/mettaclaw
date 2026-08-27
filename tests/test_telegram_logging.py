@@ -419,6 +419,82 @@ def test_delete_my_recent_advances_past_tombstoned_sends():
         assert deleted == [11, 10]
 
 
+def test_exact_model_delete_requires_own_send_receipt():
+    tg = load_telegram()
+    with tempfile.TemporaryDirectory() as tmp:
+        tg._log_path = str(pathlib.Path(tmp) / "telegram_updates.jsonl")
+        tg._token = "fake-token"
+        deleted = []
+
+        def fake_post(url, json=None, timeout=None):
+            deleted.append((json["chat_id"], json["message_id"]))
+            return FakeResponse({"ok": True})
+
+        tg.requests.post = fake_post
+        assert tg.delete_recorded_message("-7", 42).startswith(
+            "delete refused: no current own-send receipt")
+        assert deleted == []
+        tg._log_outbound("-7", "mistaken send", 42)
+        assert tg.delete_recorded_message("-7", 42).startswith(
+            "deleted message 42")
+        assert deleted == [("-7", 42)]
+        records = [json.loads(line) for line in pathlib.Path(
+            tg._log_path).read_text(encoding="utf-8").splitlines()]
+        assert records[-1]["note"] == "own_delete"
+        assert records[-1]["message_id"] == 42
+
+
+def test_primary_route_is_stable_under_cross_chat_activity():
+    tg = load_telegram()
+    tg._primary_chat_id = "private-operator"
+    tg._reply_chat_id = "protobots"
+    tg._last_chat_id = "another-chat"
+    assert tg._reply_target() == "private-operator"
+    assert tg._reply_target("protobots") == "protobots"
+    assert "bound to" in tg.route_view()
+
+
+def test_no_primary_retains_legacy_reply_route():
+    tg = load_telegram()
+    tg._primary_chat_id = ""
+    tg._reply_chat_id = "current-chat"
+    tg._last_chat_id = "last-chat"
+    assert tg._reply_target() == "current-chat"
+
+
+def test_explicit_outbound_route_is_limited_to_allowed_chats():
+    tg = load_telegram()
+    tg._token = "fake-token"
+    tg._primary_chat_id = "operator-private"
+    tg._allowed_chat_ids = {"operator-private", "protobots"}
+    posts = []
+
+    def fake_post(url, json=None, timeout=None):
+        posts.append(json["chat_id"])
+        return FakeResponse({"ok": True, "result": {"message_id": 12}})
+
+    tg.requests.post = fake_post
+    assert tg.send_message_to_chat("unknown-chat", "no").startswith(
+        "send failed: target chat is not allowed")
+    assert posts == []
+    assert tg.send_message_to_chat("protobots", "yes").startswith(
+        "sent message 12")
+    assert posts == ["protobots"]
+
+
+def test_upload_route_is_limited_to_allowed_chats():
+    tg = load_telegram()
+    tg._token = "fake-token"
+    tg._primary_chat_id = "operator-private"
+    tg._allowed_chat_ids = {"operator-private", "protobots"}
+    with tempfile.TemporaryDirectory() as tmp:
+        artifact = pathlib.Path(tmp) / "artifact.txt"
+        artifact.write_text("test", encoding="utf-8")
+        assert tg.send_file(
+            str(artifact), "caption", "unknown-chat"
+        ).startswith("send failed: target chat is not allowed")
+
+
 def test_model_effect_send_is_at_most_once_per_turn():
     tg = load_telegram()
     posts = []
@@ -509,6 +585,11 @@ if __name__ == "__main__":
     test_oversized_attachment_leaves_no_partial_file()
     test_callback_log_records_actual_allowlist_decision()
     test_model_effect_send_is_at_most_once_per_turn()
+    test_exact_model_delete_requires_own_send_receipt()
+    test_primary_route_is_stable_under_cross_chat_activity()
+    test_no_primary_retains_legacy_reply_route()
+    test_explicit_outbound_route_is_limited_to_allowed_chats()
+    test_upload_route_is_limited_to_allowed_chats()
     test_energy_updates_are_atomic_across_threads()
     test_delete_my_recent_advances_past_tombstoned_sends()
     test_energy_updates_are_atomic_across_threads()

@@ -28,6 +28,7 @@
 	    "- Send a FILE to the chat as an attachment: (send-file \"/path/to/file.md\" \"caption\")"
 	    "- Send an IMAGE so it previews inline; .svg is auto-converted to png: (send-image \"/path/diagram.svg\" \"caption\")"
 	    "- Clean up after a test send: delete your own last k messages to a chat: (delete-my-recent \"chat_id\" k)"
+	    "- Delete an exact known bot-owned Telegram message: (delete-message-exact \"chat_id\" message_id)"
 	    "- Arming energy per sender (how many loops a message grants): (energy) to view, (energy-set \"default|Name|id\" \"full|mid|light\")"
 	    "- Sibling claw control, watchdog-safe: (sibling-status) | (sibling-on) | (sibling-off \"reason\")"
 	    "- Last k messages (both sides) from a chat by title or id: (recent-messages \"chat\" k)"

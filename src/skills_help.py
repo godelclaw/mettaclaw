@@ -18,7 +18,8 @@ ARITY = {
     "ls-tree": (2, 2), "grep-files": (2, 2),
     "send": (1, 1), "send-telegram-chat": (2, 2),
     "send-file": (1, 2), "send-image": (1, 2),
-    "delete-my-recent": (2, 2), "recent-messages": (2, 2),
+    "delete-my-recent": (2, 2), "delete-message-exact": (2, 2),
+    "recent-messages": (2, 2),
     "search": (1, 1), "search-tavily": (1, 1), "search-ddg": (1, 1),
     "llm-quota": (0, 0), "llm-models": (0, 0), "llm-set-model": (1, 1),
     "energy": (0, 0), "energy-set": (2, 2),
@@ -71,8 +72,10 @@ PAGES = {
         'the result says so — widen the snippet until unique.'),
     "send": (
         'usage: (send "message")\n'
-        'Replies to the current chat. End messages to humans/agents with the\n'
-        'affect trace line. For another chat: (send-telegram-chat "id" "msg").'),
+        'Sends to the configured primary operator chat when one is set; a\n'
+        'cross-chat read cannot redirect it. End messages to humans/agents\n'
+        'with the affect trace line. For every other audience use the exact\n'
+        'address: (send-telegram-chat "id" "msg").'),
     "send-file": (
         'usage: (send-file "/abs/path" "caption")  |  (send-image ...)\n'
         'send-image previews inline; SVG is rasterized when possible.\n'
@@ -82,6 +85,12 @@ PAGES = {
         'Deletes your own last k messages to that chat (ids are recorded at\n'
         'send time). Only your messages, only within Telegram\'s 48h window;\n'
         'a forward of your message belongs to the forwarder, not you.'),
+    "delete-message-exact": (
+        'usage: (delete-message-exact "chat_id" message_id)\n'
+        'Deletes one exact bot-owned Telegram message only when its own-send\n'
+        'receipt is in the ledger. Legacy ids require the authenticated\n'
+        'operator /delete fast path. Claim completion only after the returned\n'
+        'delete receipt.'),
     "query": (
         'usage: (query "short phrase")\n'
         'Embedding search over long-term memory. EMBED_DAEMON_DOWN means the\n'
