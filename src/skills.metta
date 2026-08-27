@@ -13,6 +13,10 @@
     "- Rest, then run one quoted command without another model call: (rest seconds (quote (command ...)))"
     "- Finish this fast burst without suspending autonomous renewal: (nop)"
     "- Inspect/select the persistent cognitive loop policy: (mode) | (modes) | (mode-set \"name\")"
+    ;ITER REPROGRAMMING:
+    "- List active/disabled hot-reloaded Iter request transformations and their exact revisions: (iter-transformations)"
+    "- Directly install or replace a mutable Iter request transformation for the next model turn; syntax failures install and then stutter visibly: (iter-transform-write \"10_name.py\" \"def transform(messages, tools): ...\")"
+    "- Reversibly disable or enable one Iter transformation using the upstream leading-underscore convention: (iter-transform-disable \"10_name.py\") | (iter-transform-enable \"10_name.py\")"
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
     "- Read file to string: (read-file \"filename\")"
@@ -79,6 +83,21 @@
 (= (metta $str)
    (let $code (sread $str)
         (eval $code)))
+
+;; This is Iter's mutable developmental seam, deliberately distinct from
+;; proposal-bound edits to stable source.  Each operation returns an exact
+;; revision receipt; a captured in-flight request is never rewritten.
+(= (iter-transformations)
+   (py-call (iter_authoring.list_transformations)))
+
+(= (iter-transform-write $name $source)
+   (py-call (iter_authoring.write_transformation $name $source)))
+
+(= (iter-transform-disable $name)
+   (py-call (iter_authoring.disable_transformation $name)))
+
+(= (iter-transform-enable $name)
+   (py-call (iter_authoring.enable_transformation $name)))
 
 ;; Rest is a pause, not a spend. The budget still held is banked by the loop
 ;; and handed back when the rest ends, so a short nap no longer costs a whole
