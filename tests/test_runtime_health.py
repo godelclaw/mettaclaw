@@ -47,6 +47,7 @@ class RuntimeHealthTest(unittest.TestCase):
             "loop_status": "awake", "waiting_until": 0,
         })
         self.write(self.working, {"saved_at": 1, "loops": 50})
+        self.write(self.cognitive, {"pending_since": 100})
         self.write(self.mode, {"mode": "iter"})
         with mock.patch("lifecycle.cognition_enabled", return_value=0), \
              mock.patch("lifecycle.view", return_value="stopped"), \
@@ -57,6 +58,7 @@ class RuntimeHealthTest(unittest.TestCase):
             value = runtime_health.status(now=1000)
         self.assertFalse(value["cognition_required"])
         self.assertNotIn("cognitive-boundary-stale", value["problems"])
+        self.assertNotIn("model-turn-overdue", value["problems"])
 
     def test_activity_reports_operator_stop_explicitly(self):
         self.write(self.working, {"saved_at": 999, "loops": 50})

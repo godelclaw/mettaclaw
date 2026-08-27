@@ -88,7 +88,7 @@ def status(now=None):
     if (lifecycle_enabled and not legitimate_wait
             and (working_age is None or working_age > 900)):
         problems.append("cognitive-boundary-stale")
-    if pending_age is not None:
+    if cognition_required and pending_age is not None:
         if pending_age > stale_after:
             problems.append("model-turn-overdue")
     elif cognition_required and turn_age is not None and turn_age > stale_after:
