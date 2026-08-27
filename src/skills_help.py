@@ -13,6 +13,8 @@ ARITY = {
     "mode": (0, 0),
     "modes": (0, 0),
     "mode-set": (1, 1),
+    "iter-transformations": (0, 0), "iter-transform-write": (2, 2),
+    "iter-transform-disable": (1, 1), "iter-transform-enable": (1, 1),
     "shell": (1, 1), "read-file": (1, 1), "write-file": (2, 2),
     "append-file": (2, 2), "read-lines": (3, 3), "edit-file": (3, 3),
     "ls-tree": (2, 2), "grep-files": (2, 2),
@@ -70,6 +72,23 @@ PAGES = {
         'usage: (edit-file "path" "old-string" "new-string")\n'
         'Exact unique replacement. If old-string matches zero or many places\n'
         'the result says so — widen the snippet until unique.'),
+    "iter-transform-write": (
+        'usage: (iter-transform-write "10_name.py" "python source")\n'
+        'Writes one mutable Iter request transformation atomically. It becomes\n'
+        'eligible at the next request capture, never halfway through the\n'
+        'current turn. The receipt binds exact bytes and directory revision.\n'
+        'Syntax failure is reported but remains permissive: the transform is\n'
+        'installed and Iter will stutter locally until you repair or disable it.\n'
+        'This is not proposal-bound stable-source editing and not a sandbox.'),
+    "iter-transformations": (
+        'usage: (iter-transformations)\n'
+        'Lists active and leading-underscore-disabled transformation entries\n'
+        'with exact source digests and the captured directory revision.'),
+    "iter-transform-disable": (
+        'usage: (iter-transform-disable "10_name.py") |\n'
+        '       (iter-transform-enable "10_name.py")\n'
+        'Atomically toggles the upstream leading-underscore convention. The\n'
+        'change is eligible at the next request capture and is reversible.'),
     "send": (
         'usage: (send "message")\n'
         'Sends to the configured primary operator chat when one is set; a\n'
