@@ -219,6 +219,7 @@
                 (append (get-state &error)
                         (command-batch-errors $iteration))))
           ($results (RESULTS: $commandResults))
+          ($_ (py-call ggb_bridge_ext.ggbTick oruzi $iteration $results))
           ($_ (eval (attention-complete $iteration $parseOutcome)))
           ($_ (println! $results))
           ($_ (if (or $has-activity (not (== $sexpr ())))
