@@ -226,3 +226,10 @@ def ggbParseCheck(filename):
         return 'PASS'
     except (OSError, UnicodeError, selfmod.SelfModError):
         return 'BLOCK'
+
+
+def ggbTick(agent, iteration, results_repr):
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    summary = str(results_repr)[:200] if results_repr else no-results
+    ev_id = ggbL3Share(agent, summary, tick, 0.5, 0.7, ggb-tick, timestamp, self)
+    return tick: + str(ev_id)
