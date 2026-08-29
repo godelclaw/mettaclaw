@@ -257,6 +257,7 @@
                         (command-batch-errors $iteration))))
           ($results (RESULTS: $commandResults))
           ($_ (py-call (ggb_bridge_ext.ggbTick oruzi $iteration $results)))
+          ($_ (py-call (ggb_bridge_ext.ggbConsensusTick oruzi $iteration)))
           ($_ (eval (attention-complete $iteration $parseOutcome)))
           ($_ (println! $results))
           ;; Input is acknowledged only after the successful turn has crossed
