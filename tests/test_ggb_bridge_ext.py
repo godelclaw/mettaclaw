@@ -10,6 +10,18 @@ import ggb_bridge_ext  # noqa: E402
 
 
 class GGBTickTests(unittest.TestCase):
+    def test_loop_invokes_tick_as_one_nested_python_call(self):
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "(py-call (ggb_bridge_ext.ggbTick oruzi $iteration $results))",
+            loop,
+        )
+        self.assertNotIn(
+            "(py-call ggb_bridge_ext.ggbTick oruzi $iteration $results)",
+            loop,
+        )
+
     def test_tick_records_bounded_iteration_evidence(self):
         with mock.patch.object(
             ggb_bridge_ext, "ggbL3Share", return_value="evidence-7"
