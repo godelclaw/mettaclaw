@@ -1,8 +1,9 @@
-"""Fail-closed operator authority for Gödel's cognitive lifecycle.
+"""Operator authority for Gödel's cognitive lifecycle.
 
 The process may remain alive as a lightweight Telegram control plane while
-cognition is stopped.  Cognition is authorized only when the durable latch is
-``running`` *and* the external deployment-watch timer is active.
+cognition is stopped.  The durable operator latch alone authorizes cognition;
+the external deployment watcher observes health but cannot silently disable
+the agent.
 """
 
 from __future__ import annotations
@@ -169,9 +170,9 @@ def durable_state() -> str:
 
 
 def cognition_enabled() -> int:
-    """Numeric flag for MeTTa: authority requires latch AND fresh watch."""
+    """Numeric flag for MeTTa: only the durable operator latch has authority."""
     with _lock:
-        return int(_read() == RUNNING and watcher_lease_healthy())
+        return int(_read() == RUNNING)
 
 
 def view() -> str:
@@ -181,7 +182,7 @@ def view() -> str:
     if state == RUNNING and watching:
         return "running (deployment watcher active)"
     if state == RUNNING:
-        return "stopped (watcher unavailable; fail-closed)"
+        return "running (deployment watcher unavailable)"
     return "stopped (operator latch)"
 
 

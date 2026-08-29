@@ -40,12 +40,14 @@ class LifecycleTests(unittest.TestCase):
             )
             self.assertEqual(lifecycle.cognition_enabled(), 0)
 
-    def test_running_latch_without_watcher_fails_closed(self):
+    def test_running_latch_without_watcher_remains_enabled(self):
         lifecycle._write(lifecycle.RUNNING)
         with mock.patch.object(lifecycle, "watcher_lease_healthy",
                                return_value=False):
-            self.assertEqual(lifecycle.cognition_enabled(), 0)
-            self.assertIn("fail-closed", lifecycle.view())
+            self.assertEqual(lifecycle.cognition_enabled(), 1)
+            self.assertEqual(
+                lifecycle.view(), "running (deployment watcher unavailable)"
+            )
 
     def test_start_grants_only_after_watcher_is_active(self):
         calls = []
@@ -144,7 +146,7 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(lifecycle.cognition_enabled(), 1)
                 self.assertIn("running", lifecycle.view())
 
-    def test_expired_watcher_receipt_revokes_cognition(self):
+    def test_expired_watcher_receipt_does_not_revoke_cognition(self):
         now = 1000.0
         self.deployment.write_text(json.dumps({
             "candidate": "abc",
@@ -159,7 +161,7 @@ class LifecycleTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {
                 "METTACLAW_WATCHER_LEASE_SECONDS": "90"}), \
              mock.patch.object(lifecycle.time, "time", return_value=now):
-            self.assertEqual(lifecycle.cognition_enabled(), 0)
+            self.assertEqual(lifecycle.cognition_enabled(), 1)
 
     def test_service_pins_shared_authority_paths_after_legacy_environment(self):
         unit = (ROOT / "systemd" / "pettaclaw-godel.service").read_text(
