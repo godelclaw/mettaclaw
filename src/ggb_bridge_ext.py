@@ -236,3 +236,45 @@ def ggbTick(agent, iteration, results_repr):
         agent, summary, "tick", 0.5, 0.7, "ggb-tick", timestamp, "self"
     )
     return "tick:" + str(ev_id)
+
+
+def ggbNow():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+def nalRevisionF(f1, c1, f2, c2):
+    f1, c1, f2, c2 = float(f1), float(c1), float(f2), float(c2)
+    w1 = c1 / (1 - c1) if c1 < 1.0 else 1e10
+    w2 = c2 / (1 - c2) if c2 < 1.0 else 1e10
+    W = w1 + w2
+    return (w1 * f1 + w2 * f2) / W
+
+def nalRevisionC(f1, c1, f2, c2):
+    f1, c1, f2, c2 = float(f1), float(c1), float(f2), float(c2)
+    w1 = c1 / (1 - c1) if c1 < 1.0 else 1e10
+    w2 = c2 / (1 - c2) if c2 < 1.0 else 1e10
+    W = w1 + w2
+    return W / (W + 1.0)
+
+CONSENSUS_CLI = os.environ.get("METTACLAW_GGB_CONSENSUS_CLI", "")
+def ggbConsensusTick(agent, iteration):
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    actions = []
+    if CONSENSUS_CLI:
+        props = ggbL3Query("proposal", 10)
+        for p in props:
+            pid = p.get("candidate_hash","") or p.get("id","")
+            if not pid: continue
+            try:
+                r = subprocess.run([_python_executable(), CONSENSUS_CLI, "converge", str(pid)], capture_output=True, text=True, timeout=10)
+                d = json.loads(r.stdout.strip())
+                if d.get("converged", False):
+                    r2 = subprocess.run([_python_executable(), CONSENSUS_CLI, "finalize", str(agent), str(pid)], capture_output=True, text=True, timeout=10)
+                    actions.append("finalized:"+str(pid)[:12])
+                else:
+                    n = d.get("aggregated",{}).get("num_opinions",0)
+                    actions.append("pending:"+str(pid)[:12]+"(n="+str(n)+")")
+            except Exception:
+                actions.append("error:"+str(pid)[:12])
+    summary = "iteration=" + str(iteration) + " actions=" + (";".join(actions) if actions else "none")
+    ev = ggbL3Share(agent, summary, "consensus-tick", 0.5, 0.6, "ggb-consensus", ts, "self")
+    return "consensus-tick:" + str(ev)
