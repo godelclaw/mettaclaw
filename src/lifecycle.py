@@ -20,7 +20,6 @@ import time
 STOPPED = "stopped"
 RUNNING = "running"
 _lock = threading.RLock()
-_transition_epoch = 0
 
 
 def _path() -> Path:
@@ -178,77 +177,20 @@ def cognition_enabled() -> int:
 def view() -> str:
     with _lock:
         state = _read()
-        watching = watcher_lease_healthy()
-    if state == RUNNING and watching:
-        return "running (deployment watcher active)"
     if state == RUNNING:
-        return "running (deployment watcher unavailable)"
+        return "running (operator latch)"
     return "stopped (operator latch)"
 
 
-def _begin_transition() -> int:
-    """Revoke first and return this process's transition generation."""
-    global _transition_epoch
-    with _lock:
-        _transition_epoch += 1
-        token = _transition_epoch
-        _write(STOPPED)
-        return token
-
-
-def _transition_is_current(token: int) -> bool:
-    with _lock:
-        return token == _transition_epoch
-
-
 def stop() -> str:
-    """Revoke cognition first, then remove every automatic-revival path."""
-    _begin_transition()
-    timer_code, timer_output = _systemctl(
-        "disable", "--now", _watch_timer()
-    )
-    service_code, service_output = _systemctl(
-        "stop", _watch_service()
-    )
-    watching = watcher_active()
-    if watching:
-        return "stop incomplete: cognition revoked, but watcher is still active"
-    if timer_code not in (0, 1) or service_code not in (0, 5):
-        detail = timer_output or service_output or "systemctl failed"
-        return "stopped fail-closed; watcher shutdown reported: " + detail
-    return "stopped: cognition revoked; deployment watcher inactive"
+    """Revoke cognition through the durable operator latch only."""
+    with _lock:
+        _write(STOPPED)
+    return "stopped: cognition revoked by operator latch"
 
 
 def start() -> str:
-    """Start and verify the watcher before granting cognitive authority."""
-    # Do not hold the lock across systemd or the probe.  A later /stop must be
-    # able to revoke immediately; its newer epoch also prevents this start
-    # from granting authority after its slow work eventually returns.
-    token = _begin_transition()
-    _systemctl("unmask", _watch_service(), _watch_timer())
-    code, output = _systemctl("enable", "--now", _watch_timer())
-    if not _transition_is_current(token):
-        return "start cancelled: a newer lifecycle command kept cognition stopped"
-    if code != 0 or not watcher_active():
-        return (
-            "start refused: cognition remains stopped; deployment "
-            "watcher did not become active"
-            + (" (" + output + ")" if output else "")
-        )
-    probe_started = time.time()
-    probe_code, probe_output = _systemctl("start", _watch_service())
-    probe_healthy, probe_detail = _fresh_probe_healthy(probe_started)
-    if not _transition_is_current(token):
-        return "start cancelled: a newer lifecycle command kept cognition stopped"
-    if probe_code != 0 or not probe_healthy:
-        _systemctl("disable", "--now", _watch_timer())
-        return (
-            "start refused: cognition remains stopped; deployment "
-            "watcher probe was not healthy ("
-            + (probe_detail or probe_output or "unknown failure") + ")"
-        )
+    """Grant cognition through the durable operator latch only."""
     with _lock:
-        if token != _transition_epoch:
-            return "start cancelled: a newer lifecycle command kept cognition stopped"
         _write(RUNNING)
-    return "started: deployment watcher active; cognition enabled"
+    return "started: cognition enabled by operator latch"

@@ -695,14 +695,14 @@ class SlashCommandTest(unittest.TestCase):
         self.assertIsNone(self.handle(""))
         self.assertEqual(len(self.sent), 0)
 
-    def test_start_enables_watcher_before_waking_cognition(self):
+    def test_start_sets_operator_latch_before_waking_cognition(self):
         with mock.patch("lifecycle.start",
-                        return_value="started: watcher active"), \
+                        return_value="started: cognition enabled by operator latch"), \
              mock.patch("lifecycle.cognition_enabled", return_value=1), \
              mock.patch.object(telegram, "_request_wake") as wake:
             self.assertEqual(self.handle("/start"), "slash_command:/start")
         wake.assert_called_once_with("operator start")
-        self.assertIn("watcher active", self.sent[-1][1])
+        self.assertIn("operator latch", self.sent[-1][1])
 
     def test_failed_start_does_not_wake_cognition(self):
         with mock.patch("lifecycle.start",
