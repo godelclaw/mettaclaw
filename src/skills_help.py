@@ -73,20 +73,20 @@ PAGES = {
         'Exact unique replacement. If old-string matches zero or many places\n'
         'the result says so — widen the snippet until unique.'),
     "iter-transform-write": (
-        'usage: (iter-transform-write "10_name.py" "python source")\n'
-        'Writes one mutable Iter request transformation atomically. It becomes\n'
+        'usage: (iter-transform-write "10_name.metta" "MeTTa source")\n'
+        'Writes one mutable MeTTa Iter transformation atomically. It becomes\n'
         'eligible at the next request capture, never halfway through the\n'
-        'current turn. The receipt binds exact bytes and directory revision.\n'
+        'current turn.\n'
         'Syntax failure is reported but remains permissive: the transform is\n'
         'installed and Iter will stutter locally until you repair or disable it.\n'
         'This is not proposal-bound stable-source editing and not a sandbox.'),
     "iter-transformations": (
         'usage: (iter-transformations)\n'
         'Lists active and leading-underscore-disabled transformation entries\n'
-        'with exact source digests and the captured directory revision.'),
+        'without executing them.'),
     "iter-transform-disable": (
-        'usage: (iter-transform-disable "10_name.py") |\n'
-        '       (iter-transform-enable "10_name.py")\n'
+        'usage: (iter-transform-disable "10_name.metta") |\n'
+        '       (iter-transform-enable "10_name.metta")\n'
         'Atomically toggles the upstream leading-underscore convention. The\n'
         'change is eligible at the next request capture and is reversible.'),
     "send": (

@@ -24,11 +24,13 @@ class RuntimeProbeTest(unittest.TestCase):
         ("tests/rest_banking_probe.metta", "REST_BANKING_OK"),
         ("tests/rest_continuation_probe.metta", "REST_CONTINUATION_OK"),
         ("tests/context_sources_probe.metta", "CONTEXT_SOURCES_OK"),
-        ("tests/iter_process_adapter_probe.metta", "ITER_PROCESS_ADAPTER_OK"),
+        ("tests/native_iter_process_probe.metta", "NATIVE_ITER_PROCESS_OK"),
         ("tests/metta_coding_policy_probe.metta", "METTA_CODING_POLICY_OK"),
         ("tests/structured_request_probe.metta", "STRUCTURED_REQUEST_OK"),
         ("tests/integrated_coding_turn_probe.metta",
          "INTEGRATED_CODING_TURN_OK"),
+        ("tests/native_iter_multiturn_probe.metta",
+         "NATIVE_ITER_MULTITURN_OK"),
         ("tests/interactive_batch_policy_probe.metta",
          "INTERACTIVE_BATCH_POLICY_OK"),
         ("tests/interrupted_cognitive_turn_probe.metta",
@@ -36,7 +38,8 @@ class RuntimeProbeTest(unittest.TestCase):
     )
 
     def assert_witness(self, result, marker, engine):
-        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        diagnostic = (result.stdout + "\n" + result.stderr)[-5000:]
+        self.assertEqual(result.returncode, 0, diagnostic)
         witnessed = ANSI_CONTROL.sub("", result.stdout)
         self.assertRegex(
             witnessed,
@@ -85,6 +88,18 @@ class RuntimeProbeTest(unittest.TestCase):
             }) + "\n", encoding="utf-8")
             for probe, marker in self.PROBES:
                 with self.subTest(probe=probe):
+                    iter_directory = (
+                        pathlib.Path(directory) / "native-iter-multiturn"
+                        if probe == "tests/native_iter_multiturn_probe.metta"
+                        else ROOT / "tests" / "fixtures" /
+                        "native_iter_transformations"
+                    )
+                    prompt_path = pathlib.Path(directory) / "prompt.txt"
+                    prompt_path.write_text(
+                        "GODEL_NATIVE_ITER_PERSONA\n", encoding="utf-8")
+                    pins_path = pathlib.Path(directory) / "pins.txt"
+                    pins_path.write_text(
+                        "GODEL_NATIVE_ITER_PIN\n", encoding="utf-8")
                     env = dict(os.environ)
                     env.update({
                         "METTACLAW_SKIP_INITIALIZE": "1",
@@ -96,13 +111,14 @@ class RuntimeProbeTest(unittest.TestCase):
                         "METTACLAW_CHROMA_DIR": os.path.join(
                             directory, "chroma"),
                         "METTACLAW_ITER_PROCESS_DIR": os.fspath(
-                            ROOT / "tests" / "fixtures" / "iter_processes"),
+                            iter_directory),
+                        "METTACLAW_ITER_PROCESS_TIMEOUT_SECONDS": "0.2",
+                        "METTACLAW_PROMPT_PATH": os.fspath(prompt_path),
                         "METTACLAW_HISTORY_PATH": os.path.join(
                             directory, "history.metta"),
                         "METTACLAW_WORKING_SET_PATH": os.path.join(
                             directory, "working-set.json"),
-                        "METTACLAW_PINS_PATH": os.path.join(
-                            directory, "pins.txt"),
+                        "METTACLAW_PINS_PATH": os.fspath(pins_path),
                         "METTACLAW_LIFECYCLE_PATH": os.fspath(lifecycle),
                         "METTACLAW_DEPLOYMENT_STATE_PATH": os.fspath(
                             deployment),

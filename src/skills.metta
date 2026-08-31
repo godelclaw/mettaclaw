@@ -14,9 +14,9 @@
     "- Finish this fast burst without suspending autonomous renewal: (nop)"
     "- Inspect/select the persistent cognitive loop policy: (mode) | (modes) | (mode-set \"name\")"
     ;ITER REPROGRAMMING:
-    "- List active/disabled hot-reloaded Iter request transformations and their exact revisions: (iter-transformations)"
-    "- Directly install or replace a mutable Iter request transformation for the next model turn; syntax failures install and then stutter visibly: (iter-transform-write \"10_name.py\" \"def transform(messages, tools): ...\")"
-    "- Reversibly disable or enable one Iter transformation using the upstream leading-underscore convention: (iter-transform-disable \"10_name.py\") | (iter-transform-enable \"10_name.py\")"
+    "- List active/disabled hot-reloaded MeTTa Iter request transformations: (iter-transformations)"
+    "- Directly install or replace a mutable MeTTa transformation for the next model turn; failures stutter locally: (iter-transform-write \"10_name.metta\" \"(= (iter-transform $visible) (success $visible))\")"
+    "- Reversibly disable or enable one Iter transformation using the leading-underscore convention: (iter-transform-disable \"10_name.metta\") | (iter-transform-enable \"10_name.metta\")"
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
     "- Read file to string: (read-file \"filename\")"
@@ -85,8 +85,8 @@
         (eval $code)))
 
 ;; This is Iter's mutable developmental seam, deliberately distinct from
-;; proposal-bound edits to stable source.  Each operation returns an exact
-;; revision receipt; a captured in-flight request is never rewritten.
+;; proposal-bound edits to stable source.  A captured in-flight request is
+;; never rewritten.
 (= (iter-transformations)
    (py-call (iter_authoring.list_transformations)))
 

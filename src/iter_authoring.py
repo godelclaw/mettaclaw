@@ -17,13 +17,14 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 from typing import Any
 
-import iter_process_adapter
-
 
 SCHEMA_VERSION = 1
+DEFAULT_PROCESS_DIRECTORY = "memory/transformations"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class AuthoringError(ValueError):
@@ -35,7 +36,9 @@ def _sha256(source: bytes) -> str:
 
 
 def _directory() -> Path:
-    return Path(iter_process_adapter.configured_directory())
+    return Path(os.environ.get(
+        "METTACLAW_ITER_PROCESS_DIR", DEFAULT_PROCESS_DIRECTORY
+    ))
 
 
 def _active_name(value: Any) -> str:
@@ -44,18 +47,29 @@ def _active_name(value: Any) -> str:
         not name
         or name in {".", ".."}
         or name.startswith("_")
-        or not name.endswith(".py")
+        or not name.endswith(".metta")
         or Path(name).name != name
         or "\x00" in name
     ):
         raise AuthoringError(
-            "name must be one active .py entry without a path or leading _"
+            "name must be one active .metta entry without a path or leading _"
         )
     return name
 
 
 def _snapshot_revision(directory: Path) -> str:
-    return iter_process_adapter.capture(directory).revision
+    entries = []
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.metta")):
+            if path.name.startswith("_"):
+                continue
+            raw = _read_regular(path)
+            if raw is not None:
+                entries.append((path.name, _sha256(raw)))
+    encoded = "".join(
+        "%s\0%s\0" % (name, digest) for name, digest in entries
+    ).encode("utf-8")
+    return _sha256(encoded)
 
 
 def _read_regular(path: Path) -> bytes | None:
@@ -112,14 +126,38 @@ def _atomic_write(path: Path, source: bytes, mode: int) -> tuple[str, str]:
 
 
 def _syntax(source: str, filename: str) -> tuple[str, str]:
+    petta_root = Path(os.environ.get(
+        "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
+    ))
+    parser = ROOT / "scripts" / "metta_parse_only.pl"
+    descriptor, temporary = tempfile.mkstemp(
+        prefix="mettaclaw-iter-parse-", suffix=".metta"
+    )
     try:
-        compile(source, filename, "exec")
-        return "pass", ""
-    except (SyntaxError, ValueError) as error:
-        detail = str(error)
-        if isinstance(error, SyntaxError):
-            detail = "%s at line %s" % (error.msg, error.lineno or "unknown")
-        return "fail", detail
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            descriptor = -1
+            stream.write(source)
+        try:
+            result = subprocess.run(
+                ["swipl", "-q", "-s", str(parser),
+                 "--", str(petta_root), temporary],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            return "unavailable", "%s: %s" % (type(error).__name__, error)
+        if result.returncode == 0:
+            return "pass", ""
+        return "fail", (result.stderr or result.stdout or filename).strip()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 
 def _encoded(value: dict[str, Any]) -> str:
@@ -226,20 +264,22 @@ def list_transformations() -> str:
 
     try:
         directory = _directory()
-        snapshot = iter_process_adapter.capture(directory)
         disabled = []
         if directory.is_dir():
-            for path in sorted(directory.glob("_*.py")):
+            for path in sorted(directory.glob("_*.metta")):
                 raw = _read_regular(path)
                 if raw is not None:
                     disabled.append({"name": path.name, "sha256": _sha256(raw)})
         return _encoded({
             "schema": SCHEMA_VERSION,
             "state": "observed",
-            "revision": snapshot.revision,
+            "revision": _snapshot_revision(directory),
             "active": [
-                {"name": item.name, "sha256": item.digest}
-                for item in snapshot.processes
+                {"name": path.name, "sha256": _sha256(raw)}
+                for path in sorted(directory.glob("*.metta"))
+                if not path.name.startswith("_")
+                for raw in (_read_regular(path),)
+                if raw is not None
             ],
             "disabled": disabled,
         })

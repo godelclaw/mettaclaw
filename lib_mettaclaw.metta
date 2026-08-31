@@ -6,7 +6,6 @@
 !(import! &self ./lib_nal7)
 !(import! &self ./src/helper.py)
 !(import! &self ./src/context_sources.py)
-!(import! &self ./src/iter_process_adapter.py)
 !(import! &self ./src/iter_authoring.py)
 !(import! &self ./src/synthetic_llm.py)
 !(import! &self ./src/mcp_bridge.py)
