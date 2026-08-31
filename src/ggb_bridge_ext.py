@@ -259,6 +259,26 @@ CONSENSUS_CLI = os.environ.get("METTACLAW_GGB_CONSENSUS_CLI", "")
 def ggbConsensusTick(agent, iteration):
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
     actions = []
+    store = os.environ.get("METTACLAW_SELFMOD_PROPOSAL_STORE", "")
+    if not store:
+        store = os.path.join(os.path.expanduser("~/.local/state"),
+                             os.environ.get("METTACLAW_INSTANCE", "pettaclaw-godel"),
+                             "selfmod-proposals")
+    if os.path.isdir(store):
+        for _d in os.listdir(store):
+            _mf = os.path.join(store, _d, "manifest.json")
+            if not os.path.isfile(_mf):
+                continue
+            try:
+                with open(_mf) as _f:
+                    _m = json.load(_f)
+                if _m.get("state") == "ready":
+                    _pid = _m.get("proposal_id", "")[:12]
+                    ggbL3Share(agent, "proposal %s target=%s" % (_pid, _m.get("target", "?")),
+                               "proposal", 0.5, 0.6, "selfmod-bridge", ts, "self")
+                    actions.append("bridged:" + _pid)
+            except Exception:
+                pass
     if CONSENSUS_CLI:
         props = ggbL3Query("proposal", 10)
         for p in props:
