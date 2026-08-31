@@ -84,7 +84,7 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "($prompt (coding-request-prompt $request)) "
                 "($observations (coding-request-observations $request)) "
                 "($_ (assertLive (== $prompt legacy) False)) "
-                "($_ (assertLive (== $observations \"\") False))) "
+                "($_ (assertLive $observations \"\"))) "
                 "(println! CETTA_LIVE_REQUEST_OK))\n",
                 encoding="utf-8",
             )

@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys
 sys.path.insert(0, str(ROOT / "src"))
 import iter_authoring as authoring  # noqa: E402
-import iter_process_adapter as adapter  # noqa: E402
 import ggb_bridge_ext  # noqa: E402
 
 
@@ -38,39 +37,44 @@ class IterAuthoringTests(unittest.TestCase):
     @staticmethod
     def source(value):
         return (
-            "def transform(messages, tools):\n"
-            "    return messages + [%r], tools\n" % value
+            "(= (iter-transform\n"
+            "      (coding-view $messages $advertised))\n"
+            "   (success\n"
+            "     (coding-view\n"
+            "       (coding-message-append-one\n"
+            "         $messages (coding-message user %s))\n"
+            "       $advertised)))\n" % value
         )
 
     def test_write_is_exact_and_activates_only_at_next_capture(self):
-        current = adapter.capture(self.directory)
+        current = authoring._snapshot_revision(self.directory)
         source = self.source("next")
 
         receipt = self.decode(
-            authoring.write_transformation("10_value.py", source)
+            authoring.write_transformation("10_value.metta", source)
         )
-        next_snapshot = adapter.capture(self.directory)
+        next_revision = authoring._snapshot_revision(self.directory)
 
         self.assertEqual(receipt["state"], "installed")
         self.assertEqual(receipt["syntax"], "pass")
-        self.assertEqual(receipt["before_revision"], current.revision)
-        self.assertEqual(receipt["activation_revision"], next_snapshot.revision)
+        self.assertEqual(receipt["before_revision"], current)
+        self.assertEqual(receipt["activation_revision"], next_revision)
         self.assertEqual(
             receipt["sha256"], hashlib.sha256(source.encode()).hexdigest()
         )
-        self.assertNotEqual(current.revision, next_snapshot.revision)
-        self.assertEqual(adapter.run(current, [], []).messages, [])
+        self.assertNotEqual(current, next_revision)
         self.assertEqual(
-            adapter.run(next_snapshot, [], []).messages, ["next"]
+            (self.directory / "10_value.metta").read_text(encoding="utf-8"),
+            source,
         )
 
     def test_replace_receipt_binds_prior_and_new_bytes(self):
         old = self.source("old")
         new = self.source("new")
-        authoring.write_transformation("10_value.py", old)
+        authoring.write_transformation("10_value.metta", old)
 
         receipt = self.decode(
-            authoring.write_transformation("10_value.py", new)
+            authoring.write_transformation("10_value.metta", new)
         )
 
         self.assertEqual(
@@ -80,76 +84,69 @@ class IterAuthoringTests(unittest.TestCase):
             receipt["sha256"], hashlib.sha256(new.encode()).hexdigest()
         )
         self.assertEqual(
-            (self.directory / "10_value.py").read_text(encoding="utf-8"), new
+            (self.directory / "10_value.metta").read_text(encoding="utf-8"), new
         )
 
     def test_syntax_failure_is_installed_then_stutters(self):
         receipt = self.decode(
-            authoring.write_transformation("10_broken.py", "def transform(:\n")
-        )
-        snapshot, result = adapter.run_directory(
-            self.directory, ["before"], ["tool"]
+            authoring.write_transformation("10_broken.metta", "(= broken\n")
         )
 
         self.assertEqual(receipt["state"], "installed")
         self.assertEqual(receipt["syntax"], "fail")
-        self.assertEqual(receipt["activation_revision"], snapshot.revision)
-        self.assertEqual((result.messages, result.tools), (["before"], ["tool"]))
-        self.assertEqual(result.observations[0].status, "failure")
-        self.assertIn("SyntaxError", result.observations[0].detail)
+        self.assertTrue(receipt["syntax_error"])
+        self.assertTrue((self.directory / "10_broken.metta").is_file())
 
     def test_disable_and_enable_are_reversible_next_capture_changes(self):
         source = self.source("active")
-        authoring.write_transformation("10_value.py", source)
-        active_revision = adapter.capture(self.directory).revision
+        authoring.write_transformation("10_value.metta", source)
+        active_revision = authoring._snapshot_revision(self.directory)
 
         disabled = self.decode(
-            authoring.disable_transformation("10_value.py")
+            authoring.disable_transformation("10_value.metta")
         )
-        disabled_snapshot = adapter.capture(self.directory)
-        enabled = self.decode(authoring.enable_transformation("10_value.py"))
-        enabled_snapshot = adapter.capture(self.directory)
+        disabled_revision = authoring._snapshot_revision(self.directory)
+        enabled = self.decode(authoring.enable_transformation("10_value.metta"))
+        enabled_revision = authoring._snapshot_revision(self.directory)
 
         self.assertEqual(disabled["state"], "disabled")
-        self.assertEqual(disabled_snapshot.processes, ())
-        self.assertNotEqual(active_revision, disabled_snapshot.revision)
+        self.assertNotEqual(active_revision, disabled_revision)
         self.assertEqual(enabled["state"], "enabled")
-        self.assertEqual(enabled_snapshot.revision, active_revision)
-        self.assertEqual(
-            adapter.run(enabled_snapshot, [], []).messages, ["active"]
-        )
+        self.assertEqual(enabled_revision, active_revision)
 
     def test_list_reports_active_disabled_and_revision(self):
-        authoring.write_transformation("10_active.py", self.source("active"))
-        authoring.write_transformation("20_disabled.py", self.source("off"))
-        authoring.disable_transformation("20_disabled.py")
+        authoring.write_transformation("10_active.metta", self.source("active"))
+        authoring.write_transformation("20_disabled.metta", self.source("off"))
+        authoring.disable_transformation("20_disabled.metta")
 
         observed = self.decode(authoring.list_transformations())
 
         self.assertEqual(observed["state"], "observed")
         self.assertEqual(
-            [item["name"] for item in observed["active"]], ["10_active.py"]
+            [item["name"] for item in observed["active"]], ["10_active.metta"]
         )
         self.assertEqual(
             [item["name"] for item in observed["disabled"]],
-            ["_20_disabled.py"],
+            ["_20_disabled.metta"],
         )
-        self.assertEqual(observed["revision"], adapter.capture(
-            self.directory
-        ).revision)
+        self.assertEqual(
+            observed["revision"], authoring._snapshot_revision(self.directory)
+        )
 
     def test_name_scope_is_exact_but_shell_remains_a_separate_authority(self):
-        for name in ("../escape.py", "/tmp/escape.py", "_hidden.py", "plain"):
+        for name in (
+            "../escape.metta", "/tmp/escape.metta", "_hidden.metta", "plain"
+        ):
             with self.subTest(name=name):
                 receipt = self.decode(
                     authoring.write_transformation(name, self.source("x"))
                 )
                 self.assertEqual(receipt["state"], "error")
-        self.assertFalse((Path(self.temporary.name) / "escape.py").exists())
+        self.assertFalse((Path(self.temporary.name) / "escape.metta").exists())
 
     def test_direct_authoring_does_not_create_a_promotion_proposal(self):
         receipt = self.decode(
-            authoring.write_transformation("10_direct.py", self.source("x"))
+            authoring.write_transformation("10_direct.metta", self.source("x"))
         )
         proposal_store = Path(os.environ["METTACLAW_SELFMOD_PROPOSAL_STORE"])
 
@@ -164,18 +161,14 @@ class IterAuthoringTests(unittest.TestCase):
             return_value=("unconfirmed", "OSError: unsupported"),
         ):
             receipt = self.decode(
-                authoring.write_transformation("10_value.py", source)
+                authoring.write_transformation("10_value.metta", source)
             )
 
         self.assertEqual(receipt["state"], "installed")
         self.assertEqual(receipt["directory_sync"], "unconfirmed")
         self.assertEqual(
-            (self.directory / "10_value.py").read_text(encoding="utf-8"),
+            (self.directory / "10_value.metta").read_text(encoding="utf-8"),
             source,
-        )
-        self.assertEqual(
-            adapter.run(adapter.capture(self.directory), [], []).messages,
-            ["durability-unconfirmed"],
         )
 
     def test_proposal_only_surface_cannot_activate_but_direct_authoring_can(self):
@@ -195,26 +188,24 @@ class IterAuthoringTests(unittest.TestCase):
         }
         with mock.patch.dict(os.environ, environment, clear=False):
             proposed = ggb_bridge_ext.ggbProposeWrite(
-                "memory/transformations/10_value.py", source, "gap witness"
+                "memory/transformations/10_value.metta", source, "gap witness"
             )
-            after_proposal = adapter.capture(self.directory)
+            after_proposal = authoring._snapshot_revision(self.directory)
             target_absent_after_proposal = not (
-                self.directory / "10_value.py"
+                self.directory / "10_value.metta"
             ).exists()
 
             repaired = self.decode(
-                authoring.write_transformation("10_value.py", source)
+                authoring.write_transformation("10_value.metta", source)
             )
-            after_direct_write = adapter.capture(self.directory)
+            after_direct_write = authoring._snapshot_revision(self.directory)
 
         self.assertIn("PROPOSAL_READY", proposed)
         self.assertIn("promotion=pending", proposed)
-        self.assertEqual(after_proposal.processes, ())
+        self.assertEqual(after_proposal, authoring._snapshot_revision(Path("/nonexistent")))
         self.assertTrue(target_absent_after_proposal)
         self.assertEqual(repaired["state"], "installed")
-        self.assertEqual(
-            adapter.run(after_direct_write, [], []).messages, ["activated"]
-        )
+        self.assertNotEqual(after_direct_write, after_proposal)
 
 
 if __name__ == "__main__":

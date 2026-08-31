@@ -83,8 +83,8 @@ class ContextSourcesTest(unittest.TestCase):
             proposal_id = "a" * 64
             proposal = proposals / proposal_id
             proposal.mkdir(parents=True)
-            (transformations / "10_active.py").write_text(
-                "def transform(messages, tools):\n    return messages, tools\n",
+            (transformations / "10_active.metta").write_text(
+                "(= (iter-transform $visible) (success $visible))\n",
                 encoding="utf-8",
             )
             (proposal / "manifest.json").write_text(
@@ -109,7 +109,7 @@ class ContextSourcesTest(unittest.TestCase):
         active = observed["iter_transformations"]["active"]
         self.assertEqual(pending[0]["proposal_id"], proposal_id)
         self.assertEqual(pending[0]["state"], "ready")
-        self.assertEqual(active[0]["name"], "10_active.py")
+        self.assertEqual(active[0]["name"], "10_active.metta")
         self.assertNotIn("promotion", observed["iter_transformations"])
 
     def test_broker_receipt_crosses_the_real_context_bundle(self):

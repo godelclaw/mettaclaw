@@ -1,20 +1,72 @@
-;; Replaceable bridge from MeTTa policy code to a captured Iter process fold.
-;; JSON is the boundary representation.  The adapter reproduces the ordinary
-;; two-rule kernel's replacement/stutter fold without changing that kernel.
-(= (iter-process-run-json $directory $messages-json $tools-json)
-   (py-call
-     (iter_process_adapter.run_json $directory $messages-json $tools-json)))
+;; Transformations are .metta programs.  The host captures their source and
+;; gives each one a fresh SWI-PeTTa child; success replaces the visible request
+;; and every other outcome stutters locally.
+!(import! &self (library lib_import))
+!(import_prolog_function swrite)
+!(import_prolog_function string_concat)
+!(import_prolog_functions_from_file ./src/native_iter.pl (iter-native-run))
 
-;; Request-local structured bridge used by the real turn path.  Python owns
-;; only JSON/process isolation; selection and sequencing remain MeTTa policy.
+(= (iter-process-visible $system-message $activity-message $advertised)
+   (coding-view
+     (coding-message-list
+       (coding-message system $system-message)
+       (coding-message-list
+         (coding-message user $activity-message)
+         coding-messages-empty))
+     (coding-capability-list
+       (coding-capability command-batch $advertised)
+       coding-capabilities-empty)))
+
 (= (iter-process-prepare-request
       $system-message $activity-message $advertised $run-iter)
-   (py-call
-     (iter_process_adapter.prepare_request_json
-       $system-message $activity-message $advertised $run-iter)))
+   (let $visible
+        (iter-process-visible
+          $system-message $activity-message $advertised)
+        (if (== $run-iter 1)
+            (iter-native-run default $visible)
+            (iter-native-result $visible iter-observations-empty))))
 
-(= (iter-process-render-request $prepared-json)
-   (py-call (iter_process_adapter.render_request_json $prepared-json)))
+(= (iter-native-concat3 $left $middle $right)
+   (string_concat (string_concat $left $middle) $right))
 
-(= (iter-process-request-observations $prepared-json)
-   (py-call (iter_process_adapter.render_observations_json $prepared-json)))
+(= (iter-native-render-message (coding-message $role $content))
+   (iter-native-concat3 (swrite $role) ": " (swrite $content)))
+
+(= (iter-native-render-messages coding-messages-empty) "")
+(= (iter-native-render-messages
+      (coding-message-list $head $tail))
+   (let $rendered-head (iter-native-render-message $head)
+        (if (== $tail coding-messages-empty)
+            $rendered-head
+            (iter-native-concat3
+              $rendered-head "\n\n"
+              (iter-native-render-messages $tail)))))
+
+(= (iter-native-render-observations $observations)
+   (if (== $observations iter-observations-empty)
+       ""
+       (string_concat "ITER_PROCESS_OBSERVATIONS "
+                      (swrite $observations))))
+
+(= (iter-process-render-request
+      (iter-native-result
+        (coding-view $messages $advertised) $observations))
+   (let* (($rendered-messages (iter-native-render-messages $messages))
+          ($rendered-advertised (swrite $advertised))
+          ($base
+            (iter-native-concat3
+              $rendered-messages
+              "\n\nADVERTISED_CAPABILITIES:\n"
+              $rendered-advertised))
+          ($rendered-observations
+            (iter-native-render-observations $observations))
+          ($rendered
+            (if (== $rendered-observations "")
+                $base
+                (iter-native-concat3
+                  $base "\n\n" $rendered-observations))))
+     $rendered))
+
+(= (iter-process-request-observations
+      (iter-native-result $visible $observations))
+   (iter-native-render-observations $observations))
