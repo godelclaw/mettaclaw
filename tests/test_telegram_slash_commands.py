@@ -93,6 +93,19 @@ class SlashCommandTest(unittest.TestCase):
             os.environ["METTACLAW_FUEL_MODE_PATH"] = self.previous_fuel_path
         self.tmp.cleanup()
 
+    def test_menu_describes_operator_latch_truthfully(self):
+        descriptions = dict(telegram._MENU_COMMANDS)
+        self.assertEqual(
+            descriptions["start"],
+            "Enable cognition with the operator latch",
+        )
+        self.assertEqual(
+            descriptions["stop"],
+            "Stop cognition with the operator latch",
+        )
+        self.assertNotIn("watcher", descriptions["start"])
+        self.assertNotIn("watcher", descriptions["stop"])
+
     def test_fuel_shows_and_switches_the_discipline(self):
         import fuel_modes
         self.assertEqual(self.handle("/fuel"), "slash_command:/fuel")

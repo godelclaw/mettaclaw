@@ -62,8 +62,8 @@ _CONTROL_COMMANDS = (
 )
 
 _MENU_COMMANDS = (
-    ("start", "Enable cognition under the deployment watcher"),
-    ("stop", "Stop cognition and its deployment watcher"),
+    ("start", "Enable cognition with the operator latch"),
+    ("stop", "Stop cognition with the operator latch"),
     ("engine", "Show or switch the evaluator engine"),
     ("engines", "List evaluator engines"),
     ("fuel", "Show or switch what a renewal does to the budget"),
