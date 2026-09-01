@@ -40,3 +40,8 @@ to-*.md
 *.log
 loo_distill_*.txt
 scratch/
+recovery/
+chroma_db.rebuilt-*/
+
+# Agent-authored knowledge base: private facts, quotes, provenance.
+kb/

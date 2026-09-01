@@ -24,6 +24,13 @@ class FsopsTests(unittest.TestCase):
         self.assertIn("    2\tbeta", out)
         self.assertIn("past the end", fsops.read_lines(self.f, 99, 5))
 
+    def test_whole_file_reads_are_bounded(self):
+        huge = os.path.join(self.tmp.name, "huge.txt")
+        with open(huge, "wb") as fh:
+            fh.write(b"x" * (fsops.MAX_FILE_BYTES + 1))
+        self.assertIn("exceeds", fsops.read_file(huge))
+        self.assertIn("exceeds", fsops.read_lines(huge, 1, 1))
+
     def test_edit_requires_uniqueness_and_reports_line(self):
         out = fsops.edit_file(self.f, "beta", "BETA")
         self.assertIn("2 matches", out)

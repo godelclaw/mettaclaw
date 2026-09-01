@@ -96,8 +96,8 @@ def indexed_blobs(root, paths):
             yield path, result.stdout
 
 
-def historical_blobs(root):
-    objects = git(root, "rev-list", "--objects", "--all").stdout.splitlines()
+def historical_blobs(root, revision):
+    objects = git(root, "rev-list", "--objects", revision).stdout.splitlines()
     seen = set()
     for record in objects:
         oid, _, name = record.partition(b" ")
@@ -111,7 +111,7 @@ def historical_blobs(root):
         yield name.decode("utf-8", "surrogateescape") or oid.decode(), body
 
 
-def audit(root, history=False):
+def audit(root, history=False, revision="HEAD"):
     failures = []
     paths = tracked_paths(root)
     for path in paths:
@@ -119,13 +119,14 @@ def audit(root, history=False):
             failures.append("private path is tracked: " + path)
 
     private_values = local_private_values(root)
-    blobs = historical_blobs(root) if history else indexed_blobs(root, paths)
+    blobs = (historical_blobs(root, revision)
+             if history else indexed_blobs(root, paths))
     for path, body in blobs:
         if any(value in body for value in private_values):
             failures.append("local private value appears in Git data: " + path)
 
     if history and private_values:
-        messages = git(root, "log", "--all", "--format=%B").stdout
+        messages = git(root, "log", revision, "--format=%B").stdout
         if any(value in messages for value in private_values):
             failures.append("local private value appears in commit metadata")
 
@@ -137,7 +138,9 @@ def audit(root, history=False):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--history", action="store_true",
-                        help="also scan every blob reachable from local refs")
+                        help="also scan every blob reachable from a revision")
+    parser.add_argument("--revision", default="HEAD",
+                        help="revision whose reachable history is published")
     parser.add_argument("--repo", type=pathlib.Path,
                         default=pathlib.Path(__file__).resolve().parents[1])
     args = parser.parse_args()
@@ -145,7 +148,7 @@ def main():
     if not (root / ".git").exists():
         print("public-tree audit failed: not a Git worktree", file=sys.stderr)
         return 2
-    return audit(root, args.history)
+    return audit(root, args.history, args.revision)
 
 
 if __name__ == "__main__":

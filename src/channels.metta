@@ -35,7 +35,7 @@
 ;Receive the latest user message considering all communication channels:
 (= (receive)
    (if (== (commchannel) telegram)
-       (py-call (telegram.getLastMessage))
+       (py-call (telegram.getActivityBatch))
        (if (== (commchannel) irc)
            (py-call (irc.getLastMessage))
            (py-call (mattermost.getLastMessage)))))
@@ -52,13 +52,26 @@
              (if (== (commchannel) irc)
                  (let $temp (cut) (py-call (irc.send_message $outmsg)))
 	                 (if (== (commchannel) telegram)
-	                     (let $temp (cut) (py-call (telegram.send_message $outmsg)))
+	                     (let $temp (cut) (py-call (telegram.send_effect_message $outmsg)))
 	                     (let $temp (cut) (py-call (mattermost.send_message $outmsg))))))))
 
 (= (send-telegram-chat $chat_id $msg)
    (let $safemsg (string-replace $msg  "\n" "\\n")
         (let $outmsg (py-call (helper.decode_safe_text $safemsg))
-             (let $temp (cut) (py-call (telegram.send_message_to_chat $chat_id $outmsg))))))
+             (let $temp (cut) (py-call (telegram.send_effect_message_to_chat $chat_id $outmsg))))))
+
+;; Clean up after a test send: delete your own last k messages to a chat,
+;; newest first, using the ids recorded when they were sent. Only your own
+;; messages, only within Telegram's 48h window.
+(= (delete-my-recent $chat_id $k)
+   (py-call (telegram.delete_my_recent $chat_id $k)))
+
+;; Exact-address cleanup for a receipt-backed bot-owned Telegram message.
+;; Legacy ids absent from the own-send ledger require the authenticated
+;; operator's /delete fast path; group-admin deletion authority is not exposed
+;; through the model skill.
+(= (delete-message-exact $chat_id $message_id)
+   (py-call (telegram.delete_recorded_message $chat_id $message_id)))
 
 ;Search the internet for some information:
 (= (search $msg)

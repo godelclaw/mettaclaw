@@ -1,0 +1,176 @@
+"""Require semantic witnesses from the real PeTTa runtime probes."""
+
+import os
+import json
+import pathlib
+import re
+import subprocess
+import tempfile
+import time
+import unittest
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+ANSI_CONTROL = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+class RuntimeProbeTest(unittest.TestCase):
+    PROBES = (
+        ("tests/weak_process_core_probe.metta", "WEAK_PROCESS_CORE_OK"),
+        ("tests/weak_process_episode_probe.metta", "WEAK_PROCESS_EPISODE_OK"),
+        ("tests/shared_policy_turn_probe.metta", "SHARED_POLICY_TURN_OK"),
+        ("tests/loop_policy_probe.metta", "LOOP_POLICY_OK"),
+        ("tests/fuel_policy_probe.metta", "FUEL_POLICY_OK"),
+        ("tests/rest_banking_probe.metta", "REST_BANKING_OK"),
+        ("tests/rest_continuation_probe.metta", "REST_CONTINUATION_OK"),
+        ("tests/context_sources_probe.metta", "CONTEXT_SOURCES_OK"),
+        ("tests/native_iter_process_probe.metta", "NATIVE_ITER_PROCESS_OK"),
+        ("tests/metta_coding_policy_probe.metta", "METTA_CODING_POLICY_OK"),
+        ("tests/structured_request_probe.metta", "STRUCTURED_REQUEST_OK"),
+        ("tests/integrated_coding_turn_probe.metta",
+         "INTEGRATED_CODING_TURN_OK"),
+        ("tests/native_iter_multiturn_probe.metta",
+         "NATIVE_ITER_MULTITURN_OK"),
+        ("tests/interactive_batch_policy_probe.metta",
+         "INTERACTIVE_BATCH_POLICY_OK"),
+        ("tests/interrupted_cognitive_turn_probe.metta",
+         "INTERRUPTED_COGNITIVE_TURN_OK"),
+    )
+
+    def assert_witness(self, result, marker, engine):
+        diagnostic = (result.stdout + "\n" + result.stderr)[-5000:]
+        self.assertEqual(result.returncode, 0, diagnostic)
+        witnessed = ANSI_CONTROL.sub("", result.stdout)
+        self.assertRegex(
+            witnessed,
+            re.compile(r"^%s$" % re.escape(marker), re.MULTILINE),
+            "%s exited successfully without reaching the semantic witness"
+            % engine,
+        )
+
+    def test_each_probe_reaches_its_success_witness(self):
+        petta_root = pathlib.Path(os.environ.get(
+            "PETTA_ROOT", pathlib.Path.home() / "repos" / "PeTTa"))
+        if not (petta_root / "run.sh").is_file():
+            self.skipTest("PeTTa checkout is unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            test_bin = pathlib.Path(directory) / "bin"
+            test_bin.mkdir()
+            systemctl = test_bin / "systemctl"
+            systemctl.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = --user ] && [ \"$2\" = is-active ]; then\n"
+                "  echo active\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            systemctl.chmod(0o755)
+            lifecycle = pathlib.Path(directory) / "lifecycle.json"
+            lifecycle.write_text(
+                json.dumps({"schema": 1, "state": "running"}) + "\n",
+                encoding="utf-8",
+            )
+            deployment = pathlib.Path(directory) / "deployment.json"
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT,
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            deployment.write_text(json.dumps({
+                "candidate": head,
+                "last_observation": {
+                    "observed_at": time.time(),
+                    "head": head,
+                    "active": True,
+                    "problems": [],
+                },
+            }) + "\n", encoding="utf-8")
+            for probe, marker in self.PROBES:
+                with self.subTest(probe=probe):
+                    iter_directory = (
+                        pathlib.Path(directory) / "native-iter-multiturn"
+                        if probe == "tests/native_iter_multiturn_probe.metta"
+                        else ROOT / "tests" / "fixtures" /
+                        "native_iter_transformations"
+                    )
+                    prompt_path = pathlib.Path(directory) / "prompt.txt"
+                    prompt_path.write_text(
+                        "GODEL_NATIVE_ITER_PERSONA\n", encoding="utf-8")
+                    pins_path = pathlib.Path(directory) / "pins.txt"
+                    pins_path.write_text(
+                        "GODEL_NATIVE_ITER_PIN\n", encoding="utf-8")
+                    env = dict(os.environ)
+                    env.update({
+                        "METTACLAW_SKIP_INITIALIZE": "1",
+                        "METTACLAW_ENGINE": "petta",
+                        "METTACLAW_ENGINE_STATE_PATH": os.path.join(
+                            directory, "engine"),
+                        "METTACLAW_LOOP_MODE_PATH": os.path.join(
+                            directory, "loop-mode.json"),
+                        "METTACLAW_CHROMA_DIR": os.path.join(
+                            directory, "chroma"),
+                        "METTACLAW_ITER_PROCESS_DIR": os.fspath(
+                            iter_directory),
+                        "METTACLAW_ITER_PROCESS_TIMEOUT_SECONDS": "0.2",
+                        "METTACLAW_PROMPT_PATH": os.fspath(prompt_path),
+                        "METTACLAW_HISTORY_PATH": os.path.join(
+                            directory, "history.metta"),
+                        "METTACLAW_WORKING_SET_PATH": os.path.join(
+                            directory, "working-set.json"),
+                        "METTACLAW_PINS_PATH": os.fspath(pins_path),
+                        "METTACLAW_LIFECYCLE_PATH": os.fspath(lifecycle),
+                        "METTACLAW_DEPLOYMENT_STATE_PATH": os.fspath(
+                            deployment),
+                        "PATH": os.pathsep.join((
+                            os.fspath(test_bin), env.get("PATH", ""),
+                        )),
+                    })
+                    result = subprocess.run(
+                        ["./run.sh", probe], cwd=ROOT, env=env,
+                        stdin=subprocess.DEVNULL, capture_output=True,
+                        text=True, timeout=30,
+                    )
+                    self.assert_witness(result, marker, "PeTTa")
+                    if probe == "tests/interactive_batch_policy_probe.metta":
+                        mode_path = pathlib.Path(directory) / "loop-mode.json"
+                        history_path = pathlib.Path(directory) / "history.metta"
+                        self.assertTrue(mode_path.is_file())
+                        self.assertIn("coding", mode_path.read_text(
+                            encoding="utf-8"))
+                        self.assertTrue(history_path.is_file())
+                        self.assertIn("probe-stimulus", history_path.read_text(
+                            encoding="utf-8"))
+                    if probe == "tests/interrupted_cognitive_turn_probe.metta":
+                        pins_path = pathlib.Path(directory) / "pins.txt"
+                        pins = (pins_path.read_text(encoding="utf-8")
+                                if pins_path.is_file() else "")
+                        self.assertNotIn(
+                            "withheld-cognitive-pin-must-not-land", pins)
+
+    def test_context_projection_crosses_cetta_provider_boundary(self):
+        cetta = pathlib.Path(os.environ.get(
+            "CETTA_BIN",
+            pathlib.Path.home() / "repos" / "CeTTa-runtime" / "cetta"))
+        if not cetta.is_file():
+            self.skipTest("CeTTa executable is unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ)
+            env.update({
+                "CETTA_BIN": os.fspath(cetta),
+                "METTACLAW_SKIP_INITIALIZE": "1",
+                "METTACLAW_ENGINE": "cetta",
+                "METTACLAW_ENGINE_STATE_PATH": os.path.join(
+                    directory, "engine"),
+                "METTACLAW_CHROMA_DIR": os.path.join(directory, "chroma"),
+            })
+            result = subprocess.run(
+                ["./run.sh", "tests/context_sources_probe.metta"],
+                cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assert_witness(result, "CONTEXT_SOURCES_OK", "CeTTa")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

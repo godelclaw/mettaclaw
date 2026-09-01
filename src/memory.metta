@@ -1,25 +1,31 @@
 ;Configured at runtime memory and history in amount of characters:
 (= (maxFeedback) (empty))
 (= (maxRecallItems) (empty))
-(= (maxHistory) (empty))
+(= (maxRecentTurns) (empty))
 
 (= (initMemory)
    (progn (println! "Initializing memory")
           (configure maxFeedback 50000)
           (configure maxRecallItems 20)
-          (configure maxHistory 30000)))
+          (configure maxRecentTurns 8)))
 
 (= (getPrompt)
    (read-file (py-call (helper.path_from_env "METTACLAW_PROMPT_PATH" "./memory/prompt.txt"))))
 
-;; Anchored window (not a sliding tail): byte-stable start so the provider
-;; prompt cache keeps hitting as history appends; re-anchors only when the
-;; window outgrows its cap.
-(= (getHistory)
-   (py-call (helper.history_window
-              (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")))))
+;; The running proposal window: what the model requested over the last few
+;; substantive turns. Broker receipts, not this transcript, say what ran.
+;; No-op turns do not consume a slot.
+(= (recentActions)
+   (py-call (helper.recent_actions
+              (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta"))
+              (maxRecentTurns))))
 
-(= (addToHistory $lastmessage $response $sexpr $msgnew)
+(= (relevantFiles)
+   (py-call (helper.relevant_files
+              (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta"))
+              (maxRecentTurns))))
+
+(= (addToHistory $lastmessage $response $msgnew)
    (if $msgnew
        (if (== (get-state &error) ())
            (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline)))
@@ -29,7 +35,7 @@
            (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
 
 (= (appendToHistory $addition)
-   (append-file (py-call (helper.path_from_env "METTACLAW_HISTORY_PATH" "./memory/history.metta")) (swrite $addition)))
+   (py-call (helper.history_append (swrite $addition))))
 
 ;; Guarded: a dead embed daemon returns an instructive string result
 ;; ("do not infer absence") instead of a generic command error.

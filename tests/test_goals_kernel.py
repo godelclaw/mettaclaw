@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import goals  # noqa: E402
@@ -72,6 +73,29 @@ class GoalKernelTests(unittest.TestCase):
         self.assertTrue(goals.goal_drop("attune", "bored", path)
                         .startswith("rejected"))
 
+    def test_4c_cull_flag_clears_after_recovery(self):
+        weak = GOAL.replace("sti:0.8", "sti:0.01").replace("lti:0.3", "lti:0.01")
+        path = self.stack([weak])
+        goals.kernel_pass(path)
+        self.assertIn("cull-review", goals.goals_view(path))
+        self.assertIn("updated", goals.goal_write(GOAL, path))
+        goals.kernel_pass(path)
+        self.assertNotIn("cull-review", goals.goals_view(path))
+
+    def test_4d_compost_failure_preserves_goal(self):
+        path = self.stack([FREE])
+        real_open = open
+
+        def guarded_open(name, mode="r", *args, **kwargs):
+            if str(name).endswith("goals_compost.log") and "a" in mode:
+                raise OSError("disk unavailable")
+            return real_open(name, mode, *args, **kwargs)
+
+        with mock.patch("builtins.open", side_effect=guarded_open):
+            result = goals.goal_drop("attune", "solved", path)
+        self.assertIn("compost log was not written", result)
+        self.assertIn("(goal attune", goals.goals_view(path))
+
     def test_5_gamma_mood_average(self):
         path = self.stack([FREE])
         log = os.path.join(self.tmp.name, "updates.jsonl")
@@ -83,8 +107,11 @@ class GoalKernelTests(unittest.TestCase):
         with open(log, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"kind": "outbound", "text": "yo\n" + t2}) + "\n")
         goals.kernel_pass(path, log)
-        # 0.9*0.5 + 0.1*0.8 = 0.53 per dimension
-        self.assertIn("(mood Cn:0.53", goals.goals_view(path))
+        # 0.69*0.5 + 0.31*0.8 = 0.593 per dimension
+        self.assertIn("(mood Cn:0.593", goals.goals_view(path))
+        gestalt = goals.affect_view(path)
+        self.assertIn("gamma:0.69", gestalt)
+        self.assertIn("Cn:0.593", gestalt)
 
     def test_decay_and_lti_math(self):
         path = self.stack([FREE])
@@ -105,6 +132,42 @@ class GoalKernelTests(unittest.TestCase):
                         .startswith("rejected"))
         self.assertIn("added", goals.goal_write(GOAL, path))
         self.assertIn("updated", goals.goal_write(GOAL, path))
+
+    def test_legacy_records_migrate_and_canonical_duplicate_wins(self):
+        legacy_only = ("(goal legacy Work sti:0.2 lti:0.4 vibes:(care) "
+                       "blocked-by:none)")
+        legacy_duplicate = ("(goal attune Old sti:0.8 lti:0.1 vibes:(old) "
+                            "blocked-by:none)")
+        path = self.stack([legacy_only, legacy_duplicate, FREE])
+        result = goals.kernel_pass(path)
+        self.assertIn("2 goals", result)
+        view = goals.goals_view(path)
+        self.assertEqual(view.count("(goal attune "), 1)
+        self.assertIn("(goal attune Relationship", view)
+        self.assertIn("(goal legacy Work", view)
+        self.assertIn('last-verified:never note:""', view)
+
+    def test_malformed_goal_record_fails_without_rewrite(self):
+        path = self.stack([FREE, "(goal broken)"])
+        before = goals.goals_view(path)
+        self.assertIn("malformed goal record", goals.kernel_pass(path))
+        self.assertEqual(goals.goals_view(path), before)
+        self.assertIn("malformed goal record", goals.goal_write(GOAL, path))
+        self.assertEqual(goals.goals_view(path), before)
+
+    def test_invalid_number_is_rejected_without_exception(self):
+        path = self.stack([])
+        bad = FREE.replace("sti:0.9", "sti:1.2.3")
+        self.assertTrue(goals.goal_write(bad, path).startswith("rejected"))
+
+    def test_attention_uses_lti_when_sti_is_at_the_floor(self):
+        high = FREE.replace("attune", "durable").replace("lti:0.5", "lti:0.9")
+        low = FREE.replace("attune", "fresh").replace("lti:0.5", "lti:0.2")
+        high = high.replace("sti:0.9", "sti:0.0009")
+        low = low.replace("sti:0.9", "sti:0.0009")
+        path = self.stack([low, high])
+        ranking = goals.attention_view(path)
+        self.assertLess(ranking.index("durable"), ranking.index("fresh"))
 
     def test_goal_write_unquoted_note_and_hyphenated_blocked(self):
         # command-channel form: no embedded quotes anywhere
@@ -130,8 +193,8 @@ class GoalKernelTests(unittest.TestCase):
             fh.write(json.dumps({"kind": "outbound", "text": "b\n" + new9}) + "\n")
         goals.kernel_pass(path, log)
         view = goals.goals_view(path)
-        self.assertIn("(mood Cn:0.53", view)            # 0.9*.5+0.1*.8
-        self.assertIn("Sp:0.08", view)                  # 0.9*0 +0.1*.8
+        self.assertIn("(mood Cn:0.593", view)           # 0.69*.5+0.31*.8
+        self.assertIn("Sp:0.248", view)                 # 0.69*0 +0.31*.8
 
 
 if __name__ == "__main__":

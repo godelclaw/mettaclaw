@@ -53,6 +53,20 @@ class PublicTreeAuditTest(unittest.TestCase):
         self.assertIn("leak.txt", result.stderr)
         self.assertNotIn("777000777", result.stderr)
 
+    def test_unpublished_local_ref_does_not_taint_head(self):
+        tmp, root = self.make_repo()
+        self.addCleanup(tmp.cleanup)
+        run("git", "switch", "-qc", "private-experiment", cwd=root)
+        (root / "private.txt").write_text(
+            "operator=777000777\n", encoding="utf-8")
+        run("git", "add", "private.txt", cwd=root)
+        run("git", "commit", "-qm", "private experiment", cwd=root)
+        run("git", "switch", "-q", "master", cwd=root)
+        result = run(
+            "python3", str(AUDIT), "--history", "--revision", "HEAD",
+            "--repo", str(root), cwd=root, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_private_runtime_path_is_rejected(self):
         tmp, root = self.make_repo()
         self.addCleanup(tmp.cleanup)
@@ -63,6 +77,22 @@ class PublicTreeAuditTest(unittest.TestCase):
                      cwd=root, check=False)
         self.assertEqual(result.returncode, 1)
         self.assertIn("memory/history.metta", result.stderr)
+
+    def test_no_unconsented_process_jail_in_tracked_runtime(self):
+        forbidden = ("b" + "wrap", "bubble" + "wrap")
+        tracked = run("git", "ls-files", "-z", cwd=ROOT).stdout.split("\0")
+        found = []
+        for relative in tracked:
+            if not relative:
+                continue
+            path = ROOT / relative
+            try:
+                text = path.read_text(encoding="utf-8").lower()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if any(token in text for token in forbidden):
+                found.append(relative)
+        self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

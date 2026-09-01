@@ -37,9 +37,12 @@ class ProviderRoutingTest(unittest.TestCase):
             "SYNTHETIC_API_KEY": "syn-key",
             "SYNTHETIC_RETRIES": "0",
             "SYNTHETIC_TIMEOUT": "5",
+            "SYNTHETIC_EMPTY_BACKOFF": "0",
             "ANTHROPIC_ENABLED_FLAG": self.flag,
             "METTACLAW_MODEL_STATE_PATH": os.path.join(
                 self.flag_dir, "active-model.txt"),
+            "METTACLAW_COGNITIVE_HEALTH_PATH": os.path.join(
+                self.flag_dir, "cognitive-health.json"),
         }, clear=False)
         self.env.start()
         os.environ.pop("SYNTHETIC_MODEL", None)
@@ -74,6 +77,9 @@ class ProviderRoutingTest(unittest.TestCase):
             "https://api.synthetic.new/openai/v1/chat/completions")
         self.assertEqual(seen["auth"], "Bearer syn-key")
         self.assertEqual(seen["body"]["model"], "syn:large:text")
+        health = synthetic_llm.cognitive_health.snapshot()
+        self.assertEqual(health["completed_count"], 1)
+        self.assertEqual(health["pending_since"], 0)
 
     def test_claude_model_routes_to_native_messages_api(self):
         self.enable_flag()
@@ -113,6 +119,15 @@ class ProviderRoutingTest(unittest.TestCase):
             out = synthetic_llm.chat("syn:large:text", 6000, "medium", "hi")
         self.assertEqual(out, "()")
 
+    def test_native_empty_max_tokens_is_diagnosed(self):
+        reason = synthetic_llm._diagnose_empty({
+            "content": [],
+            "stop_reason": "max_tokens",
+            "usage": {"output_tokens": 6000},
+        })
+        self.assertIn("stop_reason=max_tokens", reason)
+        self.assertIn("output_tokens=6000", reason)
+
     def test_set_model_claude_requires_key(self):
         self.enable_flag()
         msg = synthetic_llm.set_model("claude-fable-5")
@@ -145,7 +160,8 @@ class ProviderRoutingTest(unittest.TestCase):
             _os.environ["ANTHROPIC_API_KEY"] = "anth-key"
             self.enable_flag() if hasattr(self, "enable_flag") else None
             synthetic_llm.set_model("claude-fable-5")
-            self.assertIn("(active-model claude-fable-5)", open(state).read())
+            with open(state, encoding="utf-8") as handle:
+                self.assertIn("(active-model claude-fable-5)", handle.read())
             # simulate a restart: boot env sets the config default, then the
             # module import restores the persisted choice
             _os.environ["SYNTHETIC_MODEL"] = "syn:large:text"

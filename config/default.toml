@@ -3,6 +3,8 @@
 [paths]
 # These are expanded by initialize.sh when it generates .env.
 petta_root = "$HOME/repos/PeTTa"
+# CeTTa checkout used by `/engine cetta`; it must provide `--lang petta`.
+cetta_root = "$HOME/repos/CeTTa-runtime"
 # Python env PeTTa/swipl links against; install requirements.txt into it.
 # Point this at YOUR env -- the name below is only a placeholder.
 petta_py_env = "$HOME/miniforge3/envs/petta"
@@ -11,10 +13,11 @@ petta_py_env = "$HOME/miniforge3/envs/petta"
 # installed in petta_py_env; do not inject another venv into PYTHONPATH.
 session_memory_tools = ""
 
-# Live state defaults stay under this checkout.
+# Mutable transport state lives outside the checkout. This keeps atomic
+# offset updates working when the deployed program tree is mounted read-only.
 chroma_dir = "$ROOT/chroma_db"
-telegram_offset_path = "$ROOT/telegram_offset.txt"
-telegram_log_path = "$ROOT/telegram_updates.jsonl"
+telegram_offset_path = "$STATE_HOME/$INSTANCE/telegram/offset"
+telegram_log_path = "$STATE_HOME/$INSTANCE/telegram/updates.jsonl"
 prompt_path = "$ROOT/memory/prompt.txt"
 history_path = "$ROOT/memory/history.metta"
 memory_log_dir = "$ROOT/memory/remembered"
@@ -43,6 +46,16 @@ allow_private = true
 # "auto" tries Tavily first when TAVILY_API_KEY is set, then DuckDuckGo HTML.
 # Use "tavily" or "ddg" to force one provider for the default (search "...").
 provider = "auto"
+
+[context]
+# Views remain bounded, but their horizons are ordinary replaceable policy.
+recent_action_turns = 12
+conversation_events = 64
+# Optional evidence adapters. Empty means absent, not a machine-specific
+# default. A local deployment may point these at an immutable report garden
+# and a schema-1 project registry without changing the agent kernel.
+reports_root = ""
+project_registry_path = ""
 
 [memory]
 collection = "memories"

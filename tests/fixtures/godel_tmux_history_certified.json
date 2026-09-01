@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "description": "The same abstract task pattern with witnessed phases and stimulus invalidation.",
+  "events": [
+    {"type": "context", "evidence_revision": "r1", "context_chars": 15000},
+    {"type": "phase", "phase": "create-room", "status": "active"},
+    {"type": "effect", "action_id": "a1", "effect_key": "create-room", "issued_revision": "r1", "depends_on_stimulus": true, "result": "success", "receipt": "e1"},
+    {"type": "phase", "phase": "create-room", "status": "completed"},
+    {"type": "stimulus", "evidence_revision": "r2", "at_ms": 100},
+    {"type": "interrupt", "at_ms": 102},
+    {"type": "context", "evidence_revision": "r2", "context_chars": 15500},
+    {"type": "claim", "claim": "completed", "supported_by": "e1"},
+    {"type": "recovery", "required_sources": ["repository", "reports", "goals"], "recovered_sources": ["repository", "reports", "goals"]}
+  ]
+}

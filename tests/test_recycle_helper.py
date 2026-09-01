@@ -7,7 +7,16 @@ from unittest import mock
 from src.helper import recycle_requested
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class RecycleRequestTests(unittest.TestCase):
+    def test_operator_helper_uses_deployed_instance_name(self):
+        script = (ROOT / "scripts" / "request_recycle.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('${INSTANCE_DEFAULT#pettaclaw-}', script)
+
     def test_disabled_without_a_configured_path(self):
         with mock.patch.dict(
             os.environ, {"METTACLAW_RECYCLE_REQUEST_PATH": ""}, clear=False
