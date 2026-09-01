@@ -16,4 +16,5 @@
 (= (model-response-commands $parsed)
    (case $parsed
      (((Error $a $b) ())
+      ((no_commands_parsed) ())
       ($valid $valid))))

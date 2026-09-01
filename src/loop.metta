@@ -206,6 +206,9 @@
           ;; reduce grounded skills even when the broker withheld them.
           ($parseOutcome
             (if (== $sexpr ()) no-commands commands-parsed))
+          ($paced
+            (applyProtocolPacing (sleepInterval) 60
+                                 $periphery $parseOutcome))
           ($_ (println! (RESPONSE: $sexpr)))
           ($_ (cut))
           ;; The explicit quote keeps grounded commands inert until the
@@ -230,7 +233,7 @@
                 (string-safe
                   (py-str ($requestObservations " " (repr $results))))))
           ($withResults
-            (coordinate-set last-results $feedback $periphery))
+            (coordinate-set last-results $feedback $paced))
           ($directed (loop-directives-apply $withResults))
           ($banked (applyRestBanking $directed))
           ($_ (loop-directives-clear))

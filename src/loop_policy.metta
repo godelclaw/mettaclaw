@@ -120,3 +120,12 @@
             (and (== $wait-timed-out 1) (== $paused 0)))
        1
        0))
+
+;; A response that does not cross the command protocol is a provider-boundary
+;; failure, not permission to hammer the provider. Keep the agent's remaining
+;; energy intact, install positive retry pacing, and restore normal pacing as
+;; soon as a valid command sequence crosses the boundary.
+(= (applyProtocolPacing $normal $retry $periphery $outcome)
+   (coordinate-set sleep-interval
+     (if (== $outcome no-commands) (max 1 $retry) $normal)
+     $periphery))

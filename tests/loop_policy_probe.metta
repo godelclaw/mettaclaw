@@ -44,6 +44,13 @@
          ($_ (assertEqual (policy-wait-seconds iter 0 600 1) 600))
          ($_ (assertEqual (policy-autonomous-turn iter 1 False 0) True))
          ($_ (assertEqual (policy-autonomous-turn agent 1 False 0) False))
+         ($invalid (applyProtocolPacing 1 60 $periphery no-commands))
+         ($_ (assertEqual (loop-budget $invalid) 12))
+         ($_ (assertEqual (loop-sleep $invalid) 60))
+         ($recovered
+           (applyProtocolPacing 1 60 $invalid commands-parsed))
+         ($_ (assertEqual (loop-budget $recovered) 12))
+         ($_ (assertEqual (loop-sleep $recovered) 1))
          ($_ (loop-directives-clear))
          ($_ (loop-directive-set loops 0))
          ($_ (loop-directive-set sleep-interval 900))

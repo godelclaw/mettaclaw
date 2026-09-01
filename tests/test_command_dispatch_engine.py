@@ -83,8 +83,21 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "system activity advertised)) "
                 "($prompt (coding-request-prompt $request)) "
                 "($observations (coding-request-observations $request)) "
+                "($commands (model-response-commands "
+                "(model-response-read "
+                "(model-response-envelope protocol-failure)))) "
+                "($before (coordinate loops 12 "
+                "(coordinate sleep-interval 1 coordinates-empty))) "
+                "($failed (applyProtocolPacing 1 60 $before no-commands)) "
+                "($answered (applyProtocolPacing 1 60 $failed "
+                "commands-parsed)) "
                 "($_ (assertLive (== $prompt legacy) False)) "
-                "($_ (assertLive $observations \"\"))) "
+                "($_ (assertLive $observations \"\")) "
+                "($_ (assertLive $commands ())) "
+                "($_ (assertLive (loop-budget $failed) 12)) "
+                "($_ (assertLive (loop-sleep $failed) 60)) "
+                "($_ (assertLive (loop-budget $answered) 12)) "
+                "($_ (assertLive (loop-sleep $answered) 1))) "
                 "(println! CETTA_LIVE_REQUEST_OK))\n",
                 encoding="utf-8",
             )

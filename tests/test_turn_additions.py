@@ -48,6 +48,21 @@ class TurnAdditionShapeTests(unittest.TestCase):
         ):
             self.assertIn(name, shadow)
 
+    def test_non_command_envelope_cannot_reach_the_effect_broker(self):
+        pipeline = (ROOT / "src" / "command_pipeline.metta").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("((no_commands_parsed) ())", pipeline)
+
+    def test_protocol_failure_paces_without_spending_energy(self):
+        policy = (ROOT / "src" / "loop_policy.metta").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("(applyProtocolPacing", policy)
+        self.assertIn("(max 1 $retry)", policy)
+        loop = (ROOT / "src" / "loop.metta").read_text(encoding="utf-8")
+        self.assertIn("(applyProtocolPacing (sleepInterval) 60", loop)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

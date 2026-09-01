@@ -20,6 +20,7 @@ class RuntimeProbeTest(unittest.TestCase):
         ("tests/weak_process_episode_probe.metta", "WEAK_PROCESS_EPISODE_OK"),
         ("tests/shared_policy_turn_probe.metta", "SHARED_POLICY_TURN_OK"),
         ("tests/loop_policy_probe.metta", "LOOP_POLICY_OK"),
+        ("tests/protocol_recovery_probe.metta", "PROTOCOL_RECOVERY_OK"),
         ("tests/fuel_policy_probe.metta", "FUEL_POLICY_OK"),
         ("tests/rest_banking_probe.metta", "REST_BANKING_OK"),
         ("tests/rest_continuation_probe.metta", "REST_CONTINUATION_OK"),

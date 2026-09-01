@@ -21,14 +21,6 @@ def _float_env(name, default, minimum):
     return max(value, minimum)
 
 
-def _int_env(name, default, minimum):
-    try:
-        value = int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return default
-    return max(value, minimum)
-
-
 _consecutive_empty = 0
 
 
@@ -332,50 +324,37 @@ def chat(model, max_tokens, effort, prompt):
             },
         )
     timeout = _float_env("SYNTHETIC_TIMEOUT", 120.0, 1.0)
-    retries = _int_env("SYNTHETIC_RETRIES", 6, 0)
-    delay = _float_env("SYNTHETIC_RETRY_DELAY", 2.0, 0.0)
-    last_error = None
-    for attempt in range(retries + 1):
-        retry_after = None
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                payload = json.loads(response.read())
-            content = _extract_content(payload)
-            if isinstance(content, str) and content.strip():
-                _note_answered()
-                cognitive_health.turn_completed(len(content.encode("utf-8")))
-                return content
-            return _empty_action(_diagnose_empty(payload))
-        except urllib.error.HTTPError as exc:
-            if exc.code not in _RETRIABLE_HTTP_STATUS:
-                cognitive_health.turn_failed("HTTPError")
-                raise
-            last_error = exc
-            if exc.headers is not None:
-                retry_after = exc.headers.get("Retry-After")
-        except (
-            TimeoutError,
-            socket.timeout,
-            urllib.error.URLError,
-            ConnectionError,
-            http.client.HTTPException,
-        ) as exc:
-            last_error = exc
-        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-            last_error = exc
-        if attempt < retries:
-            # Exponential backoff (delay * 2^attempt, capped at 64s): quick
-            # retries absorb transient rate limits; the long tail idles politely
-            # through credit outages instead of hammering the API. A server
-            # Retry-After wins when it asks for longer.
-            wait = delay * (2 ** attempt)
-            if retry_after is not None:
-                try:
-                    wait = max(wait, float(retry_after))
-                except (TypeError, ValueError):
-                    pass
-            time.sleep(min(64.0, wait))
-    return _empty_action(last_error)
+    # One cognitive turn owns exactly one external request. Retrying here
+    # hides multiple calls inside one turn, keeps the loop unavailable for an
+    # unbounded interval, and defeats its explicit pacing state. A transient
+    # failure crosses the boundary as (), where provider backoff and protocol
+    # recovery pace the next ordinary turn.
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            payload = json.loads(response.read())
+        content = _extract_content(payload)
+        if isinstance(content, str) and content.strip():
+            _note_answered()
+            cognitive_health.turn_completed(len(content.encode("utf-8")))
+            return content
+        return _empty_action(_diagnose_empty(payload))
+    except urllib.error.HTTPError as exc:
+        if exc.code not in _RETRIABLE_HTTP_STATUS:
+            cognitive_health.turn_failed("HTTPError")
+            raise
+        return _empty_action(exc)
+    except (
+        TimeoutError,
+        socket.timeout,
+        urllib.error.URLError,
+        ConnectionError,
+        http.client.HTTPException,
+        json.JSONDecodeError,
+        KeyError,
+        IndexError,
+        TypeError,
+    ) as exc:
+        return _empty_action(exc)
 
 
 # --- API introspection: quota, models, model switching ------------------------

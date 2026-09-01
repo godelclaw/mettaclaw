@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+import urllib.error
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -127,6 +128,22 @@ class ProviderRoutingTest(unittest.TestCase):
         })
         self.assertIn("stop_reason=max_tokens", reason)
         self.assertIn("output_tokens=6000", reason)
+
+    def test_one_cognitive_turn_never_hides_replacement_requests(self):
+        os.environ["SYNTHETIC_RETRIES"] = "99"
+        calls = []
+
+        def unavailable(_request, timeout=None):
+            calls.append(timeout)
+            raise urllib.error.URLError("temporarily unavailable")
+
+        with mock.patch.object(
+                synthetic_llm.urllib.request, "urlopen", unavailable):
+            out = synthetic_llm.chat(
+                "syn:large:text", 6000, "medium", "hello")
+
+        self.assertEqual(out, "()")
+        self.assertEqual(len(calls), 1)
 
     def test_set_model_claude_requires_key(self):
         self.enable_flag()
