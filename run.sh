@@ -8,6 +8,7 @@ PETTA_PY_ENV="${PETTA_PY_ENV:-${HOME:-}/miniforge3/envs/petta}"
 CETTA_ROOT="${CETTA_ROOT:-${HOME:-}/repos/CeTTa-runtime}"
 STATE_HOME="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 INSTANCE="${METTACLAW_INSTANCE:-$(basename "$ROOT")}"
+export METTACLAW_INSTANCE="$INSTANCE"
 
 # Alternate .metta targets are tests or utilities, not the persistent agent.
 # Capture caller-supplied state paths before local configuration is loaded;

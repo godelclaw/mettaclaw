@@ -14,6 +14,10 @@ SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class EngineLauncherTests(unittest.TestCase):
+    def test_launcher_exports_checkout_instance_to_children(self):
+        launcher = (SOURCE_ROOT / "run.sh").read_text(encoding="utf-8")
+        self.assertIn('export METTACLAW_INSTANCE="$INSTANCE"', launcher)
+
     def test_service_uses_stable_cetta_selector(self):
         service = (SOURCE_ROOT / "systemd" / "pettaclaw-godel.service").read_text(
             encoding="utf-8")
