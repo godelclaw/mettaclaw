@@ -5,12 +5,64 @@ import socket
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import cognitive_health
 
 
 _RETRIABLE_HTTP_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _open_connection(parts, timeout):
+    """Create the one transport resource owned by a provider request."""
+    if not parts.hostname:
+        raise ValueError("provider URL has no host")
+    if parts.scheme == "https":
+        return http.client.HTTPSConnection(
+            parts.hostname, port=parts.port, timeout=timeout)
+    if parts.scheme == "http":
+        return http.client.HTTPConnection(
+            parts.hostname, port=parts.port, timeout=timeout)
+    raise ValueError(f"unsupported provider URL scheme: {parts.scheme}")
+
+
+def _request_json(request, timeout):
+    """Execute one JSON request with total connection ownership.
+
+    ``urllib.request.urlopen`` owns the connection internally until it returns
+    a response.  A timeout while connecting or waiting for response headers is
+    therefore outside the caller's response context manager.  Long-lived
+    embedded runtimes must not depend on interpreter cleanup for that path.
+
+    This adapter owns the connection before any blocking operation and closes
+    it in ``finally`` after success, HTTP failure, transport failure, read
+    failure, or decoding failure.
+    """
+    parts = urllib.parse.urlsplit(request.full_url)
+    connection = _open_connection(parts, timeout)
+    try:
+        target = urllib.parse.urlunsplit((
+            "", "", parts.path or "/", parts.query, ""))
+        connection.request(
+            request.get_method(),
+            target,
+            body=request.data,
+            headers=dict(request.header_items()),
+        )
+        response = connection.getresponse()
+        payload = response.read()
+        if response.status >= 400:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                response.status,
+                response.reason,
+                response.headers,
+                None,
+            )
+        return json.loads(payload)
+    finally:
+        connection.close()
 
 
 def _float_env(name, default, minimum):
@@ -330,8 +382,7 @@ def chat(model, max_tokens, effort, prompt):
     # failure crosses the boundary as (), where provider backoff and protocol
     # recovery pace the next ordinary turn.
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read())
+        payload = _request_json(req, timeout)
         content = _extract_content(payload)
         if isinstance(content, str) and content.strip():
             _note_answered()
@@ -348,6 +399,7 @@ def chat(model, max_tokens, effort, prompt):
         socket.timeout,
         urllib.error.URLError,
         ConnectionError,
+        OSError,
         http.client.HTTPException,
         json.JSONDecodeError,
         KeyError,
@@ -380,8 +432,7 @@ def _get_json(url):
         return {"error": "SYNTHETIC_API_KEY is not set"}
     req = urllib.request.Request(url, headers={"Authorization": "Bearer " + key})
     try:
-        with urllib.request.urlopen(req, timeout=_INTROSPECT_TIMEOUT) as response:
-            data = json.loads(response.read())
+        data = _request_json(req, _INTROSPECT_TIMEOUT)
         return data if isinstance(data, dict) else {"error": "unexpected response"}
     except urllib.error.HTTPError as exc:
         return {"error": f"HTTP {exc.code}"}
@@ -390,6 +441,7 @@ def _get_json(url):
         socket.timeout,
         urllib.error.URLError,
         ConnectionError,
+        OSError,
         http.client.HTTPException,
     ) as exc:
         return {"error": type(exc).__name__}
