@@ -136,6 +136,17 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertEqual(out, "()")
         self.assertEqual(len(calls), 1)
 
+    def test_nonretriable_http_error_remains_inside_provider_boundary(self):
+        failure = urllib.error.HTTPError(
+            "https://provider.invalid/chat", 404, "model retired", {}, None)
+        with mock.patch.object(
+                synthetic_llm, "_request_json", side_effect=failure):
+            out = synthetic_llm.chat(
+                "retired-model", 6000, "medium", "hello")
+        self.assertEqual(out, "()")
+        health = synthetic_llm.cognitive_health.snapshot()
+        self.assertEqual(health["last_failure_type"], "httperror")
+
     def test_set_model_claude_requires_key(self):
         self.enable_flag()
         msg = synthetic_llm.set_model("claude-fable-5")

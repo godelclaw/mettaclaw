@@ -11,9 +11,6 @@ import urllib.request
 import cognitive_health
 
 
-_RETRIABLE_HTTP_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
-
-
 def _open_connection(parts, timeout):
     """Create the one transport resource owned by a provider request."""
     if not parts.hostname:
@@ -390,9 +387,10 @@ def chat(model, max_tokens, effort, prompt):
             return content
         return _empty_action(_diagnose_empty(payload))
     except urllib.error.HTTPError as exc:
-        if exc.code not in _RETRIABLE_HTTP_STATUS:
-            cognitive_health.turn_failed("HTTPError")
-            raise
+        # Invalid/retired model ids and provider authorization failures must
+        # remain visible as failed provider turns, but they must not escape
+        # through Janus and tear down the agent transition.  The operator
+        # control plane stays available to repair the configuration.
         return _empty_action(exc)
     except (
         TimeoutError,
