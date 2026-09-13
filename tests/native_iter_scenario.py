@@ -66,6 +66,8 @@ def select_stage(stage: str) -> int:
 
 
 def _chat(*args) -> str:
+    import cognitive_health
+    cognitive_health.turn_started("probe")
     _prompts.append(str(args[-1]))
     responses = (
         "((help send))",
@@ -73,7 +75,9 @@ def _chat(*args) -> str:
         "((help mode))",
         "((nop))",
     )
-    return responses[min(len(_prompts) - 1, len(responses) - 1)]
+    response = responses[min(len(_prompts) - 1, len(responses) - 1)]
+    cognitive_health.turn_completed(len(response.encode("utf-8")))
+    return response
 
 
 def install() -> int:

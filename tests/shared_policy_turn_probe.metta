@@ -6,7 +6,7 @@
 ;; Every named mode uses the same process path.  Selection changes policy data;
 ;; it does not select a different kernel or revoke any part of the periphery.
 !(py-eval "(__import__('helper').__dict__.__setitem__('_working_boot_cache', {}), __import__('helper').__dict__.__setitem__('working_boot', lambda: 1))")
-!(py-eval "__import__('synthetic_llm').__dict__.__setitem__('chat', lambda *args: '()')")
+!(py-eval "__import__('synthetic_llm').__dict__.__setitem__('chat', lambda *args: (__import__('cognitive_health').turn_started('probe'), __import__('cognitive_health').turn_completed(2), '()')[-1])")
 !(initMemory)
 !(configure commchannel telegram)
 

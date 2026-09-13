@@ -36,6 +36,10 @@ class RuntimeProbeTest(unittest.TestCase):
          "INTERACTIVE_BATCH_POLICY_OK"),
         ("tests/interrupted_cognitive_turn_probe.metta",
          "INTERRUPTED_COGNITIVE_TURN_OK"),
+        ("tests/activity_delivery_probe.metta",
+         "ACTIVITY_DELIVERY_OK"),
+        ("tests/activity_delivery_full_turn_probe.metta",
+         "ACTIVITY_DELIVERY_FULL_TURN_OK"),
     )
 
     def assert_witness(self, result, marker, engine):

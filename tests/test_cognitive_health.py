@@ -22,6 +22,7 @@ class CognitiveHealthTest(unittest.TestCase):
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        cognitive_health._turn_outcome = "none"
 
     def state(self):
         return json.loads(self.path.read_text(encoding="utf-8"))
@@ -30,7 +31,7 @@ class CognitiveHealthTest(unittest.TestCase):
         cognitive_health.expect_turn("claw23", now=100)
         cognitive_health.expect_turn("claw23", now=200)
         value = self.state()
-        self.assertEqual(value["pending_since"], 100)
+        self.assertEqual(value["obligation_since"], 100)
         self.assertEqual(value["last_expected_at"], 200)
         self.assertEqual(value["expected_count"], 2)
 
@@ -45,26 +46,39 @@ class CognitiveHealthTest(unittest.TestCase):
         cognitive_health.turn_started("synthetic", now=250)
         value = self.state()
         self.assertEqual(value["pending_since"], 250)
+        self.assertEqual(value["in_flight_since"], 250)
+        self.assertEqual(value["obligation_since"], 100)
         self.assertEqual(value["last_started_at"], 250)
 
-    def test_completion_discharges_obligation_without_content(self):
+    def test_completion_ends_request_then_settlement_discharges_obligation(self):
         cognitive_health.expect_turn("generic", now=100)
         cognitive_health.turn_started("synthetic", now=101)
         cognitive_health.turn_completed(37, now=102)
         value = self.state()
         self.assertEqual(value["pending_since"], 0)
+        self.assertEqual(value["in_flight_since"], 0)
+        self.assertEqual(value["obligation_since"], 100)
         self.assertEqual(value["last_completed_at"], 102)
         self.assertEqual(value["last_response_bytes"], 37)
+        self.assertEqual(cognitive_health.turn_succeeded(), 1)
+        cognitive_health.turn_settled(now=103)
+        value = self.state()
+        self.assertEqual(value["obligation_since"], 0)
+        self.assertEqual(value["last_settled_at"], 103)
         self.assertNotIn("prompt", value)
         self.assertNotIn("response", value)
 
-    def test_failure_leaves_obligation_pending(self):
+    def test_failure_ends_request_but_leaves_obligation_for_retry(self):
         cognitive_health.expect_turn("generic", now=100)
+        cognitive_health.turn_started("synthetic", now=125)
         cognitive_health.turn_failed("ReadTimeout", now=150)
         value = self.state()
-        self.assertEqual(value["pending_since"], 100)
+        self.assertEqual(value["pending_since"], 0)
+        self.assertEqual(value["in_flight_since"], 0)
+        self.assertEqual(value["obligation_since"], 100)
         self.assertEqual(value["last_failure_type"], "readtimeout")
         self.assertEqual(value["last_outcome"], "failed")
+        self.assertEqual(cognitive_health.turn_succeeded(), 0)
 
     def test_receipt_failure_never_interrupts_cognition(self):
         with mock.patch.object(cognitive_health, "_write",

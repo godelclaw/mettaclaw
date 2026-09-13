@@ -227,6 +227,72 @@ class RuntimeHealthTest(unittest.TestCase):
         self.assertIn("steps=50@turn-start", report)
         self.assertIn("turn=pending:2s", report)
 
+    def test_failed_request_is_not_reported_as_still_in_flight(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+        })
+        self.write(self.cognitive, {
+            "schema": 2,
+            "last_completed_at": 900,
+            "last_failed_at": 980,
+            "pending_since": 600,
+            "in_flight_since": 0,
+            "obligation_since": 600,
+            "budget_at_start": 50,
+            "last_outcome": "failed",
+        })
+        self.write(self.mode, {"mode": "iter"})
+        with mock.patch("loop_modes.current_mode", return_value="iter"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertNotIn("turn=pending", report)
+        self.assertIn("turn=failed:20s-ago", report)
+        self.assertIn("obligation=retry:400s", report)
+
+    def test_legacy_failed_request_migrates_to_retry_not_in_flight(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+        })
+        self.write(self.cognitive, {
+            "last_completed_at": 900,
+            "last_failed_at": 980,
+            "pending_since": 600,
+            "budget_at_start": 50,
+            "last_outcome": "failed",
+        })
+        self.write(self.mode, {"mode": "iter"})
+        with mock.patch("loop_modes.current_mode", return_value="iter"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"):
+            report = runtime_health.activity_report(now=1000)
+        self.assertNotIn("turn=pending", report)
+        self.assertIn("turn=failed:20s-ago", report)
+        self.assertIn("obligation=retry:400s", report)
+
+    def test_activity_reports_pending_input_separately_from_provider(self):
+        self.write(self.working, {
+            "saved_at": 999, "loops": 0, "continuation_pending": False,
+        })
+        self.write(self.cognitive, {
+            "schema": 2,
+            "last_completed_at": 900,
+            "last_failed_at": 980,
+            "in_flight_since": 0,
+            "obligation_since": 600,
+            "last_outcome": "failed",
+        })
+        self.write(self.mode, {"mode": "iter"})
+        with mock.patch("loop_modes.current_mode", return_value="iter"), \
+             mock.patch("engine_modes.active_engine", return_value="petta"), \
+             mock.patch("synthetic_llm.current_model", return_value="glm"), \
+             mock.patch("telegram.pendingActivityCount", return_value=2), \
+             mock.patch("telegram.preparedActivityCount", return_value=0):
+            report = runtime_health.activity_report(now=1000)
+        self.assertIn("input=pending:2", report)
+        self.assertIn("turn=failed:20s-ago", report)
+        self.assertNotIn("turn=pending", report)
+
     def test_a_long_rest_under_autonomous_presets_is_not_a_stale_model_turn(self):
         """The watcher can roll back on problems, so a legitimate rest must
         not look like a hung mind just because the mode is autonomous."""

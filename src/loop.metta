@@ -191,6 +191,11 @@
                                     (reasoningMode)))
           ($respi (addition-model-call
                     (LLM) (maxOutputToken) $rmode $send))
+          ;; Provider failure is deliberately represented as (), which is
+          ;; also a legitimate command list.  The provider receipt is the
+          ;; authoritative distinction for history and input settlement.
+          ($providerSucceeded
+            (py-call (cognitive_health.turn_succeeded)))
           ;; The external observation is committed before parse recovery.
           ($_ (cut))
           ($resp (addition-balance-response $respi))
@@ -224,8 +229,26 @@
           ($results (RESULTS: $commandResults))
           ($_ (eval (attention-complete $iteration $parseOutcome)))
           ($_ (println! $results))
-          ($_ (if (or $has-activity (not (== $sexpr ())))
-                  (addToHistory $message $response $has-activity)
+          ;; Input is acknowledged only after the successful turn has crossed
+          ;; the effect boundary and its exact message/response pair is in
+          ;; durable history.  Provider or history failure retains the stable
+          ;; activity batch for retry.
+          ($historyReceipt
+            (if (== $providerSucceeded 1)
+                (if (or $has-activity (not (== $sexpr ())))
+                    (addToHistory $message $response $has-activity)
+                    1)
+                0))
+          ($activityReceipt
+            (if (and $has-activity
+                     (and (== $providerSucceeded 1)
+                          (== $historyReceipt 1)))
+                (py-call (telegram.ackActivityBatch))
+                (if $has-activity 0 1)))
+          ($_ (if (and (== $providerSucceeded 1)
+                       (and (== $historyReceipt 1)
+                            (== $activityReceipt 1)))
+                  (py-call (cognitive_health.turn_settled))
                   _))
           ($feedback
             (if (== $requestObservations "")

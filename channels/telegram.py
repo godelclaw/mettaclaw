@@ -24,6 +24,7 @@ _last_message_is_human = False
 _last_from_bot = False
 _last_arm_tier = "full"
 _pending_messages = []
+_prepared_messages = []
 _activity_epoch = 0
 _context_activity_epoch = 0
 _context_frontier_bytes = None
@@ -500,6 +501,8 @@ def _append_update_log(update, kind, message, allowed, queued, note=""):
         with _log_lock:
             with open(_log_path, "a", encoding="utf-8") as f:
                 f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
         return True
     except Exception as exc:
         print("[telegram] update log error:", exc)
@@ -663,9 +666,8 @@ def _set_last(chat_id, text, from_bot=False, arm_tier="full", update_id=None):
         _pending_messages.append(
             (_last_chat_id, str(text), bool(from_bot), str(arm_tier),
              update_id))
-        del _pending_messages[:-50]
         # Monotone receipt for ordinary inbound stimuli. The model turn captures
-        # the drained frontier; a later receipt can interrupt its unexecuted
+        # the prepared frontier; a later receipt can interrupt its unexecuted
         # command suffix without dictating how large the proposed batch was.
         _activity_epoch += 1
         if _effect_turn is not None and _effect_activity_epoch is not None:
@@ -700,18 +702,161 @@ def getLastMessage():
         return msg
 
 
+def _pending_fields(item):
+    """Read every historical pending-tuple shape without rewriting it."""
+    tier = "full"
+    update_id = None
+    if len(item) == 2:
+        chat, message = item
+        from_bot = False
+    elif len(item) == 3:
+        chat, message, from_bot = item
+    elif len(item) == 4:
+        chat, message, from_bot, tier = item
+    else:
+        chat, message, from_bot, tier, update_id = item[:5]
+    return str(chat), str(message), bool(from_bot), str(tier), update_id
+
+
+def _write_activity_receipt(kind, update_ids):
+    """Append and fsync an input-delivery receipt without message content."""
+    if not _log_path:
+        return True
+    record = {
+        "received_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "kind": str(kind),
+        "update_ids": [str(value) for value in update_ids],
+    }
+    line = json.dumps(record, ensure_ascii=False,
+                      separators=(",", ":")) + "\n"
+    try:
+        with _log_lock:
+            with open(_log_path, "a", encoding="utf-8") as stream:
+                stream.write(line)
+                stream.flush()
+                os.fsync(stream.fileno())
+        return True
+    except Exception as exc:
+        print("[telegram] activity receipt error:", type(exc).__name__)
+        return False
+
+
+def initialize_activity_receipts(preserve_update_ids=()):
+    """Begin transactional delivery without replaying unknowable legacy state.
+
+    Existing logs predate input acknowledgements.  A one-time epoch receipt
+    marks their queued records as historical, except exact ids explicitly
+    preserved during a supervised upgrade.  Later starts recover normally.
+    """
+    if not _log_path or not os.path.isfile(_log_path):
+        return 1 if _write_activity_receipt("activity_receipt_epoch", []) else 0
+    preserve = {str(value) for value in preserve_update_ids}
+    queued = []
+    epoch_exists = False
+    try:
+        with _log_lock:
+            with open(_log_path, encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    if record.get("kind") == "activity_receipt_epoch":
+                        epoch_exists = True
+                    if record.get("queued") and record.get("update_id") is not None:
+                        queued.append(str(record["update_id"]))
+    except OSError:
+        return 0
+    if epoch_exists:
+        return 1
+    baseline = [value for value in dict.fromkeys(queued)
+                if value not in preserve]
+    return 1 if _write_activity_receipt(
+        "activity_receipt_epoch", baseline) else 0
+
+
+def _recover_pending_activity():
+    """Rebuild logged, unacknowledged ordinary input after process restart."""
+    if not _log_path or not os.path.isfile(_log_path):
+        return 0
+    queued = {}
+    acknowledged = set()
+    epoch_exists = False
+    try:
+        with _log_lock:
+            with open(_log_path, encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    kind = record.get("kind")
+                    if kind in ("activity_receipt_epoch", "activity_ack"):
+                        if kind == "activity_receipt_epoch":
+                            epoch_exists = True
+                        acknowledged.update(
+                            str(value) for value in record.get(
+                                "update_ids", []))
+                        continue
+                    update_id = record.get("update_id")
+                    if (record.get("queued") and record.get("allowed")
+                            and update_id is not None and record.get("raw")):
+                        queued[str(update_id)] = record
+    except OSError:
+        return 0
+    if not epoch_exists:
+        print("[telegram] activity recovery awaits legacy epoch receipt")
+        return 0
+    recovered = 0
+    def order(item):
+        try:
+            return int(item[0])
+        except (TypeError, ValueError):
+            return 0
+    for update_id, record in sorted(queued.items(), key=order):
+        if update_id in acknowledged:
+            continue
+        update = record.get("raw") or {}
+        kind, message = _extract_message(update)
+        if not message:
+            continue
+        message = dict(message)
+        text = record.get("text") or record.get("caption")
+        if text is not None:
+            message["text"] = text
+            message.pop("caption", None)
+        chat = message.get("chat") or {}
+        sender = message.get("from") or {}
+        _set_last(
+            chat.get("id", record.get("chat_id", "")),
+            _format_message(update, kind, message, text or ""),
+            bool(sender.get("is_bot", record.get("from_is_bot", False))),
+            _tier_for_sender(sender),
+            update_id=update_id,
+        )
+        recovered += 1
+    return recovered
+
+
 def getActivityBatch():
-    """Drain every pending message into one chronological batch — the
+    """Prepare one stable chronological activity batch — the
     context-centric turn: accumulated activity is OBSERVATION for the next
     cognitive tick, not a per-message to-do list. Each entry keeps its own
     metadata header (sender, chat, ids, from_is_bot) as already formatted.
     Reply routing and energy accounting follow the NEWEST HUMAN message when
-    present (existing tier machinery, unchanged), else the newest message."""
+    present (existing tier machinery, unchanged), else the newest message.
+
+    Repeated evaluation returns the same prepared batch.  Only
+    ``ackActivityBatch`` may remove it after the corresponding turn is in
+    durable history."""
     global _reply_chat_id, _last_message_is_human, _last_from_bot
     global _last_arm_tier, _context_frontier_bytes
     global _current_batch_update_ids, _context_activity_epoch
+    global _prepared_messages
     with _msg_lock:
-        if not _pending_messages:
+        if _prepared_messages:
+            items = _prepared_messages[:]
+        elif not _pending_messages:
             _last_message_is_human = False
             _last_arm_tier = "full"
             _current_batch_update_ids = set()
@@ -721,34 +866,23 @@ def getActivityBatch():
                     os.path.getsize(_log_path)
                     if _log_path and os.path.exists(_log_path) else 0)
             return ""
-        items = _pending_messages[:]
-        del _pending_messages[:]
-        _context_activity_epoch = _activity_epoch
-        # This is the causal frontier for the turn.  The poller records and
-        # queues an inbound message while holding the same lock, so activity
-        # arriving after this point cannot leak into the prompt early.
-        with _log_lock:
-            _context_frontier_bytes = (
-                os.path.getsize(_log_path)
-                if _log_path and os.path.exists(_log_path) else 0)
-        _current_batch_update_ids = set()
+        else:
+            _prepared_messages = _pending_messages[:]
+            items = _prepared_messages[:]
+            _context_activity_epoch = _activity_epoch
+            # This is the causal frontier for the turn.  The poller records
+            # and queues an inbound message while holding the same lock, so
+            # later activity cannot leak into the prepared prompt.
+            with _log_lock:
+                _context_frontier_bytes = (
+                    os.path.getsize(_log_path)
+                    if _log_path and os.path.exists(_log_path) else 0)
+            _current_batch_update_ids = set()
     texts = []
     newest_human = None
     newest = None
     for item in items:
-        tier = "full"
-        if len(item) == 2:
-            chat, msg = item
-            from_bot = False
-        elif len(item) == 3:
-            chat, msg, from_bot = item
-        elif len(item) == 4:
-            chat, msg, from_bot, tier = item
-            update_id = None
-        else:
-            chat, msg, from_bot, tier, update_id = item
-        if len(item) < 4:
-            update_id = None
+        chat, msg, from_bot, tier, update_id = _pending_fields(item)
         texts.append(str(msg))
         newest = (chat, from_bot, tier)
         if not from_bot:
@@ -761,6 +895,46 @@ def getActivityBatch():
     _last_message_is_human = not _last_from_bot
     _last_arm_tier = str(pick[2]) if _last_message_is_human else "full"
     return "\n".join(texts)
+
+
+def ackActivityBatch():
+    """Acknowledge exactly the prepared prefix after durable history.
+
+    The receipt is fsynced before the in-memory prefix is removed.  A receipt
+    failure leaves the full batch pending, preferring retry over silent loss.
+    """
+    global _prepared_messages, _current_batch_update_ids
+    with _msg_lock:
+        if not _prepared_messages:
+            return 1
+        count = len(_prepared_messages)
+        if _pending_messages[:count] != _prepared_messages:
+            print("[telegram] activity acknowledgement prefix mismatch")
+            return 0
+        update_ids = []
+        for item in _prepared_messages:
+            update_id = _pending_fields(item)[4]
+            if update_id is not None:
+                update_ids.append(str(update_id))
+        if update_ids and not _write_activity_receipt(
+                "activity_ack", update_ids):
+            return 0
+        del _pending_messages[:count]
+        _prepared_messages = []
+        _current_batch_update_ids = set()
+        return 1
+
+
+def pendingActivityCount():
+    """Number of ordinary inputs not yet history-acknowledged."""
+    with _msg_lock:
+        return len(_pending_messages)
+
+
+def preparedActivityCount():
+    """Number of those inputs frozen into the current stable observation."""
+    with _msg_lock:
+        return len(_prepared_messages)
 
 
 def lastMessageIsHuman():
@@ -903,8 +1077,9 @@ def conversation_window(max_chars=30000, max_events=48,
 
     The update log is the source of truth.  ``getActivityBatch`` fixes a byte
     frontier before the model prompt is assembled and records the update ids
-    drained for this turn.  Records beyond that frontier are future input;
-    drained records are supplied exactly once as NEW_ACTIVITY instead.
+    prepared for this turn.  Records beyond that frontier are future input;
+    prepared records remain stable as NEW_ACTIVITY until history-backed
+    acknowledgement.
     Deterministic slash-command chatter remains auditable in the ledger but is
     not conversation.
     """
@@ -1705,9 +1880,12 @@ def start_telegram(token="", chat_id=""):
     if _thread and _thread.is_alive():
         return _thread
     _load_offset()
+    initialize_activity_receipts()
+    recovered_activity = _recover_pending_activity()
     _recover_pending_attachments()
     _running = True
     _health_update(force=True, running=True, started_at=time.time(),
+                   recovered_activity_count=recovered_activity,
                    menu_status="pending", poll_status="starting")
     threading.Thread(target=_register_menu_commands, daemon=True).start()
     _thread = threading.Thread(target=_poll_loop, daemon=True)

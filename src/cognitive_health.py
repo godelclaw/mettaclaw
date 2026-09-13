@@ -1,9 +1,8 @@
 """Durable, privacy-safe receipts for model turns.
 
-The agent loop records an obligation before its governance gate. The model
-adapter then records start, success, or failure. A pending obligation keeps
-its original timestamp: repeated empty ticks therefore cannot make a stalled
-mind look fresh.
+An outstanding obligation and an in-flight provider request are different
+facts.  A failed request ends the latter while preserving the former for
+retry; otherwise operator status can report a long-dead request as pending.
 """
 
 import json
@@ -14,6 +13,7 @@ import time
 
 
 _lock = threading.RLock()
+_turn_outcome = "none"
 
 
 def _path():
@@ -78,10 +78,11 @@ def expect_turn(mode="unknown", budget=None, now=None):
     try:
         with _lock:
             value = _read()
-            if not float(value.get("pending_since", 0) or 0):
-                value["pending_since"] = now
+            if not float(value.get("obligation_since", 0) or 0):
+                legacy = float(value.get("pending_since", 0) or 0)
+                value["obligation_since"] = legacy or now
             value.update({
-                "schema": 1,
+                "schema": 2,
                 "last_expected_at": now,
                 "expected_count": int(value.get("expected_count", 0)) + 1,
                 "mode": _label(mode),
@@ -101,13 +102,19 @@ def turn_started(provider="unknown", now=None):
     Once a real provider call begins, its own start is the relevant age for a
     hung-call check.
     """
+    global _turn_outcome
     now = _stamp(now)
+    with _lock:
+        _turn_outcome = "pending"
     try:
         with _lock:
             value = _read()
+            if not float(value.get("obligation_since", 0) or 0):
+                value["obligation_since"] = now
             value.update({
-                "schema": 1,
+                "schema": 2,
                 "pending_since": now,
+                "in_flight_since": now,
                 "last_started_at": now,
                 "started_count": int(value.get("started_count", 0)) + 1,
                 "provider": _label(provider),
@@ -119,8 +126,15 @@ def turn_started(provider="unknown", now=None):
 
 
 def turn_completed(response_bytes=0, now=None):
-    """Discharge the current obligation after a non-empty model answer."""
+    """End the provider request after a non-empty model answer.
+
+    The input obligation is discharged later, after history and input
+    acknowledgement have both committed.
+    """
+    global _turn_outcome
     now = _stamp(now)
+    with _lock:
+        _turn_outcome = "completed"
     try:
         size = max(0, int(response_bytes))
     except (TypeError, ValueError):
@@ -129,8 +143,9 @@ def turn_completed(response_bytes=0, now=None):
         with _lock:
             value = _read()
             value.update({
-                "schema": 1,
+                "schema": 2,
                 "pending_since": 0,
+                "in_flight_since": 0,
                 "last_completed_at": now,
                 "completed_count": int(value.get("completed_count", 0)) + 1,
                 "last_response_bytes": size,
@@ -143,19 +158,55 @@ def turn_completed(response_bytes=0, now=None):
 
 
 def turn_failed(kind="provider-error", now=None):
-    """Record failure while leaving the original obligation outstanding."""
+    """End the request while leaving its input obligation outstanding."""
+    global _turn_outcome
     now = _stamp(now)
+    with _lock:
+        _turn_outcome = "failed"
     try:
         with _lock:
             value = _read()
-            if not float(value.get("pending_since", 0) or 0):
-                value["pending_since"] = now
+            obligation = float(value.get("obligation_since", 0) or 0)
+            if not obligation:
+                obligation = float(value.get("pending_since", 0) or 0) or now
             value.update({
-                "schema": 1,
+                "schema": 2,
+                "pending_since": 0,
+                "in_flight_since": 0,
+                "obligation_since": obligation,
                 "last_failed_at": now,
                 "failed_count": int(value.get("failed_count", 0)) + 1,
                 "last_failure_type": _label(kind, "provider-error"),
                 "last_outcome": "failed",
+            })
+            _write(value)
+        return 1
+    except Exception:
+        return 0
+
+
+def turn_succeeded():
+    """Numeric refinement witness for the serial PeTTa bridge.
+
+    The loop asks only after its one model call.  A failed provider returns a
+    paced empty action, so response syntax alone cannot distinguish failure
+    from a legitimate empty command list.
+    """
+    with _lock:
+        return 1 if _turn_outcome == "completed" else 0
+
+
+def turn_settled(now=None):
+    """Discharge the obligation after history and input acknowledgement."""
+    now = _stamp(now)
+    try:
+        with _lock:
+            value = _read()
+            value.update({
+                "schema": 2,
+                "obligation_since": 0,
+                "last_settled_at": now,
+                "settled_count": int(value.get("settled_count", 0)) + 1,
             })
             _write(value)
         return 1

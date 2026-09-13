@@ -30,6 +30,7 @@ class ContextContinuityTest(unittest.TestCase):
         telegram._current_batch_update_ids = set()
         with telegram._msg_lock:
             telegram._pending_messages.clear()
+            telegram._prepared_messages.clear()
         self.old_history = os.environ.get("METTACLAW_HISTORY_PATH")
         os.environ["METTACLAW_HISTORY_PATH"] = str(self.history)
 
@@ -39,6 +40,7 @@ class ContextContinuityTest(unittest.TestCase):
         telegram._current_batch_update_ids = self.old_excluded
         with telegram._msg_lock:
             telegram._pending_messages.clear()
+            telegram._prepared_messages.clear()
         if self.old_history is None:
             os.environ.pop("METTACLAW_HISTORY_PATH", None)
         else:

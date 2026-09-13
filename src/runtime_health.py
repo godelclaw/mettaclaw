@@ -63,9 +63,19 @@ def status(now=None):
                        and waiting_until >= now - 10)
     poll_age = None if not poll_at else max(0, int(now - poll_at))
     working_age = None if not saved_at else max(0, int(now - saved_at))
-    pending_at = float(cognition.get("pending_since", 0) or 0)
+    schema = int(cognition.get("schema", 1) or 1)
+    pending_at = float(cognition.get("in_flight_since", 0) or 0)
+    obligation_at = float(cognition.get("obligation_since", 0) or 0)
+    if schema < 2:
+        legacy_pending = float(cognition.get("pending_since", 0) or 0)
+        if cognition.get("last_outcome") == "failed":
+            obligation_at = obligation_at or legacy_pending
+        else:
+            pending_at = pending_at or legacy_pending
     completed_at = float(cognition.get("last_completed_at", 0) or 0)
     pending_age = None if not pending_at else max(0, int(now - pending_at))
+    obligation_age = (None if not obligation_at
+                      else max(0, int(now - obligation_at)))
     turn_age = None if not completed_at else max(0, int(now - completed_at))
     try:
         loops = max(0, int(working.get("loops", 0) or 0))
@@ -77,7 +87,8 @@ def status(now=None):
     # legitimate reason for there to be none. Without this, every long rest
     # under iter would report a stale model turn.
     cognition_required = lifecycle_enabled and bool(
-        pending_at or loops > 0 or (autonomous and not legitimate_wait))
+        pending_at or obligation_at or loops > 0
+        or (autonomous and not legitimate_wait))
     stale_after = _positive_seconds(
         "METTACLAW_COGNITIVE_STALE_SECONDS", 900)
     problems = []
@@ -114,6 +125,7 @@ def status(now=None):
         "cognition_required": cognition_required,
         "model_turn_age_seconds": turn_age,
         "model_turn_pending_age_seconds": pending_age,
+        "model_turn_obligation_age_seconds": obligation_age,
         "model_turn_expected_count": int(
             cognition.get("expected_count", 0) or 0),
         "model_turn_completed_count": int(
@@ -166,10 +178,20 @@ def activity_report(now=None):
         banked = 0
     saved_at = float(working.get("saved_at", 0) or 0)
     completed_at = float(cognition.get("last_completed_at", 0) or 0)
-    pending_at = float(cognition.get("pending_since", 0) or 0)
+    schema = int(cognition.get("schema", 1) or 1)
+    pending_at = float(cognition.get("in_flight_since", 0) or 0)
+    obligation_at = float(cognition.get("obligation_since", 0) or 0)
+    if schema < 2:
+        legacy_pending = float(cognition.get("pending_since", 0) or 0)
+        if cognition.get("last_outcome") == "failed":
+            obligation_at = obligation_at or legacy_pending
+        else:
+            pending_at = pending_at or legacy_pending
     checkpoint_age = None if not saved_at else max(0, int(now - saved_at))
     turn_age = None if not completed_at else max(0, int(now - completed_at))
     pending_age = None if not pending_at else max(0, int(now - pending_at))
+    obligation_age = (None if not obligation_at
+                      else max(0, int(now - obligation_at)))
 
     import engine_modes
     import loop_modes
@@ -179,6 +201,8 @@ def activity_report(now=None):
     actually_resting, rest_left = telegram.rest_status()
     import lifecycle
     lifecycle_enabled = bool(lifecycle.cognition_enabled())
+    pending_inputs = telegram.pendingActivityCount()
+    prepared_inputs = telegram.preparedActivityCount()
     rest_intent = str(working.get("intent", "") or "").strip()
     if not lifecycle_enabled:
         state = "stopped"
@@ -216,9 +240,21 @@ def activity_report(now=None):
         steps = loops
         steps_source = "checkpoint"
     age = lambda value: "never" if value is None else "%ss" % value
-    turn = ("pending:%s" % age(pending_age)
-            if pending_age is not None
-            else "completed:%s-ago" % age(turn_age))
+    if pending_age is not None:
+        turn = "pending:%s" % age(pending_age)
+    elif cognition.get("last_outcome") == "failed":
+        failed_at = float(cognition.get("last_failed_at", 0) or 0)
+        failed_age = None if not failed_at else max(0, int(now - failed_at))
+        turn = "failed:%s-ago" % age(failed_age)
+    else:
+        turn = "completed:%s-ago" % age(turn_age)
+    obligation = ("retry:%s" % age(obligation_age)
+                  if obligation_age is not None else "none")
+    input_state = ("prepared:%d/pending:%d" %
+                   (prepared_inputs, pending_inputs)
+                   if prepared_inputs else
+                   "pending:%d" % pending_inputs
+                   if pending_inputs else "none")
     rest = "%ss-left" % rest_left if actually_resting else "none"
     # The stored intention is consumed at boot, so it outlives a rest that
     # ended by waking. Report it only while there is a rest to attach it to.
@@ -231,7 +267,8 @@ def activity_report(now=None):
         "engine={engine} | model={model} | wake={wake} | "
         "rest={rest} | continuation={continuation} | "
         "checkpoint-age={checkpoint} | "
-        "turn={turn} | last-outcome={outcome}"
+        "turn={turn} | input={input_state} | obligation={obligation} | "
+        "last-outcome={outcome}"
     ).format(
         state=state, steps=steps, steps_source=steps_source,
         fuel=fuel_modes.current_fuel(),
@@ -242,6 +279,8 @@ def activity_report(now=None):
         rest=rest,
         continuation=("pending" if continuation else "none"),
         checkpoint=age(checkpoint_age), turn=turn,
+        input_state=input_state,
+        obligation=obligation,
         outcome=cognition.get("last_outcome", "none"),
     )
 
