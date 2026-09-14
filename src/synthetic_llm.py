@@ -3,6 +3,7 @@ import json
 import os
 import socket
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -322,13 +323,13 @@ def _diagnose_empty(payload):
         return "empty response"
 
 
-def _extract_content(payload):
+def _extract_content(payload, provider_name="synthetic"):
     """Assistant text from either response dialect (native or openai-compat)."""
     if isinstance(payload.get("content"), list):  # native Messages API
         parts = [b.get("text", "") for b in payload["content"]
                  if isinstance(b, dict) and b.get("type") == "text"]
         usage = payload.get("usage") or {}
-        if usage:
+        if usage and provider_name == "anthropic":
             _tally_anthropic(usage)
             print(
                 "[synthetic_llm] anthropic usage: "
@@ -380,7 +381,7 @@ def chat(model, max_tokens, effort, prompt):
     # recovery pace the next ordinary turn.
     try:
         payload = _request_json(req, timeout)
-        content = _extract_content(payload)
+        content = _extract_content(payload, provider["name"])
         if isinstance(content, str) and content.strip():
             _note_answered()
             cognitive_health.turn_completed(len(content.encode("utf-8")))
@@ -419,9 +420,199 @@ def _openai_base():
     return os.environ.get("SYNTHETIC_BASE_URL", "https://api.synthetic.new/openai/v1").rstrip("/")
 
 
-# Operator introspection (models/quota) runs on the poll thread, so a slow
-# provider must never hold the channel hostage: 8s, then report the timeout.
+# Provider introspection runs only in background refresh workers.  Operator
+# controls read the last durable observation and therefore never inherit this
+# timeout.
 _INTROSPECT_TIMEOUT = float(os.environ.get("SYNTHETIC_INTROSPECT_TIMEOUT", "8"))
+
+_OBSERVATION_SCHEMA = 1
+_OBSERVATION_TTLS = {"models": 300.0, "quota": 60.0}
+_OBSERVATION_RETRY_SECONDS = 30.0
+_observation_lock = threading.RLock()
+_refreshing_observations = set()
+
+_SYNTHETIC_PINNED_MODELS = (
+    "syn:large:text",
+    "hf:zai-org/GLM-5.3-Flash",
+    "hf:zai-org/GLM-5.2",
+    "hf:moonshotai/Kimi-K3",
+)
+
+
+def _observation_path():
+    configured = os.environ.get("METTACLAW_PROVIDER_OBSERVATION_PATH", "")
+    if configured:
+        return configured
+    state_home = os.environ.get(
+        "XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
+    instance = os.environ.get("METTACLAW_INSTANCE", "default")
+    return os.path.join(state_home, "pettaclaw", instance,
+                        "provider-observations.json")
+
+
+def _read_observations():
+    try:
+        with open(_observation_path(), encoding="utf-8") as stream:
+            value = json.load(stream)
+        if (isinstance(value, dict)
+                and value.get("schema") == _OBSERVATION_SCHEMA):
+            return value
+    except (OSError, TypeError, ValueError):
+        pass
+    return {"schema": _OBSERVATION_SCHEMA}
+
+
+def _write_observations(value):
+    path = _observation_path()
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".provider-observations-", dir=parent, text=True)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=True, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        return True
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        return False
+
+
+def _cached_observation(kind):
+    with _observation_lock:
+        record = _read_observations().get(str(kind))
+    return record if isinstance(record, dict) else {}
+
+
+def _store_observation(kind, value, now=None):
+    observed_at = time.time() if now is None else float(now)
+    record = {
+        "observed_at": observed_at,
+        "attempted_at": observed_at,
+        "value": value,
+    }
+    with _observation_lock:
+        observations = _read_observations()
+        observations[str(kind)] = record
+        return _write_observations(observations)
+
+
+def _observation_stale(kind, record, now=None):
+    now = time.time() if now is None else float(now)
+    observed = float(record.get("observed_at", 0) or 0)
+    return not observed or now - observed >= _OBSERVATION_TTLS[kind]
+
+
+def _note_observation_failure(kind, error, now=None):
+    attempted_at = time.time() if now is None else float(now)
+    with _observation_lock:
+        observations = _read_observations()
+        record = observations.get(str(kind))
+        if not isinstance(record, dict):
+            record = {}
+        record["attempted_at"] = attempted_at
+        record["last_error"] = str(error)[:160]
+        observations[str(kind)] = record
+        return _write_observations(observations)
+
+
+def _refresh_allowed(record, now=None):
+    now = time.time() if now is None else float(now)
+    attempted = float(record.get("attempted_at", 0) or 0)
+    return not attempted or now - attempted >= _OBSERVATION_RETRY_SECONDS
+
+
+def _sanitize_models(payload):
+    result = []
+    seen = set()
+    for model in payload.get("data") or []:
+        if not isinstance(model, dict):
+            continue
+        model_id = str(model.get("id") or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        context = model.get("context_length") or model.get("context_window")
+        result.append({"id": model_id, "context": context})
+    return result
+
+
+def _sanitize_quota(payload):
+    """Retain only the numbers rendered by the local operator control."""
+    result = {}
+    week = payload.get("weeklyTokenLimit")
+    if isinstance(week, dict):
+        result["weeklyTokenLimit"] = {
+            key: week.get(key)
+            for key in ("remainingCredits", "maxCredits", "percentRemaining")
+        }
+    five = payload.get("rollingFiveHourLimit")
+    if isinstance(five, dict):
+        result["rollingFiveHourLimit"] = {
+            key: five.get(key)
+            for key in ("remaining", "max", "limited")
+        }
+    return result
+
+
+def _refresh_observation(kind):
+    try:
+        if kind == "models":
+            payload = _get_json(_openai_base() + "/models")
+            value = _sanitize_models(payload) if "error" not in payload else None
+        elif kind == "quota":
+            payload = _get_json(_api_root() + "/v2/quotas")
+            value = _sanitize_quota(payload) if "error" not in payload else None
+        else:
+            raise ValueError(f"unknown observation kind: {kind}")
+        if value is None:
+            _note_observation_failure(
+                kind, payload.get("error", "invalid response"))
+        else:
+            _store_observation(kind, value)
+    except Exception as exc:
+        _note_observation_failure(kind, type(exc).__name__)
+    finally:
+        with _observation_lock:
+            _refreshing_observations.discard(kind)
+
+
+def refresh_provider_observations_async(kinds=("models", "quota"), force=False):
+    """Refresh provider facts without putting the provider on a caller's path.
+
+    At most one worker per kind exists. Failure preserves the last good value
+    and is rate-limited, so repeated controls cannot stampede the provider.
+    """
+    started = []
+    for kind in kinds:
+        if kind not in _OBSERVATION_TTLS:
+            continue
+        with _observation_lock:
+            record = _read_observations().get(kind)
+            record = record if isinstance(record, dict) else {}
+            should_start = (
+                kind not in _refreshing_observations
+                and (force or (_observation_stale(kind, record)
+                               and _refresh_allowed(record)))
+            )
+            if should_start:
+                _refreshing_observations.add(kind)
+        if should_start:
+            threading.Thread(
+                target=_refresh_observation,
+                args=(kind,),
+                name="provider-observation-" + kind,
+                daemon=True,
+            ).start()
+            started.append(kind)
+    return tuple(started)
 
 
 def _get_json(url):
@@ -459,7 +650,7 @@ def _percent(value):
 
 
 def quota():
-    """One line: model, its real numbers when we have them, nothing else."""
+    """Render the durable quota observation; refresh only in the background."""
     on_anthropic = _is_anthropic_model(current_model())
     provider_tag = "Anthropic API" if on_anthropic else "Synthetic"
     parts = [f"model={current_model()} ({provider_tag})"]
@@ -473,8 +664,10 @@ def quota():
                                 _fmt_tokens(d.get("out", 0))))
         except (OSError, ValueError):
             pass  # no numbers -> say nothing about it
-    data = _get_json(_api_root() + "/v2/quotas")
-    if "error" not in data:
+    record = _cached_observation("quota")
+    data = record.get("value") if isinstance(record.get("value"), dict) else {}
+    refresh_provider_observations_async(("quota",))
+    if data:
         week = data.get("weeklyTokenLimit") or {}
         if week:
             parts.append(f"synthetic_weekly={week.get('remainingCredits', '?')} "
@@ -485,55 +678,73 @@ def quota():
             parts.append(f"5h={five.get('remaining', '?')}/{five.get('max', '?')}"
                          + (" LIMITED" if five.get("limited") else ""))
     elif len(parts) == 1:
-        return f"quota unavailable: {data['error']}"
+        parts.append("quota refreshing; no cached observation")
     return " | ".join(parts)
 
 
 def models():
-    """Available model ids + context length, as a MeTTa-friendly list string."""
-    data = _get_json(_openai_base() + "/models")
-    if "error" in data:
-        return f"models unavailable: {data['error']}"
+    """Last-known models as a MeTTa-friendly list; never provider-blocking."""
+    record = _cached_observation("models")
+    data = record.get("value") if isinstance(record.get("value"), list) else []
+    refresh_provider_observations_async(("models",))
     items = []
-    for model in data.get("data") or []:
+    for model in data:
         if not isinstance(model, dict):
             continue
-        context = model.get("context_length") or model.get("context_window") or "?"
+        context = model.get("context") or "?"
         items.append(f"({model.get('id', '?')} ctx {context})")
     if os.environ.get("ANTHROPIC_API_KEY", ""):
         items.extend(f"({m} provider anthropic)" for m in _anthropic_models())
-    return "(" + " ".join(items) + ")" if items else "(no models returned)"
+    return "(" + " ".join(items) + ")" if items else "(catalog refreshing)"
 
 
-def _synthetic_model_ids():
-    data = _get_json(_openai_base() + "/models")
-    if "error" in data:
-        return []
-    return [m.get("id") for m in data.get("data") or []
-            if isinstance(m, dict) and m.get("id")]
-
-
-_MODEL_IDS_CACHE = {"at": 0.0, "ids": []}
+def _pinned_synthetic_models():
+    raw = os.environ.get("SYNTHETIC_PINNED_MODELS", "")
+    configured = [part.strip() for part in raw.split(",") if part.strip()]
+    return configured or list(_SYNTHETIC_PINNED_MODELS)
 
 
 def model_ids():
-    """Structured list of switchable model ids (synthetic live list plus the
-    anthropic allowlist when configured). Presentation belongs to callers.
-
-    Cached for 60s: one operator button press otherwise costs three separate
-    round trips to the provider (validate, then rebuild the menu, then the
-    next press), which is the difference between a control that feels
-    instant and one that feels broken."""
-    import time as _time
-    if _MODEL_IDS_CACHE["ids"] and _time.time() - _MODEL_IDS_CACHE["at"] < 60:
-        return list(_MODEL_IDS_CACHE["ids"])
-    ids = list(_synthetic_model_ids())
+    """Switchable ids from local durable state, never a provider round trip."""
+    record = _cached_observation("models")
+    rows = record.get("value") if isinstance(record.get("value"), list) else []
+    ids = [str(row.get("id")) for row in rows
+           if isinstance(row, dict) and row.get("id")]
+    for model_id in _pinned_synthetic_models():
+        if model_id not in ids:
+            ids.append(model_id)
+    selected = current_model()
+    if not _is_anthropic_model(selected) and selected not in ids:
+        ids.append(selected)
     if os.environ.get("ANTHROPIC_API_KEY", ""):
-        ids.extend(_anthropic_models())
-    if ids:
-        import time as _time
-        _MODEL_IDS_CACHE["at"], _MODEL_IDS_CACHE["ids"] = _time.time(), list(ids)
+        for model_id in _anthropic_models():
+            if model_id not in ids:
+                ids.append(model_id)
+    refresh_provider_observations_async(("models",))
     return ids
+
+
+def model_catalog_status():
+    """Short, local-only provenance note for the Telegram model menu."""
+    record = _cached_observation("models")
+    observed = float(record.get("observed_at", 0) or 0)
+    if not observed:
+        refresh_provider_observations_async(("models",))
+        return "provider catalog refreshing; pinned choices shown"
+    age = max(0, int(time.time() - observed))
+    suffix = "; refresh running" if _observation_stale("models", record) else ""
+    return f"provider catalog observed {age}s ago{suffix}"
+
+
+def model_in_observed_catalog(name):
+    if _is_anthropic_model(name):
+        return (str(name) in _anthropic_models()
+                if os.environ.get("ANTHROPIC_API_KEY", "") else False)
+    record = _cached_observation("models")
+    rows = record.get("value") if isinstance(record.get("value"), list) else []
+    ids = {str(row.get("id")) for row in rows
+           if isinstance(row, dict) and row.get("id")}
+    return None if not ids else str(name) in ids
 
 
 def set_model(name):
@@ -555,16 +766,19 @@ def set_model(name):
                     "persist the choice")
         os.environ["SYNTHETIC_MODEL"] = name
         return f"model set to '{name}' (anthropic); persists across restarts"
-    data = _get_json(_openai_base() + "/models")
-    if "error" in data:
-        return f"cannot validate model list ({data['error']}); model unchanged"
-    valid = [m.get("id") for m in data.get("data") or [] if isinstance(m, dict) and m.get("id")]
-    if not valid:
-        return "model list empty; model unchanged"
-    if name not in valid:
-        return f"unknown model '{name}'; available: {', '.join(str(v) for v in valid)}"
+    import re as _re
+    if (not name or len(name) > 200
+            or not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+@-]*", name)):
+        return f"invalid model id '{name}'; model unchanged"
     if not _persist_model(name):
         return (f"switch to '{name}' NOT applied: could not durably persist "
                 "the choice")
     os.environ["SYNTHETIC_MODEL"] = name
-    return f"model set to '{name}'; persists across restarts"
+    refresh_provider_observations_async(("models",))
+    availability = model_in_observed_catalog(name)
+    warning = (
+        "; warning: absent from the latest provider catalog, so the provider "
+        "may reject it"
+        if availability is False else ""
+    )
+    return f"model set to '{name}'; persists across restarts{warning}"

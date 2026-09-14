@@ -1,7 +1,6 @@
 import os
 import json
 import math
-import queue
 import subprocess
 import tempfile
 import re
@@ -50,9 +49,6 @@ _effect_lock = threading.RLock()
 _effect_turn = None
 _effect_activity_epoch = None
 _effect_sends = set()
-_control_queue = queue.Queue()
-_control_worker = None
-_control_worker_lock = threading.Lock()
 
 _CONTROL_COMMANDS = (
     "/start", "/stop",
@@ -80,14 +76,9 @@ _MENU_COMMANDS = (
     ("wake", "End the current rest"),
 )
 
-# Pure observations do not share the serialized mutation queue.  The poller
-# dispatches each on its own short-lived thread, so a slow lifecycle change or
-# provider-backed control cannot make an earlier state query trail a later
-# model reply.  Commands with arguments remain serialized mutations.
-_FAST_READ_COMMANDS = frozenset({
-    "/activity", "/mode", "/modes", "/engine", "/engines",
-})
-_IMMEDIATE_COMMANDS = frozenset({"/start", "/stop", "/wake"})
+# Every authenticated operator control has its own execution lane.  State
+# modules serialize their own short local mutations; external delivery of one
+# response must never hold up receipt or execution of another control.
 
 
 def _health_path():
@@ -1197,7 +1188,9 @@ def _models_keyboard():
     for m in synthetic_llm.model_ids():
         if len(("model:" + m).encode("utf-8")) > 64:  # telegram limit
             continue
-        label = ("● " if m == current else "") + m
+        availability = synthetic_llm.model_in_observed_catalog(m)
+        mark = "● " if m == current else ("⚠ " if availability is False else "")
+        label = mark + m
         rows.append([{"text": label, "callback_data": "model:" + m}])
     return {"inline_keyboard": rows}
 
@@ -1613,7 +1606,8 @@ def _handle_slash_command(chat, sender, text):
         if cmd == "/models":
             requests.post(_api("sendMessage"), json={
                 "chat_id": chat.get("id"),
-                "text": "tap to switch:",
+                "text": "tap to switch — "
+                        + synthetic_llm.model_catalog_status(),
                 "reply_markup": _models_keyboard(),
             }, timeout=15)
             return "slash_command:/models"
@@ -1633,67 +1627,20 @@ def _handle_slash_command(chat, sender, text):
         return "slash_command_error:" + cmd
 
 
-def _control_worker_loop():
-    while True:
-        chat, sender, text = _control_queue.get()
-        try:
-            _handle_slash_command(chat, sender, text)
-        except Exception as exc:
-            print("[telegram] control worker error:", type(exc).__name__)
-        finally:
-            _control_queue.task_done()
-
-
-def _enqueue_slash_command(chat, sender, text):
-    """Keep zero-token controls off the poll thread while preserving order."""
-    global _control_worker
-    with _control_worker_lock:
-        if _control_worker is None or not _control_worker.is_alive():
-            _control_worker = threading.Thread(
-                target=_control_worker_loop,
-                name="telegram-control-worker",
-                daemon=True,
-            )
-            _control_worker.start()
-    _control_queue.put((chat, sender, text))
-    return 1
-
-
-def _is_fast_read_command(text):
-    stripped = str(text or "").strip()
-    if not stripped.startswith("/"):
-        return False
-    parts = stripped.split(None, 1)
-    command = parts[0].split("@", 1)[0].lower()
-    argument = parts[1].strip() if len(parts) > 1 else ""
-    if command not in _FAST_READ_COMMANDS:
-        return False
-    return command in {"/activity", "/modes", "/engines"} or not argument
-
-
 def _dispatch_slash_command(chat, sender, text):
-    """Route observations and lifecycle authority off the shared FIFO."""
+    """Give every operator control an independent, zero-LLM execution lane."""
     stripped = str(text or "").strip()
     command = stripped.split(None, 1)[0].split("@", 1)[0].lower() \
         if stripped.startswith("/") else ""
-    if command in _IMMEDIATE_COMMANDS:
-        threading.Thread(
-            target=_handle_slash_command,
-            args=(chat, sender, text),
-            name="telegram-lifecycle-control",
-            daemon=True,
-        ).start()
-        return "immediate"
-    if _is_fast_read_command(text):
-        threading.Thread(
-            target=_handle_slash_command,
-            args=(chat, sender, text),
-            name="telegram-fast-control",
-            daemon=True,
-        ).start()
-        return "fast-read"
-    _enqueue_slash_command(chat, sender, text)
-    return "serialized"
+    if command not in _CONTROL_COMMANDS:
+        return "ignored"
+    threading.Thread(
+        target=_handle_slash_command,
+        args=(chat, sender, text),
+        name="telegram-control-" + command.lstrip("/").replace("_", "-"),
+        daemon=True,
+    ).start()
+    return "independent"
 
 
 def _poll_loop():
@@ -1883,6 +1830,14 @@ def start_telegram(token="", chat_id=""):
     initialize_activity_receipts()
     recovered_activity = _recover_pending_activity()
     _recover_pending_attachments()
+    # Catalog and quota are observations, never startup or control gates.
+    # Refreshing them here only improves the next locally rendered response.
+    try:
+        import synthetic_llm
+        synthetic_llm.refresh_provider_observations_async()
+    except Exception as exc:
+        print("[telegram] provider observation refresh failed:",
+              type(exc).__name__)
     _running = True
     _health_update(force=True, running=True, started_at=time.time(),
                    recovered_activity_count=recovered_activity,

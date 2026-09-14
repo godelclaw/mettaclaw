@@ -36,8 +36,11 @@ class ProviderRoutingTest(unittest.TestCase):
                 self.flag_dir, "active-model.txt"),
             "METTACLAW_COGNITIVE_HEALTH_PATH": os.path.join(
                 self.flag_dir, "cognitive-health.json"),
+            "METTACLAW_PROVIDER_OBSERVATION_PATH": os.path.join(
+                self.flag_dir, "provider-observations.json"),
         }, clear=False)
         self.env.start()
+        synthetic_llm._refreshing_observations.clear()
         os.environ.pop("SYNTHETIC_MODEL", None)
         os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ.pop("ANTHROPIC_BASE_URL", None)
@@ -169,6 +172,75 @@ class ProviderRoutingTest(unittest.TestCase):
         os.environ["ANTHROPIC_API_KEY"] = "anth-key"
         msg = synthetic_llm.set_model("claude-nonexistent")
         self.assertIn("unknown anthropic model", msg)
+
+    def test_synthetic_model_switch_never_calls_provider(self):
+        with mock.patch.object(
+                synthetic_llm, "_get_json",
+                side_effect=AssertionError("no provider call expected")), \
+             mock.patch.object(
+                 synthetic_llm, "refresh_provider_observations_async"):
+            msg = synthetic_llm.set_model("hf:zai-org/GLM-5.2")
+        self.assertIn("persists across restarts", msg)
+        self.assertEqual(os.environ["SYNTHETIC_MODEL"],
+                         "hf:zai-org/GLM-5.2")
+
+    def test_model_menu_reads_durable_observation_while_refresh_blocks(self):
+        synthetic_llm._store_observation("models", [
+            {"id": "provider-model", "context": 12345},
+        ], now=1)
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked(_url):
+            entered.set()
+            release.wait(2)
+            return {"error": "blocked-test"}
+
+        with mock.patch.object(synthetic_llm, "_get_json", blocked):
+            started = time.monotonic()
+            ids = synthetic_llm.model_ids()
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 0.1)
+            self.assertIn("provider-model", ids)
+            self.assertIn("hf:zai-org/GLM-5.2", ids)
+            self.assertTrue(entered.wait(1))
+            # A second control remains local while the one refresh is stalled.
+            started = time.monotonic()
+            self.assertIn("provider-model", synthetic_llm.model_ids())
+            self.assertLess(time.monotonic() - started, 0.1)
+            release.set()
+        deadline = time.monotonic() + 1
+        while synthetic_llm._refreshing_observations and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(synthetic_llm._refreshing_observations)
+
+    def test_quota_reads_cache_without_waiting_for_refresh(self):
+        synthetic_llm._store_observation("quota", {
+            "weeklyTokenLimit": {
+                "remainingCredits": 7,
+                "maxCredits": 10,
+                "percentRemaining": 70,
+            },
+        }, now=time.time())
+        with mock.patch.object(
+                synthetic_llm, "_get_json",
+                side_effect=AssertionError("fresh cache must not query")):
+            started = time.monotonic()
+            reply = synthetic_llm.quota()
+        self.assertLess(time.monotonic() - started, 0.1)
+        self.assertIn("synthetic_weekly=7 of 10 (70.0%)", reply)
+
+    def test_synthetic_content_blocks_are_not_tallied_as_anthropic(self):
+        payload = {
+            "content": [{"type": "text", "text": "answer"}],
+            "usage": {"input_tokens": 5, "output_tokens": 2},
+        }
+        with mock.patch.object(synthetic_llm, "_tally_anthropic") as tally:
+            self.assertEqual(
+                synthetic_llm._extract_content(payload, "synthetic"),
+                "answer",
+            )
+        tally.assert_not_called()
 
 
     def test_model_choice_persists_across_restart(self):

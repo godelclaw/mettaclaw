@@ -1,7 +1,6 @@
 """Deterministic controls are answered without entering the agent loop."""
 import os
 import json
-import random
 import sys
 import tempfile
 import threading
@@ -220,95 +219,50 @@ class SlashCommandTest(unittest.TestCase):
         self.assertFalse(telegram._wake_event.is_set())
         self.assertEqual(self.sent[-1][1], "activity: idle")
 
-    def test_control_worker_preserves_command_order(self):
+    def test_every_control_uses_an_independent_lane(self):
         observed = []
-        with mock.patch.object(
-                telegram, "_handle_slash_command",
-                side_effect=lambda chat, sender, text: observed.append(text)):
-            telegram._enqueue_slash_command(self.chat, self.operator,
-                                             "/activity one")
-            telegram._enqueue_slash_command(self.chat, self.operator,
-                                             "/activity two")
-            telegram._enqueue_slash_command(self.chat, self.operator,
-                                             "/activity three")
-            telegram._control_queue.join()
-        self.assertEqual(observed, [
-            "/activity one", "/activity two", "/activity three",
-        ])
-
-    def test_known_and_sampled_read_controls_use_independent_lane(self):
-        known = ["/activity", "/mode", "/modes", "/engine", "/engines"]
-        sample = random.Random(69)
-        for _ in range(100):
-            command = sample.choice(known)
-            suffix = "@SomeBot" if sample.choice((False, True)) else ""
-            self.assertTrue(telegram._is_fast_read_command(command + suffix))
-        for command in ("/start", "/stop", "/wake", "/mode iter",
-                        "/engine cetta"):
-            self.assertFalse(telegram._is_fast_read_command(command))
-
-    def test_lifecycle_controls_use_immediate_lane(self):
-        observed = []
-        done = threading.Event()
+        events = {command: threading.Event()
+                  for command in telegram._CONTROL_COMMANDS}
 
         def fake_handle(_chat, _sender, text):
-            observed.append(text)
-            done.set()
+            command = text.split(None, 1)[0]
+            observed.append(command)
+            events[command].set()
 
         with mock.patch.object(telegram, "_handle_slash_command",
                                side_effect=fake_handle):
-            for command in ("/start", "/stop", "/wake"):
-                done.clear()
+            for command in telegram._CONTROL_COMMANDS:
                 self.assertEqual(telegram._dispatch_slash_command(
-                    self.chat, self.operator, command), "immediate")
-                self.assertTrue(done.wait(1))
-        self.assertEqual(observed, ["/start", "/stop", "/wake"])
+                    self.chat, self.operator, command), "independent")
+            for command in telegram._CONTROL_COMMANDS:
+                self.assertTrue(events[command].wait(1), command)
+        self.assertCountEqual(observed, telegram._CONTROL_COMMANDS)
 
-    def test_stop_bypasses_a_blocked_serialized_control(self):
+    def test_every_control_bypasses_a_blocked_control(self):
         slow_entered = threading.Event()
         release_slow = threading.Event()
-        stop_seen = threading.Event()
+        seen = {command: threading.Event()
+                for command in telegram._CONTROL_COMMANDS
+                if command != "/delete"}
 
         def fake_handle(_chat, _sender, text):
-            if text == "/quota":
+            if text == "/delete":
                 slow_entered.set()
                 release_slow.wait(2)
-            elif text == "/stop":
-                stop_seen.set()
+            else:
+                seen[text].set()
 
         with mock.patch.object(telegram, "_handle_slash_command",
                                side_effect=fake_handle):
-            telegram._enqueue_slash_command(
-                self.chat, self.operator, "/quota")
-            self.assertTrue(slow_entered.wait(1))
             self.assertEqual(telegram._dispatch_slash_command(
-                self.chat, self.operator, "/stop"), "immediate")
-            self.assertTrue(stop_seen.wait(1))
-            release_slow.set()
-            telegram._control_queue.join()
-
-    def test_fast_read_bypasses_a_blocked_serialized_control(self):
-        slow_entered = threading.Event()
-        release_slow = threading.Event()
-        fast_seen = threading.Event()
-
-        def fake_handle(_chat, _sender, text):
-            if text == "/start":
-                slow_entered.set()
-                release_slow.wait(2)
-            elif text == "/activity":
-                fast_seen.set()
-
-        with mock.patch.object(telegram, "_handle_slash_command",
-                               side_effect=fake_handle):
-            telegram._enqueue_slash_command(
-                self.chat, self.operator, "/start")
+                self.chat, self.operator, "/delete"), "independent")
             self.assertTrue(slow_entered.wait(1))
-            self.assertEqual(telegram._dispatch_slash_command(
-                self.chat, self.operator, "/activity"), "fast-read")
-            self.assertTrue(fast_seen.wait(1))
+            for command in seen:
+                self.assertEqual(telegram._dispatch_slash_command(
+                    self.chat, self.operator, command), "independent")
+            for command, event in seen.items():
+                self.assertTrue(event.wait(1), command)
             release_slow.set()
-            telegram._control_queue.join()
 
     def test_model_bare_shows_current(self):
         self.assertEqual(self.handle("/model"), "slash_command:/model")
