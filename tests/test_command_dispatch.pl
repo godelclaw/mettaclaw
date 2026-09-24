@@ -2,6 +2,7 @@
 :- dynamic probe_count/1.
 :- dynamic stimulus_free/1.
 :- dynamic effect_receipt/4.
+:- dynamic unread_chat/1.
 
 :- consult('../src/skills.pl').
 
@@ -13,6 +14,13 @@ eval([stimulate], ok) :-
     retractall(stimulus_free(_)),
     assertz(stimulus_free(0)).
 eval([observe], observed).
+eval([stimulate_in, Chat], ok) :-
+    retractall(stimulus_free(_)),
+    assertz(stimulus_free(0)),
+    assertz(unread_chat(Chat)).
+eval([say, Chat], Result) :-
+    format(string(Result), "sent message 9 to chat ~w", [Chat]).
+eval([rest], resting).
 eval(['delete-my-recent'], "no recorded own-sends — nothing to delete").
 eval([announce_done], sent).
 eval([send, fail], "send failed: provider rejected request").
@@ -27,6 +35,16 @@ eval([send, ok], "sent message 9 to chat private").
     assertz(effect_receipt(Turn, Disposition, Commands, Reason)).
 'py-call'(['telegram.effect_turn_stimulus_free', _], Value) :-
     stimulus_free(Value).
+%% The live runtime's per-command check; absent (so conservative) unless a
+%% test has marked a chat with unread input.
+'py-call'(['telegram.effect_command_unaffected', _, Command], Value) :-
+    unread_chat(_), !,
+    (   Command = [rest|_]
+    ->  Value = 0
+    ;   Command = [say, Chat], unread_chat(Chat)
+    ->  Value = 0
+    ;   Value = 1
+    ).
 'py-call'(['action_graph.partition_after_stimulus', Commands],
           [Independent, Dependent]) :-
     partition_test_commands(Commands, Independent, Dependent).
@@ -46,6 +64,7 @@ reset_probe :-
     retractall(stimulus_free(_)),
     assertz(stimulus_free(1)),
     retractall(effect_receipt(_, _, _, _)),
+    retractall(unread_chat(_)),
     catch(nb_delete(mettaclaw_command_batch_cache), _, true).
 
 :- begin_tests(command_dispatch).
@@ -145,6 +164,35 @@ test(successful_send_keeps_permissive_suffix) :-
         ['COMMAND_RETURN:', [[send, ok],
                              "sent message 9 to chat private"]],
         ['COMMAND_RETURN:', [[announce_done], sent]]
+    ]).
+
+test(unread_input_withholds_only_a_send_into_its_own_chat) :-
+    reset_probe,
+    'run-command-batch-once'(21, 5,
+        [[stimulate_in, zar], [say, mama], [probe], [say, zar], [probe]],
+        Records),
+    probe_count(1),
+    assertion(Records == [
+        ['COMMAND_RETURN:', [[stimulate_in, zar], ok]],
+        ['COMMAND_RETURN:', [[say, mama], "sent message 9 to chat mama"]],
+        ['COMMAND_RETURN:', [[probe], 1]],
+        ['COMMAND_BATCH_INTERRUPTED:',
+         [reason, new_stimulus, commands, [[say, zar], [probe]]]]
+    ]),
+    assertion(effect_receipt(21, withheld, [[say, zar], [probe]],
+                             new_stimulus)).
+
+test(unread_input_anywhere_keeps_a_rest_waiting) :-
+    reset_probe,
+    'run-command-batch-once'(22, 5,
+        [[stimulate_in, zar], [probe], [rest], [observe]], Records),
+    probe_count(1),
+    assertion(Records == [
+        ['COMMAND_RETURN:', [[stimulate_in, zar], ok]],
+        ['COMMAND_RETURN:', [[probe], 1]],
+        ['COMMAND_BATCH_INTERRUPTED:',
+         [reason, new_stimulus, commands, [[rest]]]],
+        ['COMMAND_RETURN:', [[observe], observed]]
     ]).
 
 :- end_tests(command_dispatch).

@@ -4,14 +4,15 @@
 (= (assertEqual $A $B) (assert (== $A $B)))
 
 ;; The same weak process runner executes both turns. Both modes permit the
-;; model's two-command batch. The first command in turn one injects a new
-;; inbound stimulus, so only its unexecuted suffix is withheld. With no new
-;; stimulus in turn two, the full batch runs.
+;; model's batch. The first command in turn one injects a new inbound message
+;; into chat probe: the help query that follows still runs, and only the
+;; reply into that chat is withheld. With no new input in turn two, the full
+;; batch runs.
 (= (probe-stimulus)
    (py-call (telegram._set_last "probe" "new stimulus" False "full" 123)))
 !(py-eval "__import__('helper').__dict__.__setitem__('_batch_probe_prompts', [])")
-!(py-eval "__import__('synthetic_llm').__dict__.__setitem__('chat', lambda *args: (__import__('helper')._batch_probe_prompts.append(str(args[-1])), __import__('cognitive_health').turn_started('probe'), __import__('cognitive_health').turn_completed(32), ('((probe-stimulus) (help query))' if len(__import__('helper')._batch_probe_prompts) == 1 else '((help send) (help query))'))[-1])")
-!(py-eval "__import__('helper').__dict__.__setitem__('stimulus_batch_probe_ok', lambda feedback: int(str(feedback).count('COMMAND_RETURN:') == 1 and 'COMMAND_BATCH_INTERRUPTED:' in str(feedback)))")
+!(py-eval "__import__('synthetic_llm').__dict__.__setitem__('chat', lambda *args: (__import__('helper')._batch_probe_prompts.append(str(args[-1])), __import__('cognitive_health').turn_started('probe'), __import__('cognitive_health').turn_completed(32), ('((probe-stimulus) (help query) (send-telegram-chat probe stale-reply))' if len(__import__('helper')._batch_probe_prompts) == 1 else '((help send) (help query))'))[-1])")
+!(py-eval "__import__('helper').__dict__.__setitem__('stimulus_batch_probe_ok', lambda feedback: int(str(feedback).count('COMMAND_RETURN:') == 2 and 'COMMAND_BATCH_INTERRUPTED:' in str(feedback) and 'stale-reply' in str(feedback)))")
 !(py-eval "__import__('helper').__dict__.__setitem__('stable_batch_probe_ok', lambda feedback: int(str(feedback).count('COMMAND_RETURN:') == 2 and 'COMMAND_BATCH_INTERRUPTED:' not in str(feedback)))")
 !(py-eval "__import__('helper').__dict__.__setitem__('batch_probe_prompt_limits_ok', lambda: int(len(__import__('helper')._batch_probe_prompts) == 2 and 'at most 5 command(s)' in __import__('helper')._batch_probe_prompts[0] and 'at most 5 command(s)' in __import__('helper')._batch_probe_prompts[1]))")
 !(py-eval "(__import__('helper').__dict__.__setitem__('_working_boot_cache', {}), __import__('helper').__dict__.__setitem__('working_boot', lambda: 3))")

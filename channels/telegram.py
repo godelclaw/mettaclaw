@@ -2026,6 +2026,48 @@ def begin_effect_turn(turn):
     return turn
 
 
+# Conversation effects, by how they name their chat: an explicit first
+# argument, or the default reply target of a plain send.
+_CHAT_ARGUMENT_EFFECTS = frozenset({
+    "send-telegram-chat", "delete-my-recent", "delete-message-exact",
+})
+_REPLY_TARGET_EFFECTS = frozenset({"send", "send-file", "send-image"})
+
+
+def effect_command_unaffected(turn, command):
+    """Whether input newer than this turn's frontier leaves command as chosen.
+
+    The model has not read that input.  A message into the same chat can
+    change what should be said there, so a conversation effect into it is
+    withheld, and a rest would sleep through any of it, so a rest waits too.
+    Input in one chat never withholds a send to another, and other commands
+    run as chosen.  The operator latch still stops everything.
+    """
+    turn = str(turn)
+    with _effect_lock:
+        registered = _effect_turn == turn and _effect_activity_epoch is not None
+    if not registered:
+        return 0
+    import lifecycle
+    if not lifecycle.cognition_enabled():
+        return 0
+    if not isinstance(command, (list, tuple)) or not command:
+        return 1
+    with _msg_lock:
+        unread = {str(item[0])
+                  for item in _pending_messages[len(_prepared_messages):]}
+    head = str(command[0])
+    if head == "rest":
+        return 0 if unread else 1
+    if head in _CHAT_ARGUMENT_EFFECTS:
+        target = str(command[1]) if len(command) > 1 else _reply_target("")
+    elif head in _REPLY_TARGET_EFFECTS:
+        target = _reply_target("")
+    else:
+        return 1
+    return 0 if str(target) in unread else 1
+
+
 def effect_turn_stimulus_free(turn):
     """Whether no ordinary inbound stimulus crossed this turn's frontier.
 

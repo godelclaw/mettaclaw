@@ -150,8 +150,14 @@ class RuntimeProbeTest(unittest.TestCase):
                         pins_path = pathlib.Path(directory) / "pins.txt"
                         pins = (pins_path.read_text(encoding="utf-8")
                                 if pins_path.is_file() else "")
+                        # New input withholds only the reply into its
+                        # own chat and what depends on it; a pin that does
+                        # not speak still records the turn's work.
+                        self.assertIn("pin-after-new-input-lands", pins)
                         self.assertNotIn(
-                            "withheld-cognitive-pin-must-not-land", pins)
+                            "pin-after-withheld-send-must-not-land", pins)
+                        self.assertIn("COMMAND_BATCH_INTERRUPTED",
+                                      result.stdout)
 
     def test_context_projection_crosses_cetta_provider_boundary(self):
         cetta = pathlib.Path(os.environ.get(

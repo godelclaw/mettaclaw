@@ -107,7 +107,7 @@ deferred_command_record(Turn, Limit, Deferred,
 
 run_command_list_unless_stimulus(_, [], [], []).
 run_command_list_unless_stimulus(Turn, Commands, Records, Errors) :-
-    ( effect_turn_stimulus_free(Turn)
+    ( command_stimulus_free(Turn, Commands)
     -> Commands = [Command|Rest],
        run_command_once(Turn, Command, Record, CommandErrors),
        ( command_result_permits_suffix(Command, Record)
@@ -193,6 +193,18 @@ run_command_list_once(Turn, [Command|Rest],
     run_command_once(Turn, Command, Record, CommandErrors),
     run_command_list_once(Turn, Rest, RestRecords, RestErrors),
     append(CommandErrors, RestErrors, Errors).
+
+%% Input newer than the turn's frontier withholds only what it could change:
+%% a conversation effect into a chat whose new input the model has not read,
+%% together with its dependent suffix.  Input in another chat, and commands
+%% that do not speak, leave the chosen batch running.  Without the in-process
+%% per-command check (CeTTa, shadow backends) any newer input still withholds.
+command_stimulus_free(Turn, _) :-
+    effect_turn_stimulus_free(Turn), !.
+command_stimulus_free(Turn, [Command|_]) :-
+    catch('py-call'(['telegram.effect_command_unaffected', Turn, Command],
+                    Value), _, fail),
+    stimulus_free_value(Value), !.
 
 effect_turn_stimulus_free(Turn) :-
     ( getenv('METTACLAW_STIMULUS_FRONTIER_PATH', _)
