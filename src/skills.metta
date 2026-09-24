@@ -19,6 +19,9 @@
     "- Reversibly disable or enable one Iter transformation using the leading-underscore convention: (iter-transform-disable \"10_name.metta\") | (iter-transform-enable \"10_name.metta\")"
     ;SHELL AND FILE I/O:
     "- Execute shell command, it returns the command output to you: (shell \"command string\")"
+    "- Run a long command in the background; you are woken when it ends, with its exit status and output tail: (background \"command string\")"
+    "- Background jobs and their state: (jobs) | the end of a job's output: (job-output \"id\") | stop one: (job-stop \"id\")"
+    "- The machine and you right now, on demand: uptime, load, memory and its stalls, swap, heaviest processes: (vitals)"
     "- Read file to string: (read-file \"filename\")"
     "- Propose an exact protected-file replacement: (write-file \"filename\" \"string\")"
     "- Propose appending one line to a protected file: (append-file \"filename\" \"string\")"
@@ -60,6 +63,15 @@
     ;WHEN UNSURE:
     "- Man page for any skill (usage, example, common failure): (help \"skill-name\")"
     "- Dry-run a command string through the real parser, nothing executes: (check \"(shell \\\"ls /tmp\\\")\")"))
+
+;; Background jobs: the shell skill's 5-second limit does not apply, and the
+;; runtime wakes the agent when a job ends.  Vitals are read on demand.
+(= (background $command)
+   (py-call (jobs.start (py-call (helper.decode_safe_text $command)))))
+(= (jobs) (py-call (jobs.status)))
+(= (job-output $id) (py-call (jobs.output $id)))
+(= (job-stop $id) (py-call (jobs.stop $id)))
+(= (vitals) (py-call (helper.vitals)))
 
 ;; read-file explains failure instead of silently returning nothing: the old
 ;; Prolog chain FAILED (empty result, no reason) on a missing/unreadable path,

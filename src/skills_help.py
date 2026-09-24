@@ -15,7 +15,9 @@ ARITY = {
     "mode-set": (1, 1),
     "iter-transformations": (0, 0), "iter-transform-write": (2, 2),
     "iter-transform-disable": (1, 1), "iter-transform-enable": (1, 1),
-    "shell": (1, 1), "read-file": (1, 1), "write-file": (2, 2),
+    "shell": (1, 1), "background": (1, 1), "jobs": (0, 0),
+    "job-output": (1, 1), "job-stop": (1, 1), "vitals": (0, 0),
+    "read-file": (1, 1), "write-file": (2, 2),
     "append-file": (2, 2), "read-lines": (3, 3), "edit-file": (3, 3),
     "ls-tree": (2, 2), "grep-files": (2, 2),
     "send": (1, 1), "send-telegram-chat": (2, 2),
@@ -40,7 +42,20 @@ PAGES = {
         'comes back as the result. Never mutate, sleep, then inspect in one\n'
         'call: a timeout does not roll back an earlier external effect.\n'
         'fails: (shell ls /tmp) — unquoted args make it a 3-arg call and no\n'
-        '3-arg shell exists. Quote the whole command: (shell "ls /tmp").'),
+        '3-arg shell exists. Quote the whole command: (shell "ls /tmp").\n'
+        'Anything that may take longer than 5 seconds: (background ...).'),
+    "background": (
+        'usage: (background "command string")\n'
+        'Runs under bash with no time limit and returns at once with a job\n'
+        'id and its output file. When it ends you are woken by a [runtime]\n'
+        'activity line with the exit status, duration and output tail; no\n'
+        'polling needed. (jobs) lists jobs, (job-output "id") reads more\n'
+        'output, (job-stop "id") ends one. A service restart ends jobs.'),
+    "vitals": (
+        'usage: (vitals)\n'
+        'Uptime, load against CPUs, memory used and available, memory\n'
+        'stall percentages, swap, the five heaviest processes by memory, and\n'
+        'running background jobs. Check it before explaining a gap.'),
     "goal-write": (
         'usage: (goal-write (goal <name> <Area> sti:<0-1> lti:<0-1>\n'
         '        vibes:(a b) blocked-by:none last-verified:never note:free text))\n'

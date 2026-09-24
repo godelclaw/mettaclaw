@@ -161,6 +161,70 @@ def wake_view(iteration):
     return view
 
 
+def _gigabytes(kib):
+    return "%.1fG" % (kib / 1048576.0)
+
+
+def vitals():
+    """The machine and this agent now, on demand: uptime, load, memory and
+    its pressure stalls, swap, the heaviest processes, background jobs."""
+    lines = []
+    try:
+        with open("/proc/uptime", encoding="ascii") as fh:
+            lines.append("up %s" % _duration(float(fh.read().split()[0])))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        with open("/proc/loadavg", encoding="ascii") as fh:
+            one, five, fifteen = fh.read().split()[:3]
+        lines.append("load %s %s %s (1, 5, 15 min) over %d cpus"
+                     % (one, five, fifteen, os.cpu_count() or 1))
+    except (OSError, ValueError):
+        pass
+    try:
+        info = {}
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                key, _, value = line.partition(":")
+                info[key] = int(value.split()[0])
+        used = 100 - 100 * info["MemAvailable"] // info["MemTotal"]
+        lines.append("memory %d%% used, %s available of %s; swap %s used"
+                     % (used, _gigabytes(info["MemAvailable"]),
+                        _gigabytes(info["MemTotal"]),
+                        _gigabytes(info["SwapTotal"] - info["SwapFree"])))
+    except (OSError, ValueError, KeyError, ZeroDivisionError):
+        pass
+    try:
+        with open("/proc/pressure/memory", encoding="ascii") as fh:
+            stalls = {line.split()[0]: line.split()[1].split("=")[1]
+                      for line in fh if line.strip()}
+        lines.append("memory stalls over 10s: some tasks %s%%, all tasks %s%%"
+                     % (stalls.get("some", "?"), stalls.get("full", "?")))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        import subprocess
+        listing = subprocess.run(
+            ["ps", "-eo", "user:16,rss,pcpu,etimes,comm", "--sort=-rss"],
+            capture_output=True, text=True, timeout=5).stdout.splitlines()[1:6]
+        heavy = []
+        for row in listing:
+            user, rss, cpu, age, command = row.split(None, 4)
+            heavy.append("%s %s %s cpu %s%% for %s" % (
+                user, command.strip(), _gigabytes(int(rss)), cpu,
+                _duration(int(age))))
+        if heavy:
+            lines.append("heaviest: " + "; ".join(heavy))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        import jobs
+        lines.append("background jobs running: %d" % jobs.running_count())
+    except Exception:  # noqa: BLE001 - vitals must never fail
+        pass
+    return "\n".join(lines) or "vitals unavailable"
+
+
 def normalize_string(value):
     """Return Janus/tool output as valid UTF-8 text without raising."""
     try:

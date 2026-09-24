@@ -42,6 +42,7 @@ class RuntimeProbeTest(unittest.TestCase):
          "ACTIVITY_DELIVERY_FULL_TURN_OK"),
         ("tests/prompt_cache_layout_probe.metta",
          "PROMPT_CACHE_LAYOUT_OK"),
+        ("tests/background_jobs_probe.metta", "BACKGROUND_JOBS_OK"),
     )
 
     def assert_witness(self, result, marker, engine):

@@ -679,6 +679,27 @@ def _set_last(chat_id, text, from_bot=False, arm_tier="full", update_id=None):
             )
 
 
+# Runtime events, such as a finished background job, arrive through the same
+# activity queue as messages.  Their pseudo chat is never a reply target.
+RUNTIME_CHAT = "runtime"
+
+
+def enqueue_runtime_event(text, reason="runtime event"):
+    """Deliver a runtime event as ordinary activity for the next turn and end
+    any rest.  A plain send afterwards still goes where it would have."""
+    global _activity_epoch
+    with _msg_lock:
+        _pending_messages.append(
+            (RUNTIME_CHAT, "[runtime] " + str(text), False, "light", None))
+        _activity_epoch += 1
+        if _effect_turn is not None and _effect_activity_epoch is not None:
+            stimulus_frontier.publish(
+                _effect_turn, _effect_activity_epoch, _activity_epoch
+            )
+    _request_wake(reason)
+    return True
+
+
 def getLastMessage():
     global _reply_chat_id, _last_message_is_human, _last_from_bot
     global _last_arm_tier
@@ -884,19 +905,30 @@ def getActivityBatch():
     texts = []
     newest_human = None
     newest = None
+    runtime = None
     for item in items:
         chat, msg, from_bot, tier, update_id = _pending_fields(item)
         texts.append(str(msg))
+        if update_id is not None:
+            _current_batch_update_ids.add(str(update_id))
+        if chat == RUNTIME_CHAT:
+            runtime = (chat, from_bot, tier)
+            continue
         newest = (chat, from_bot, tier)
         if not from_bot:
             newest_human = (chat, from_bot, tier)
-        if update_id is not None:
-            _current_batch_update_ids.add(str(update_id))
     pick = newest_human or newest
-    _reply_chat_id = str(pick[0])
-    _last_from_bot = bool(pick[1])
-    _last_message_is_human = not _last_from_bot
-    _last_arm_tier = str(pick[2]) if _last_message_is_human else "full"
+    if pick is not None:
+        _reply_chat_id = str(pick[0])
+        _last_from_bot = bool(pick[1])
+        _last_message_is_human = not _last_from_bot
+        _last_arm_tier = str(pick[2]) if _last_message_is_human else "full"
+    else:
+        # Only runtime events: replies keep their target, and the agent's
+        # own finished work arms a burst so it can act on the result.
+        _last_from_bot = False
+        _last_message_is_human = True
+        _last_arm_tier = runtime[2]
     return "\n".join(texts)
 
 
