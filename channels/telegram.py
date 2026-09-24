@@ -258,6 +258,16 @@ def _reply_fields(message):
     return [f for f in fields if f]
 
 
+def _clock(epoch):
+    """Telegram's own send time, local, in the same format as TIME."""
+    if not epoch:
+        return ""
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(epoch)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
 def _format_message(update, kind, message, text):
     chat = message.get("chat") or {}
     sender = message.get("from") or {}
@@ -271,6 +281,8 @@ def _format_message(update, kind, message, text):
         _field("chat_type", chat.get("type")),
         _field("chat_title", _display_chat(chat)),
         _field("message_id", message.get("message_id")),
+        _field("sent_at", _clock(message.get("date"))),
+        _field("edited_at", _clock(message.get("edit_date"))),
         _field("thread_id", message.get("message_thread_id")),
         _bool_field("is_topic", bool(message.get("is_topic_message"))),
         _field("from", _display_user(sender)),

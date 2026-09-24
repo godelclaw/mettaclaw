@@ -93,6 +93,74 @@ def _commands_in(form):
     return [c for sub in _top_level_forms(inner)[0] for c in _commands_in(sub)]
 
 
+# ---- wake vitals -------------------------------------------------------------
+# Interoception measured by the runtime, never inferred by the model: how long
+# since the previous turn, and how loaded the machine is.  The prompt is built
+# more than once per turn, so the view is fixed per iteration.
+
+_WAKE = {"iteration": None, "at": None, "view": ""}
+_HISTORY_STAMP = re.compile(r"(20\d\d-\d\d-\d\d \d\d:\d\d:\d\d)")
+
+
+def _duration(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm%02ds" % (seconds // 60, seconds % 60)
+    return "%dh%02dm" % (seconds // 3600, seconds % 3600 // 60)
+
+
+def _last_turn_from_history():
+    """Time of the newest turn in history, for the first wake after start."""
+    path = path_from_env("METTACLAW_HISTORY_PATH", "./memory/history.metta")
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 65536))
+            stamps = _HISTORY_STAMP.findall(
+                fh.read().decode("utf-8", "replace"))
+        return time.mktime(time.strptime(stamps[-1], "%Y-%m-%d %H:%M:%S"))
+    except (OSError, IndexError, ValueError, OverflowError):
+        return None
+
+
+def _machine_view():
+    parts = []
+    try:
+        with open("/proc/loadavg", encoding="ascii") as fh:
+            load = float(fh.read().split()[0])
+        parts.append("load %g/%d" % (round(load, 1), os.cpu_count() or 1))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        info = {}
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                key, _, value = line.partition(":")
+                info[key] = int(value.split()[0])
+        used = 100 - 100 * info["MemAvailable"] // info["MemTotal"]
+        parts.append("mem %d%%" % used)
+    except (OSError, ValueError, KeyError, ZeroDivisionError):
+        pass
+    return parts
+
+
+def wake_view(iteration):
+    """Compact vitals for one turn: time since the previous turn, machine
+    load against its CPUs, and memory in use."""
+    if _WAKE["iteration"] == str(iteration) and _WAKE["view"]:
+        return _WAKE["view"]
+    now = time.time()
+    previous = (_WAKE["at"] if _WAKE["at"] is not None
+                else _last_turn_from_history())
+    parts = (["+%s since last turn" % _duration(now - previous)]
+             if previous is not None else [])
+    view = " | ".join(parts + _machine_view()) or "unavailable"
+    _WAKE.update(iteration=str(iteration), at=now, view=view)
+    return view
+
+
 def normalize_string(value):
     """Return Janus/tool output as valid UTF-8 text without raising."""
     try:

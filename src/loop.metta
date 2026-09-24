@@ -60,6 +60,7 @@
         " ATTENTION_DAG: " (repr (attention-view))
         " LAST_SKILL_USE_RESULTS: "
         (last_chars (loop-last-results $periphery) (maxFeedback))
+        " WAKE: " (py-call (helper.wake_view (loop-iteration $periphery)))
         " TIME: " (get_time_as_string)))))
 
 (= (getContext $periphery)
