@@ -122,13 +122,13 @@ class EngineLauncherTests(unittest.TestCase):
         line = self.result_lines()[0]
         self.assertTrue(line.startswith("cetta:cetta:"))
         self.assertIn("--lang petta", line)
-        iter_policy = str(self.root / "src" / "iter_process_policy.metta")
-        coding_policy = str(self.root / "src" / "metta_coding_policy.metta")
-        turn_additions = str(self.root / "src" / "turn_additions.metta")
-        self.assertIn(iter_policy, line)
-        self.assertIn(coding_policy, line)
-        self.assertLess(line.index(iter_policy), line.index(coding_policy))
-        self.assertLess(line.index(coding_policy), line.index(turn_additions))
+        # The bootstrap imports the program; no module is also listed here,
+        # which would load its equations twice.
+        bootstrap = str(self.root / "cetta_bootstrap.metta")
+        start = str(self.root / "cetta_run.metta")
+        self.assertLess(line.index(bootstrap), line.index(start))
+        self.assertNotIn(str(self.root / "src" / ""), line)
+        self.assertNotIn(str(self.root / "lib_nal.metta"), line)
 
     def test_clean_unrequested_cetta_stop_falls_back(self):
         self.select("cetta")

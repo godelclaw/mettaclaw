@@ -62,8 +62,12 @@ class CommandDispatchEngineTest(unittest.TestCase):
         self.assertRegex(result.stdout, r"CETTA_FAST_PATH_OK:[0-9]+ms")
         self.assertNotIn("CETTA_FAST_PATH_FAIL", result.stdout)
 
-    def test_cetta_live_manifest_prepares_structured_request(self):
-        """Exercise the request seam omitted by the former live manifest."""
+    def test_cetta_live_launch_prepares_structured_request(self):
+        """The live launch's program prepares a request, each equation once.
+
+        The bootstrap imports the whole program; loading its modules a second
+        time would double every recursive answer until the turn never ends.
+        """
         petta = self._petta_root()
         cetta = self._cetta_binary()
         if not cetta.is_file() or not (
@@ -72,11 +76,6 @@ class CommandDispatchEngineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             directory = pathlib.Path(directory)
             probe = directory / "request.metta"
-            channel = directory / "channel.metta"
-            channel.write_text(
-                "(= (configureChannel) (configure commchannel telegram))\n",
-                encoding="utf-8",
-            )
             probe.write_text(
                 "(= (assertLive $A $B) (assert (== $A $B)))\n"
                 "!(let* (($request (coding-prepare-request coding legacy "
@@ -97,33 +96,12 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "($_ (assertLive (loop-budget $failed) 12)) "
                 "($_ (assertLive (loop-sleep $failed) 60)) "
                 "($_ (assertLive (loop-budget $answered) 12)) "
-                "($_ (assertLive (loop-sleep $answered) 1))) "
+                "($_ (assertLive (loop-sleep $answered) 1)) "
+                "($_ (assertLive (collapse (loop-budget $failed)) (12)))) "
                 "(println! CETTA_LIVE_REQUEST_OK))\n",
                 encoding="utf-8",
             )
-            files = [
-                ROOT / "cetta_bootstrap.metta",
-                petta / "lib" / "lib_import.metta",
-                petta / "lib" / "lib_patrick.metta",
-                petta / "lib" / "lib_llm.metta",
-                petta / "lib" / "lib_vector.metta",
-                petta / "lib" / "lib_combinatorics.metta",
-                ROOT / "lib_nal.metta", ROOT / "lib_nal7.metta",
-                ROOT / "src" / "utils.metta",
-                channel,
-                ROOT / "src" / "channels.metta",
-                ROOT / "src" / "weak_process_core.metta",
-                ROOT / "src" / "open_assemblage.metta",
-                ROOT / "src" / "loop_policy.metta",
-                ROOT / "src" / "iter_process_policy.metta",
-                ROOT / "src" / "metta_coding_policy.metta",
-                ROOT / "src" / "skills.metta",
-                ROOT / "src" / "command_pipeline.metta",
-                ROOT / "src" / "turn_additions.metta",
-                ROOT / "src" / "memory.metta",
-                ROOT / "src" / "attention_graph.metta",
-                ROOT / "src" / "loop.metta", probe,
-            ]
+            files = [ROOT / "cetta_bootstrap.metta", probe]
             environment = self._cetta_env()
             environment.update({
                 "METTACLAW_HISTORY_PATH": os.fspath(
