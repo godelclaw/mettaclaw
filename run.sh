@@ -262,7 +262,7 @@ case "$METTACLAW_ENGINE" in
             fallback_to_petta 2 "CeTTa executable unavailable"
         fi
         if [ "$TARGET" != "$ROOT/run.metta" ]; then
-            "$CETTA_BIN" --lang petta --import-mode ancestor-walk "$TARGET"
+            "$CETTA_BIN" --lang petta --import-mode ancestor-walk "$TARGET" default
             exit $?
         fi
         # systemd stops the launcher and its CeTTa child as one control group.
