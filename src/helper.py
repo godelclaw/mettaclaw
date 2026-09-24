@@ -295,7 +295,7 @@ def recycle_exit():
 # sleep, not a fresh boot. The continuity invariant: restore ∘ persist =
 # identity on this projection, within the feedback window.
 
-_WORKING_CAP = 50000  # mirrors (maxFeedback)
+_WORKING_CAP = 200000  # mirrors (maxFeedback)
 _working_boot_cache = {}
 
 

@@ -5,7 +5,7 @@
 
 (= (initMemory)
    (progn (println! "Initializing memory")
-          (configure maxFeedback 50000)
+          (configure maxFeedback 200000)
           (configure maxRecallItems 20)
           (configure maxRecentTurns 8)))
 

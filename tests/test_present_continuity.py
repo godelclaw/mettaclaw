@@ -62,9 +62,10 @@ class WorkingSetTests(unittest.TestCase):
         self.assertNotIn("WOKE_FROM_REST", helper.boot_str("lastresults", ""))
 
     def test_lastresults_capped_to_feedback_window(self):
-        helper.working_set_save(1, 1, "x" * 90000, 0.0)
+        helper.working_set_save(1, 1, "x" * (helper._WORKING_CAP + 40000), 0.0)
         helper.working_boot()
-        self.assertLessEqual(len(helper.boot_str("lastresults", "")), 50000)
+        self.assertLessEqual(len(helper.boot_str("lastresults", "")),
+                             helper._WORKING_CAP)
 
     def test_text_nonempty_normalizes_boundary_values(self):
         self.assertEqual(helper.text_nonempty(""), 0)
