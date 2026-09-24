@@ -350,10 +350,10 @@ shadow_effect_outcome(Outcome,
 
 command_status(ok(Value), _Command, Value, []).
 command_status(failed, Command, ['Error', command_failed],
-               [['command_format_error_nothing_ran', Command,
+               [['command_returned_no_result', Command,
                  "command returned no result"]]).
 command_status(exception(Exception), Command, ['Error', Message],
-               [['command_format_error_nothing_ran', Command, Message]]) :-
+               [['command_raised_exception', Command, Message]]) :-
     message_to_string(Exception, Message).
 
 normalize_command_value(Value, Normalized) :-
