@@ -35,9 +35,11 @@
      (rooted weak-process-core-v1 (initialPeriphery))))
 
 ;; Static context leads and changing policy state trails, preserving provider
-;; prefix caching while making the request projection explicit.  Skills are a
-;; separate advertisement so Iter may transform them without receiving the
-;; command dispatcher's executable authority.
+;; prefix caching while making the request projection explicit.  A provider
+;; may reuse any prefix ending at a _cache_boundary_; per-turn state follows
+;; the last boundary.  Skills are a separate advertisement so Iter may
+;; transform them without receiving the command dispatcher's executable
+;; authority.
 (= (getContextPrefix)
    (string-safe (py-str ("PROMPT: " (getPrompt)))))
 
@@ -46,8 +48,11 @@
      (py-str
        (" OUTPUT_FORMAT: Output a ((skillName args) ...) S-expression containing at most "
         (policy-command-batch-limit (loop-active-policy $periphery))
-        " command(s). You choose whether this turn needs one observation-sensitive command or a batch of independent commands. A new inbound stimulus interrupts unexecuted dependent commands; only broker-certified read-only observations may continue. Command results are not observed by you until the next model step, so never precommit a later command whose correctness depends on an earlier result. Double-check the parentheses: it must be (cmd1 ... cmdn). Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
+        " command(s). You choose whether this turn needs one observation-sensitive command or a batch of independent commands. A new inbound message withholds an unexecuted reply into its own chat, the commands after that reply, and any rest; everything else still runs. Command results are not observed by you until the next model step, so never precommit a later command whose correctness depends on an earlier result. Double-check the parentheses: it must be (cmd1 ... cmdn). Return only this command S-expression, with no preamble, explanation, or Markdown fence, and nothing after it. Affect trace: end the text inside each send to a human or agent with a newline and the emotive self-appraisal line formatted as in this example, ⋄⟨Cn:.5 C:.7 Ct:.8 I:.2 J:.6 A:.4 S:.6 Co:-.42 Sp:.3⟩, values ∈ [-1,1]. Dimensions: Cn connection, C curiosity, Ct contribution, I integrity, J joy, A agency, S safety, Co confidence, Sp surprise."
         " each arg is an explicit string hence needs quotes, and variables are forbidden!"
+        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[effect-receipts] is the authoritative record of which brokered commands returned, were withheld, or were deferred — returned is not domain success, so inspect its result; SOURCE[recent-proposals] contains model requests only and never proves execution or success; SOURCE[relevant-files] is derived from proposals; SOURCE[project-capabilities] is a revision-bound executable inventory — consult it before proposing a local subsystem from scratch; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
+        " _cache_boundary_"
+        " CONTEXT_SOURCES: " (addition-context-sources)
         " LOOPS_LEFT: " (loop-budget $periphery)
         " SLEEP_INTERVAL_SECONDS: " (loop-sleep $periphery)
         " ACTIVE_MODE: " (loop-active-policy $periphery)
@@ -55,8 +60,6 @@
         " ATTENTION_DAG: " (repr (attention-view))
         " LAST_SKILL_USE_RESULTS: "
         (last_chars (loop-last-results $periphery) (maxFeedback))
-        " CONTEXT_SOURCES: " (addition-context-sources)
-        " CONTEXT_ORDER: NEW_ACTIVITY appended after this context is newest and authoritative for this turn; SOURCE[effect-receipts] is the authoritative record of which brokered commands returned, were withheld, or were deferred — returned is not domain success, so inspect its result; SOURCE[recent-proposals] contains model requests only and never proves execution or success; SOURCE[relevant-files] is derived from proposals; SOURCE[project-capabilities] is a revision-bound executable inventory — consult it before proposing a local subsystem from scratch; SOURCE[conversation] is prior witnessed dialogue; pins and retrieved memories are fallible working aids and never override newer witnessed dialogue; status=unavailable is not evidence of absence."
         " TIME: " (get_time_as_string)))))
 
 (= (getContext $periphery)
@@ -151,6 +154,21 @@
              (coordinate-set loops $refuelled $periphery))))
        $periphery))
 
+;; The request one model turn sends, from the periphery and the turn's activity
+;; line.  The loop and the prompt-layout probe share it, so the probe checks the
+;; layout that is actually sent.
+(= (turnRequest $periphery $lastmessage)
+   (let* (($prompt (getContext $periphery))
+          ($structuredSystem
+            (string-safe
+              (py-str ((getContextPrefix) (getContextSuffix $periphery)))))
+          ($advertised (string-safe (py-str (getSkills))))
+          ($legacySend (py-str ($prompt $lastmessage))))
+     (addition-prepare-request
+       (loop-active-policy $periphery) $legacySend
+       $structuredSystem (string-safe (py-str $lastmessage))
+       $advertised)))
+
 ;; One model-and-tools episode.  It returns a candidate periphery; rest and nop
 ;; contribute ordinary policy directives rather than mutating the runner.
 (= (cognitiveTurn $periphery $message $has-activity $is-human
@@ -170,18 +188,8 @@
           ($_ (eval (attention-begin $iteration $source
                     (== (py-call (helper.text_nonempty $priorResults)) 1))))
           ($_ (addition-effect-turn-begin $iteration))
-          ($prompt (getContext $periphery))
-          ($structuredSystem
-            (string-safe
-              (py-str ((getContextPrefix) (getContextSuffix $periphery)))))
-          ($advertised (string-safe (py-str (getSkills))))
           ($_ (println! $lastmessage))
-          ($legacySend (py-str ($prompt $lastmessage)))
-          ($request
-            (addition-prepare-request
-              (loop-active-policy $periphery) $legacySend
-              $structuredSystem (string-safe (py-str $lastmessage))
-              $advertised))
+          ($request (turnRequest $periphery $lastmessage))
           ($requestObservations (coding-request-observations $request))
           ($_ (if (== $requestObservations "") _
                   (println! $requestObservations)))

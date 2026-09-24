@@ -217,31 +217,46 @@ def _provider_for(model):
     }
 
 
-def _anthropic_request(provider, effective_model, max_tokens, prompt):
-    """Native Messages API request with automatic prompt caching.
+# The agent's prompt layout (loop.metta and context_sources.py) places
+# exactly this many boundaries, all ahead of per-turn state.  Later
+# occurrences are content, such as a shell read of this file, and stay text.
+_CACHE_BOUNDARY = "_cache_boundary_"
+_LAYOUT_BOUNDARIES = 3
 
-    The agent context has a stable head (PROMPT/SKILLS/OUTPUT_FORMAT) before
-    the per-turn fields; splitting at ' LOOPS_LEFT: ' puts that head in the
-    system block, so the top-level cache_control gets cache hits on every
-    turn inside a burst (5-minute TTL)."""
+
+def _without_cache_boundaries(text):
+    """The layout's boundaries are not content: no provider sees them."""
+    return str(text).replace(_CACHE_BOUNDARY, "", _LAYOUT_BOUNDARIES)
+
+
+def _anthropic_request(provider, effective_model, max_tokens, prompt):
+    """Native Messages API request with prompt caching.
+
+    The agent lays its prompt out least-changeable first and marks each prefix
+    a provider may reuse with a cache boundary.  Every part before a boundary
+    becomes a cached system block, so a turn reuses the longest unchanged
+    prefix; the part after the last boundary changes every turn and is the
+    user message.  A prompt without boundaries keeps the older split at
+    ' LOOPS_LEFT: '."""
     text = str(prompt)
-    marker = " LOOPS_LEFT: "
-    cut = text.find(marker)
-    if cut > 0:
-        system, user = text[:cut], text[cut:]
+    parts = text.split(_CACHE_BOUNDARY, _LAYOUT_BOUNDARIES)
+    if len(parts) > 1:
+        stable, user = parts[:-1], parts[-1]
     else:
-        system, user = "", text
+        cut = text.find(" LOOPS_LEFT: ")
+        stable, user = ([text[:cut]], text[cut:]) if cut > 0 else ([], text)
+    if not user.strip() and stable:
+        user = stable.pop()
     body = {
         "model": effective_model,
         "max_tokens": int(max_tokens),
         "messages": [{"role": "user", "content": user}],
     }
+    system = [{"type": "text", "text": part,
+               "cache_control": {"type": "ephemeral"}}
+              for part in stable if part.strip()]
     if system:
-        # Explicit breakpoint on the stable head only: the per-turn user
-        # message is rebuilt every call, so automatic (top-level) caching
-        # would cache system+user and never hit. Verified empirically.
-        body["system"] = [{"type": "text", "text": system,
-                           "cache_control": {"type": "ephemeral"}}]
+        body["system"] = system
     return urllib.request.Request(
         provider["base"] + "/messages",
         json.dumps(body).encode("utf-8"),
@@ -361,7 +376,8 @@ def chat(model, max_tokens, effort, prompt):
         data = json.dumps(
             {
                 "model": effective_model,
-                "messages": [{"role": "user", "content": str(prompt)}],
+                "messages": [{"role": "user",
+                              "content": _without_cache_boundaries(prompt)}],
                 "max_tokens": int(max_tokens),
                 "reasoning": {"effort": str(effort)},
             }

@@ -41,6 +41,17 @@ SOURCE_SPECS = (
     SourceSpec("conversation", 30000, True),
 )
 
+# Prompt layout for provider prefix caching.  Sources are rendered from the
+# least to the most changeable, with a boundary after each cacheable group:
+# first the ones that change rarely, then the conversation, which changes when
+# a message arrives, then everything that changes every turn.  A provider may
+# reuse any prefix that ends at a boundary; text after the last boundary is
+# expected to differ from turn to turn.
+CACHE_BOUNDARY = "_cache_boundary_"
+STABLE_SOURCE_IDS = ("project-capabilities", "development-state",
+                     "project-evidence")
+MESSAGE_SOURCE_IDS = ("conversation",)
+
 
 def _clip(text, spec):
     text = str(text)
@@ -151,16 +162,32 @@ def _loaders():
     )
 
 
+def layout(observations):
+    """Render observations least-changeable first, with cache boundaries."""
+    groups = (
+        [o for o in observations if o.source_id in STABLE_SOURCE_IDS],
+        [o for o in observations if o.source_id in MESSAGE_SOURCE_IDS],
+        [o for o in observations
+         if o.source_id not in STABLE_SOURCE_IDS + MESSAGE_SOURCE_IDS],
+    )
+    rank = {source_id: index for index, source_id in enumerate(
+        STABLE_SOURCE_IDS + MESSAGE_SOURCE_IDS)}
+    groups[0].sort(key=lambda o: rank[o.source_id])
+    separator = "\n\n" + CACHE_BOUNDARY + "\n\n"
+    return separator.join(
+        Projector.render_observations(group) for group in groups)
+
+
 def bundle():
     """One ordered context bundle; never raises across the MeTTa boundary."""
     try:
         import active_queries
         import context_certificate
         observations = _PROJECTOR.project(_loaders())
-        projection = _PROJECTOR.render_observations(observations)
+        projection = layout(observations)
         certificate = context_certificate.issue(
             observations, active_queries.from_observations(observations),
             projection)
-        return context_certificate.render(certificate) + "\n\n" + projection
+        return projection + "\n\n" + context_certificate.render(certificate)
     except Exception:
         return "SOURCE[context-bundle] status=unavailable"

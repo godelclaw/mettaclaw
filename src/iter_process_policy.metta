@@ -53,11 +53,13 @@
         (coding-view $messages $advertised) $observations))
    (let* (($rendered-messages (iter-native-render-messages $messages))
           ($rendered-advertised (swrite $advertised))
+          ;; The advertisement changes only when the skills do, so it leads
+          ;; the request with the other stable text, ahead of the messages.
           ($base
             (iter-native-concat3
-              $rendered-messages
-              "\n\nADVERTISED_CAPABILITIES:\n"
-              $rendered-advertised))
+              (string_concat "ADVERTISED_CAPABILITIES:\n" $rendered-advertised)
+              "\n\n"
+              $rendered-messages))
           ($rendered-observations
             (iter-native-render-observations $observations))
           ($rendered

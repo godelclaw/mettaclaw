@@ -1,4 +1,5 @@
 import pathlib
+import re
 import os
 import sys
 import tempfile
@@ -127,10 +128,31 @@ class ContextSourcesTest(unittest.TestCase):
                     "partial(failed)",
                 )
                 rendered = context_sources.bundle()
-        self.assertTrue(rendered.startswith("CONTEXT_CERTIFICATE "))
-        self.assertIn("SOURCE[effect-receipts] status=known", rendered)
-        self.assertIn("partial(failed)", rendered)
-        self.assertIn("SOURCE[recent-proposals]", rendered)
+        stable, conversation, per_turn = rendered.split(
+            "\n\n" + context_sources.CACHE_BOUNDARY + "\n\n")
+        self.assertIn("SOURCE[project-capabilities]", stable)
+        self.assertIn("SOURCE[conversation]", conversation)
+        self.assertIn("SOURCE[effect-receipts] status=known", per_turn)
+        self.assertIn("partial(failed)", per_turn)
+        self.assertIn("SOURCE[recent-proposals]", per_turn)
+        self.assertTrue(per_turn.rsplit("\n\n", 1)[-1].startswith(
+            "CONTEXT_CERTIFICATE "))
+
+    def test_layout_orders_sources_least_changeable_first(self):
+        observations = [
+            context_sources.Observation(source_id, "known", "x", "r")
+            for source_id in ("pins", "conversation", "project-evidence",
+                              "effect-receipts", "project-capabilities",
+                              "development-state")
+        ]
+        groups = context_sources.layout(observations).split(
+            "\n\n" + context_sources.CACHE_BOUNDARY + "\n\n")
+        order = [re.findall(r"SOURCE\[([^\]]+)\]", group) for group in groups]
+        self.assertEqual(order, [
+            ["project-capabilities", "development-state", "project-evidence"],
+            ["conversation"],
+            ["pins", "effect-receipts"],
+        ])
 
     def test_atlas_query_receipt_enters_the_next_certificate_projection(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -155,7 +177,7 @@ class ContextSourcesTest(unittest.TestCase):
                     },
                 )
                 rendered = context_sources.bundle()
-        certificate_line = rendered.splitlines()[0].partition(" ")[2]
+        certificate_line = rendered.splitlines()[-1].partition(" ")[2]
         import json
         certificate = json.loads(certificate_line)
         self.assertIn(
@@ -178,7 +200,7 @@ class ContextSourcesTest(unittest.TestCase):
                     pathlib.Path(directory) / "updates.jsonl"),
             }):
                 rendered = context_sources.bundle()
-        certificate_line = rendered.splitlines()[0].partition(" ")[2]
+        certificate_line = rendered.splitlines()[-1].partition(" ")[2]
         import json
         certificate = json.loads(certificate_line)
         self.assertIn("operator-stimulus", certificate["active_queries"])

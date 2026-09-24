@@ -105,6 +105,46 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertEqual(seen["body"]["messages"][0]["content"],
                          " LOOPS_LEFT: 5 HISTORY: h")
 
+    def test_anthropic_caches_each_layout_block_before_the_turn(self):
+        self.enable_flag()
+        os.environ["ANTHROPIC_API_KEY"] = "anth-key"
+        os.environ["SYNTHETIC_MODEL"] = "claude-opus-5-5"
+        seen = {}
+
+        def fake_request_json(req, timeout=None):
+            seen["body"] = json.loads(req.data)
+            return {"content": [{"type": "text", "text": "((rest))"}],
+                    "usage": {"input_tokens": 5}}
+
+        with mock.patch.object(synthetic_llm, "_request_json",
+                               fake_request_json):
+            synthetic_llm.chat(
+                "syn:large:text", 6000, "medium",
+                "HEAD_cache_boundary_STABLE_cache_boundary_CONV"
+                "_cache_boundary_TURN read _cache_boundary_ in a file")
+        system = seen["body"]["system"]
+        self.assertEqual([block["text"] for block in system],
+                         ["HEAD", "STABLE", "CONV"])
+        for block in system:
+            self.assertEqual(block["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(seen["body"]["messages"],
+                         [{"role": "user",
+                           "content": "TURN read _cache_boundary_ in a file"}])
+
+    def test_synthetic_request_carries_no_layout_boundary(self):
+        seen = {}
+
+        def fake_request_json(req, timeout=None):
+            seen["body"] = json.loads(req.data)
+            return ok_chat()
+
+        with mock.patch.object(synthetic_llm, "_request_json",
+                               fake_request_json):
+            synthetic_llm.chat(
+                "syn:large:text", 6000, "medium",
+                "A_cache_boundary_B_cache_boundary_C_cache_boundary_D")
+        self.assertEqual(seen["body"]["messages"][0]["content"], "ABCD")
+
     def test_claude_without_key_returns_empty_action_not_raise(self):
         self.enable_flag()
         os.environ["SYNTHETIC_MODEL"] = "claude-fable-5"
