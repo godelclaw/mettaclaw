@@ -113,13 +113,14 @@ def _empty_action(reason):
 
 # --- provider routing --------------------------------------------------------
 # Optional second provider: model names starting with "claude-" are served by
-# Anthropic's OpenAI-compatible endpoint using ANTHROPIC_API_KEY. Every other
+# Anthropic's native Messages API using ANTHROPIC_API_KEY. Every other
 # model takes the synthetic path exactly as before. Switching is session-level
 # via set_model(), so the configured default provider is untouched.
 
 _ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com/v1"
 _ANTHROPIC_DEFAULT_MODELS = (
-    "claude-fable-5,claude-opus-5,claude-opus-4-8,claude-sonnet-5,claude-haiku-4-5-20251001"
+    "claude-fable-5,claude-opus-5-5,claude-opus-5,claude-opus-4-8,"
+    "claude-sonnet-5,claude-haiku-4-5-20251001"
 )
 
 

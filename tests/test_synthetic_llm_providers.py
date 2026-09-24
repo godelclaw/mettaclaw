@@ -167,6 +167,19 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertIn("anthropic", msg)
         self.assertEqual(os.environ["SYNTHETIC_MODEL"], "claude-fable-5")
 
+    def test_set_model_accepts_opus_5_5_without_network(self):
+        self.enable_flag()
+        os.environ["ANTHROPIC_API_KEY"] = "anth-key"
+        with mock.patch.dict(os.environ), \
+             mock.patch.object(
+                 synthetic_llm, "_request_json",
+                 side_effect=AssertionError("no network call expected")):
+            os.environ.pop("ANTHROPIC_MODELS", None)
+            msg = synthetic_llm.set_model("claude-opus-5-5")
+            self.assertIn("anthropic", msg)
+            self.assertEqual(os.environ["SYNTHETIC_MODEL"], "claude-opus-5-5")
+            self.assertIn("claude-opus-5-5", synthetic_llm.model_ids())
+
     def test_set_model_unknown_claude_rejected(self):
         self.enable_flag()
         os.environ["ANTHROPIC_API_KEY"] = "anth-key"
