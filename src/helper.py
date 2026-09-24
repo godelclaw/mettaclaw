@@ -30,7 +30,67 @@ def balance_parentheses(s):
     while right < len(s) and s[len(s) - 1 - right] == ')':
         right += 1
     core = s[left:len(s) - right if right else len(s)].strip()
-    return f"(({core}))"
+    normalized = f"(({core}))"
+    forms, clean = _top_level_forms(s)
+    if _is_one_form(normalized) and (s.startswith("(") or not forms):
+        return normalized
+    # A stray ')' or text around the commands used to make the whole batch
+    # unreadable, so nothing ran.  Every complete (command) still runs; text
+    # outside parentheses and unmatched ')' are ignored.  An unclosed string
+    # or form still fails the batch, because reading it would mean guessing.
+    commands = [c for form in forms for c in _commands_in(form)]
+    if not clean or not commands:
+        return normalized
+    print("[helper] recovered %d command(s) from a malformed batch"
+          % len(commands), file=sys.stderr)
+    return "(" + " ".join(commands) + ")"
+
+
+def _is_one_form(text):
+    """True when text is exactly one balanced parenthesized form."""
+    forms, clean = _top_level_forms(text)
+    return clean and forms == [text]
+
+
+def _top_level_forms(text):
+    """Complete top-level (...) forms of text, and whether nothing was left
+    open.  Strings are read as in the S-expression reader; a ')' with
+    nothing open is skipped."""
+    forms = []
+    depth = 0
+    start = 0
+    in_string = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_string:
+            if c == '\\':
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c == '(':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == ')' and depth > 0:
+            depth -= 1
+            if depth == 0:
+                forms.append(text[start:i + 1])
+        i += 1
+    return forms, depth == 0 and not in_string
+
+
+def _commands_in(form):
+    """A command is (head ...); a form opening with '(' is a list of them."""
+    inner = form[1:-1].strip()
+    if not inner:
+        return []
+    if inner[0] != '(':
+        return [form]
+    return [c for sub in _top_level_forms(inner)[0] for c in _commands_in(sub)]
 
 
 def normalize_string(value):
