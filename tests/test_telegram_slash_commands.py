@@ -514,6 +514,57 @@ class SlashCommandTest(unittest.TestCase):
         notice.assert_not_called()
         queued.assert_not_called()
 
+    def test_wake_peer_message_wakes_and_queues_with_its_bot_flag(self):
+        peer = {"id": 333000333, "is_bot": True, "username": "PeerBot"}
+        update = {
+            "update_id": 78,
+            "message": {
+                "message_id": 13,
+                "chat": {"id": 333000333, "type": "private"},
+                "from": peer,
+                "text": "/stop is only words from a peer",
+            },
+        }
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"result": [update]}
+
+        def one_poll(*args, **kwargs):
+            telegram._running = False
+            return response
+
+        telegram._running = True
+        telegram._wake_event.clear()
+        telegram._wake_reason = ""
+        try:
+            with mock.patch.dict(os.environ, {
+                     "METTACLAW_TELEGRAM_WAKE_IDS": "333000333",
+                     "METTACLAW_ENERGY_PATH": os.path.join(
+                         self.tmp.name, "energy.json")}), \
+                 mock.patch.object(telegram.requests, "get",
+                                   side_effect=one_poll), \
+                 mock.patch.object(telegram, "_chat_is_allowed",
+                                   return_value=True), \
+                 mock.patch.object(telegram, "_append_update_log",
+                                   return_value=True), \
+                 mock.patch.object(telegram, "_save_offset"), \
+                 mock.patch.object(telegram, "_set_last") as queued, \
+                 mock.patch.object(telegram, "_dispatch_slash_command") as dispatch:
+                telegram._poll_loop()
+            woke = telegram._wake_event.is_set()
+            reason = telegram._wake_reason
+        finally:
+            telegram._running = False
+            telegram._wake_event.clear()
+            telegram._wake_reason = ""
+
+        dispatch.assert_not_called()
+        queued.assert_called_once()
+        self.assertTrue(queued.call_args.args[2],
+                        "a waking peer keeps its bot flag, so it arms nothing")
+        self.assertTrue(woke)
+        self.assertEqual(reason, "peer message")
+
     def test_captioned_fast_control_never_waits_for_attachment(self):
         update = {
             "update_id": 78,

@@ -1163,6 +1163,17 @@ def _is_operator(sender):
     return str((sender or {}).get("id", "")) in _operator_ids()
 
 
+def _wake_peer_ids():
+    """Non-operator senders whose ordinary messages may end a rest.
+
+    A direct conversational line, such as a parent agent's bot, needs a
+    timely answer without gaining the operator's controls.  Waking only ends
+    the current rest: the woken turn spends the agent's own banked budget,
+    and the message keeps its true sender and bot flag."""
+    raw = os.environ.get("METTACLAW_TELEGRAM_WAKE_IDS", "")
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
 def _request_wake(reason):
     """Interrupt a timed rest and retain truthful provenance for its result."""
     global _wake_reason
@@ -1172,11 +1183,17 @@ def _request_wake(reason):
 
 
 def _wake_for_operator_message(sender):
-    """An authenticated operator message is itself an explicit wake request."""
-    if not _is_operator(sender):
-        return False
-    _request_wake("operator message")
-    return True
+    """An authenticated operator message is itself an explicit wake request.
+    So is an ordinary message from a configured wake peer, which gains no
+    operator control by waking the agent."""
+    if _is_operator(sender):
+        _request_wake("operator message")
+        return True
+    sender_id = str((sender or {}).get("id", ""))
+    if sender_id and sender_id in _wake_peer_ids():
+        _request_wake("peer message")
+        return True
+    return False
 
 
 def _models_keyboard():
@@ -2053,8 +2070,9 @@ def sleep_until_message(seconds):
 
     A blocking sleep makes the agent unreachable for its whole duration and
     silent about it. This waits in short slices. Other senders queue without
-    cutting rest short; an authenticated operator message wakes the agent and
-    is consumed normally by the next turn."""
+    cutting rest short; an authenticated operator message, or a configured
+    wake peer's message, wakes the agent and is consumed normally by the next
+    turn."""
     global _sleep_until, _rest_notice_sent, _wake_reason
     try:
         seconds = max(0, int(float(seconds)))

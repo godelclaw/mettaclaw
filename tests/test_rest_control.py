@@ -60,6 +60,28 @@ class RestControlTest(unittest.TestCase):
         self.assertFalse(telegram._wake_event.is_set())
         self.assertEqual(telegram._wake_reason, "")
 
+    def test_wake_peer_message_requests_wake_without_operator_control(self):
+        peer = {"id": 333000333, "is_bot": True}
+        with mock.patch.dict(
+                os.environ,
+                {"METTACLAW_TELEGRAM_OPERATOR_IDS": "111000111",
+                 "METTACLAW_TELEGRAM_WAKE_IDS": "333000333"}):
+            self.assertTrue(telegram._wake_for_operator_message(peer))
+            self.assertFalse(telegram._is_operator(peer))
+            self.assertIsNone(telegram._peek_slash_command("/stop", peer))
+        self.assertTrue(telegram._wake_event.is_set())
+        self.assertEqual(telegram._wake_reason, "peer message")
+
+    def test_unlisted_bot_message_does_not_request_wake(self):
+        with mock.patch.dict(
+                os.environ,
+                {"METTACLAW_TELEGRAM_OPERATOR_IDS": "111000111",
+                 "METTACLAW_TELEGRAM_WAKE_IDS": "333000333"}):
+            self.assertFalse(telegram._wake_for_operator_message(
+                {"id": 444000444, "is_bot": True}))
+        self.assertFalse(telegram._wake_event.is_set())
+        self.assertEqual(telegram._wake_reason, "")
+
     def test_timed_rest_reports_operator_message_wake(self):
         class MessageWakeEvent:
             def clear(self):
