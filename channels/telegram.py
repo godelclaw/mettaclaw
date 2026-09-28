@@ -1978,9 +1978,11 @@ def _durable_send_message(chat_id, body):
         elif result[0] == "not-sent":
             return "send failed: the message was not sent"
         else:
+            print("[telegram] chat lane %s held: delivery of %s is uncertain (%s)"
+                  % (durable_telegram.lane_of(key), key, result[1]))
             return ("send uncertain (%s): Telegram may or may not have it; "
                     "this chat holds later messages until an operator "
-                    "resolves it" % result[1])
+                    "resolves it (%s)" % (result[1], key))
     reply = "sent message %s to chat %s" % (ids[0], chat_id)
     if len(ids) > 1:
         reply += " (in %d parts: %s)" % (len(ids), ", ".join(map(str, ids)))
