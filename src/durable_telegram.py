@@ -135,6 +135,175 @@ class Channel:
         raise ChannelError("service unavailable")
 
 
+class Outbox:
+    """The client's own intent, durable before the service has recorded it.
+
+    Every batch is appended here, fsynced, before it is submitted. One thread
+    submits the queue in order, resending the same key and bytes until the
+    service stores it, across service and client restarts. So no message is
+    lost while the service is away, none is sent twice, and none overtakes an
+    earlier one to the same chat. A lane whose last delivery is uncertain is
+    held: its later batches stay queued, in order, until an operator releases
+    it, and other lanes go on. A record's metadata stays until its receipts
+    arrive, so a receipt that comes after a client restart is still known.
+    """
+
+    def __init__(self, channel, path):
+        self.channel = channel
+        self.path = path
+        self.queue = []          # [(key, body)] not yet stored, in order
+        self.entries = {}        # key -> metadata, until receipted
+        self.stored = set()
+        self.refused = {}
+        self.held = set()        # lanes whose last delivery is uncertain
+        self._condition = threading.Condition()
+        self._running = True
+        self._load()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _append(self, record):
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+
+    def _load(self):
+        records = {}
+        order = []
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue  # a torn final line from a crash mid-write
+                    key = record.get("key")
+                    if "hold" in record:
+                        self.held.add(record["hold"])
+                    elif "release" in record:
+                        self.held.discard(record["release"])
+                    elif "body" in record:
+                        records[key] = dict(record, stored=False)
+                        order.append(key)
+                    elif key in records and record.get("stored"):
+                        records[key]["stored"] = True
+                    elif record.get("done"):
+                        records.pop(key, None)
+        except OSError:
+            pass
+        live = [records[k] for k in order if k in records]
+        self.queue = [(r["key"], r["body"]) for r in live if not r["stored"]]
+        self.stored = {r["key"] for r in live if r["stored"]}
+        self.entries = {r["key"]: r.get("entry") for r in live}
+        temporary = "%s.tmp.%d" % (self.path, os.getpid())
+        with open(temporary, "w", encoding="utf-8") as f:
+            for lane in sorted(self.held):
+                f.write(json.dumps({"hold": lane}) + "\n")
+            for r in live:
+                f.write(json.dumps({"key": r["key"], "body": r["body"], "entry": r.get("entry")},
+                                   ensure_ascii=False, separators=(",", ":")) + "\n")
+                if r["stored"]:
+                    f.write(json.dumps({"key": r["key"], "stored": True}) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, self.path)
+
+    def enqueue(self, key, commands, entry=None):
+        body = json.dumps(commands, ensure_ascii=False, separators=(",", ":"))
+        with self._condition:
+            self._append({"key": key, "body": body, "entry": entry})
+            self.queue.append((key, body))
+            self.entries[key] = entry
+            self._condition.notify_all()
+
+    def wait_stored(self, key, timeout):
+        """True once stored; False while still queued; a code if refused."""
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while key not in self.stored and key not in self.refused:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+            return True if key in self.stored else self.refused[key]
+
+    def hold(self, lane):
+        """Stop submitting to a lane whose last delivery is uncertain. Its
+        later batches stay queued, in order, until the lane is released."""
+        with self._condition:
+            if lane not in self.held:
+                self.held.add(lane)
+                self._append({"hold": lane})
+
+    def release(self, lane):
+        with self._condition:
+            if lane in self.held:
+                self.held.discard(lane)
+                self._append({"release": lane})
+            self._condition.notify_all()
+
+    def is_held(self, lane):
+        with self._condition:
+            return lane in self.held
+
+    def done(self, key):
+        """All receipts for key have arrived: forget it."""
+        with self._condition:
+            self.stored.discard(key)
+            self.entries.pop(key, None)
+            self._append({"key": key, "done": True})
+
+    def _eligible(self):
+        """The first queued batch of any lane that is not held. Each lane's
+        batches keep their order; a held lane never blocks another."""
+        blocked = set(self.held)
+        for key, body in self.queue:
+            lane = lane_of(key)
+            if lane not in blocked:
+                return key, body
+            blocked.add(lane)
+        return None
+
+    def stop(self):
+        with self._condition:
+            self._running = False
+            self._condition.notify_all()
+        self._thread.join(timeout=5)
+
+    def _run(self):
+        delay = 0.2
+        while True:
+            with self._condition:
+                while self._running and not self._eligible():
+                    self._condition.wait(1)
+                if not self._running:
+                    return
+                key, body = self._eligible()
+            try:
+                code = self.channel.rpc(SUBMIT, key, body)[0]
+            except (OSError, ChannelError):
+                code = UNAVAILABLE
+            if code in (UNAVAILABLE, LIMIT):
+                time.sleep(delay)
+                delay = min(delay * 2, 5.0)
+                continue
+            delay = 0.2
+            with self._condition:
+                self.queue.remove((key, body))
+                if code == STORED:
+                    self.stored.add(key)
+                    self._append({"key": key, "stored": True})
+                else:
+                    # Definitive refusal (a conflict or an invalid batch):
+                    # nothing will be sent for this key.
+                    self.refused[key] = code
+                    self.entries.pop(key, None)
+                    self._append({"key": key, "done": True})
+                self._condition.notify_all()
+
+
 class Receipts:
     """Delivery receipts by submission key, awaited by the submitting thread."""
 
@@ -165,6 +334,11 @@ class Receipts:
             if have.get(-1) is not None:
                 return have[-1]
             return [have.get(p) for p in range(count)]
+
+
+def lane_of(key):
+    """CHAT.THREAD of a LANE.SEQUENCE key."""
+    return key.rsplit(".", 1)[0]
 
 
 def parse(observation):

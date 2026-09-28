@@ -35,6 +35,7 @@ _offset_path = ""
 _transport = "bot-api"
 _durable = None
 _durable_receipts = None
+_durable_outbox = None
 _durable_pending = {}
 _durable_lock = threading.Lock()
 _log_path = ""
@@ -1840,12 +1841,19 @@ def _durable_timeout():
 
 def _durable_record(key, position, result):
     """Log what a receipt proves, once, whether or not a sender still waits."""
+    finished = False
     with _durable_lock:
         entry = _durable_pending.get(key)
         if entry is not None:
             entry["seen"].add(position)
             if len(entry["seen"]) >= entry["count"]:
                 _durable_pending.pop(key, None)
+                finished = True
+    if finished:
+        _durable_outbox.done(key)
+    if isinstance(result, list) and result and result[0] == "uncertain":
+        import durable_telegram
+        _durable_outbox.hold(durable_telegram.lane_of(key))
     if entry is not None and isinstance(result, list) and result:
         if entry["kind"] == "send" and result[0] == "delivered":
             _log_outbound(entry["chat"], entry["pieces"][position], result[1])
@@ -1866,8 +1874,19 @@ def _durable_observe(observation):
         _durable_record(value[1], value[2], value[4])
     elif value[0] == "rejected" and len(value) == 3:
         with _durable_lock:
-            _durable_pending.pop(value[1], None)
+            known = _durable_pending.pop(value[1], None) is not None
+        if known:
+            _durable_outbox.done(value[1])
         _durable_receipts.record(value[1], -1, value[2])
+    elif value[0] == "released" and len(value) == 4:
+        # An operator released the lane: the uncertain action stays
+        # uncertain, the rest of its batch was abandoned, later batches go on.
+        with _durable_lock:
+            entry = _durable_pending.pop(value[2], None)
+        if entry is not None:
+            _durable_outbox.done(value[2])
+        _durable_outbox.release(value[1])
+        print("[telegram] operator released chat lane", value[1])
     elif value[0] == "input-too-large":
         # The service journal keeps the update; only its size is known here.
         print("[telegram] durable delivery too large to read:", value[1:4])
@@ -1877,13 +1896,21 @@ def _durable_observe(observation):
 
 def _durable_loop():
     """Handle deliveries and receipts in order; acknowledge each afterwards,
-    exactly where the Bot API poller advances its offset."""
+    exactly where the Bot API poller advances its offset.
+
+    If the service stops after a task was handled here but before the
+    acknowledgment committed, it offers the same task again: that task is
+    acknowledged without being handled twice."""
+    handled = []
     while _running:
         try:
             tasks = _durable.pending(64)
             _health_update(poll_status="ok", last_poll_ok_at=time.time())
             for task, observation in tasks:
-                _durable_observe(observation)
+                if task not in handled:
+                    _durable_observe(observation)
+                    handled.append(task)
+                    del handled[:-4096]
                 _durable.acknowledge(task)
             if not tasks:
                 time.sleep(0.25)
@@ -1895,22 +1922,29 @@ def _durable_loop():
 
 
 def _durable_submit(chat_id, commands, entry):
-    """Submit one keyed batch and wait for its receipts.
+    """Record one keyed batch in the durable outbox and wait for its receipts.
 
-    Returns (key, results). results is a rejection reason string, or a list
-    with one receipt per action, None where none arrived in time. A raised
-    ChannelError means the service could not be reached; the batch may or may
-    not have been recorded, and the caller must not claim either outcome. A
-    socket the supervisor keeps open queues requests while the service
-    restarts, so an unanswered batch can still be sent later: its entry stays,
-    and a late receipt is logged like any other.
+    Returns (key, results). results is "queued" while the service has not yet
+    stored the batch (it will be, in order, when the service answers), a
+    ("refused", code) pair, a rejection reason string, or a list with one
+    receipt per action, None where none arrived in time. A receipt arriving
+    later, even after this process restarts, is logged like any other.
     """
     key = _durable.key(chat_id)
-    entry = dict(entry, seen=set(), count=len(commands))
+    entry = dict(entry, count=len(commands))
     with _durable_lock:
-        _durable_pending[key] = entry
-    _durable.submit(key, commands)
-    return key, _durable_receipts.wait(key, len(commands), _durable_timeout())
+        _durable_pending[key] = dict(entry, seen=set())
+    _durable_outbox.enqueue(key, commands, entry)
+    deadline = time.monotonic() + _durable_timeout()
+    stored = _durable_outbox.wait_stored(key, _durable_timeout())
+    if stored is False:
+        return key, "queued"
+    if stored is not True:
+        with _durable_lock:
+            _durable_pending.pop(key, None)
+        return key, ("refused", stored)
+    return key, _durable_receipts.wait(
+        key, len(commands), max(0.0, deadline - time.monotonic()))
 
 
 def _durable_send_message(chat_id, body):
@@ -1918,13 +1952,18 @@ def _durable_send_message(chat_id, body):
     pieces = durable_telegram.chunks(body)
     if not pieces:
         return "send failed: empty message"
-    try:
-        key, results = _durable_submit(
-            chat_id, [["send", piece, "plain"] for piece in pieces],
-            {"kind": "send", "chat": str(chat_id), "pieces": pieces})
-    except durable_telegram.ChannelError as exc:
-        print("[telegram] durable send unknown:", exc)
-        return "send status unknown: the Telegram service did not answer"
+    key, results = _durable_submit(
+        chat_id, [["send", piece, "plain"] for piece in pieces],
+        {"kind": "send", "chat": str(chat_id), "pieces": pieces})
+    if results == "queued" and _durable_outbox.is_held(durable_telegram.lane_of(key)):
+        return ("send held: an earlier message to this chat may not have "
+                "arrived; this one waits, in order, for an operator decision "
+                "(%s)" % key)
+    if results == "queued":
+        return ("send queued: the Telegram service is not answering; it goes "
+                "out in order when the service returns (%s)" % key)
+    if isinstance(results, tuple):
+        return "send failed: the Telegram service refused it (%s)" % results[1]
     if isinstance(results, str):
         return "send failed: the Telegram service rejected it (%s)" % results
     ids = []
@@ -1949,14 +1988,13 @@ def _durable_send_message(chat_id, body):
 
 
 def _durable_delete_message(target, message_id):
-    import durable_telegram
-    try:
-        _, results = _durable_submit(
-            target, [["delete", int(message_id)]],
-            {"kind": "delete", "chat": str(target), "message_id": int(message_id)})
-    except durable_telegram.ChannelError as exc:
-        print("[telegram] durable delete unknown:", exc)
-        return "delete status unknown: the Telegram service did not answer"
+    _, results = _durable_submit(
+        target, [["delete", int(message_id)]],
+        {"kind": "delete", "chat": str(target), "message_id": int(message_id)})
+    if results == "queued":
+        return "delete queued: the Telegram service is not answering"
+    if isinstance(results, tuple):
+        return "delete failed: the Telegram service refused it (%s)" % results[1]
     if isinstance(results, str):
         return "delete failed: the Telegram service rejected it (%s)" % results
     result = results[0]
@@ -2004,7 +2042,7 @@ def _register_menu_commands():
 def start_telegram(token="", chat_id=""):
     global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats
     global _offset_path, _log_path, _bot_username, _primary_chat_id
-    global _transport, _durable, _durable_receipts
+    global _transport, _durable, _durable_receipts, _durable_outbox
     _token = str(
         token
         or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN")
@@ -2053,6 +2091,13 @@ def start_telegram(token="", chat_id=""):
             return None
         _durable = durable_telegram.Channel(socket_path, sequence_path)
         _durable_receipts = durable_telegram.Receipts()
+        _durable_outbox = durable_telegram.Outbox(_durable, os.environ.get(
+            "METTACLAW_TELEGRAM_OUTBOX_PATH",
+            (_offset_path or "telegram") + ".durable-outbox"))
+        with _durable_lock:
+            for key, entry in _durable_outbox.entries.items():
+                if entry:
+                    _durable_pending[key] = dict(entry, seen=set())
     elif _transport != "bot-api":
         print("[telegram] disabled: unknown METTACLAW_TELEGRAM_TRANSPORT")
         return None

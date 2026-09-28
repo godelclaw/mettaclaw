@@ -111,6 +111,7 @@ with tempfile.TemporaryDirectory(prefix="lila-durable-telegram-") as temp:
         tg._transport = "durable"
         tg._durable = durable_telegram.Channel(str(path), str(temp / "sequence"))
         tg._durable_receipts = durable_telegram.Receipts()
+        tg._durable_outbox = durable_telegram.Outbox(tg._durable, str(temp / "outbox"))
         tg._running = True
         loop = threading.Thread(target=tg._durable_loop, daemon=True)
         loop.start()
@@ -135,10 +136,10 @@ with tempfile.TemporaryDirectory(prefix="lila-durable-telegram-") as temp:
             kill(service)
             os.environ["METTACLAW_TELEGRAM_SERVICE_TIMEOUT"] = "2"
             answer = tg.send_message("while down", "42")
-            assert answer == "send status unknown: the Telegram service did not answer", answer
-            # Restarted, the service reads what the supervisor's socket queued:
-            # the unanswered message is sent exactly once, however often the
-            # client retried it, and its late receipt reaches the own-send log.
+            assert answer.startswith("send queued: the Telegram service is not answering"), answer
+            # Restarted, the service receives the queued message from the
+            # client's outbox: sent exactly once, however often it was retried,
+            # and its late receipt reaches the own-send log.
             service = start()
             os.environ["METTACLAW_TELEGRAM_SERVICE_TIMEOUT"] = "20"
             assert tg.send_message("after restart", "42").endswith("to chat 42")

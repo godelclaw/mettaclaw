@@ -129,6 +129,8 @@ class DurableTransportTest(unittest.TestCase):
         self.tg._transport = "durable"
         self.tg._durable = durable_telegram.Channel(self.service.path, str(base / "sequence"))
         self.tg._durable_receipts = durable_telegram.Receipts()
+        self.outbox_path = str(base / "outbox")
+        self.tg._durable_outbox = durable_telegram.Outbox(self.tg._durable, self.outbox_path)
         self.tg._running = True
         self.loop = threading.Thread(target=self.tg._durable_loop, daemon=True)
         self.loop.start()
@@ -136,6 +138,7 @@ class DurableTransportTest(unittest.TestCase):
     def tearDown(self):
         self.tg._running = False
         self.loop.join(timeout=5)
+        self.tg._durable_outbox.stop()
         self.service.close()
         self.environ.stop()
         self.tmp.cleanup()
@@ -172,6 +175,25 @@ class DurableTransportTest(unittest.TestCase):
         self.assertEqual(order, [("process", 5), ("ack", first), ("process", 6), ("ack", second)])
         self.assertEqual(self.service.tasks, [])
 
+    def test_a_task_offered_again_is_acknowledged_without_handling_it_twice(self):
+        seen = []
+        refused = []
+        original_ack = self.tg._durable.acknowledge
+
+        def lost_once(task):
+            if not refused:
+                refused.append(task)  # the service stopped before committing
+                raise OSError("service stopped")
+            original_ack(task)
+
+        with mock.patch.object(self.tg, "_process_update", side_effect=lambda u: seen.append(u["update_id"])), \
+             mock.patch.object(self.tg._durable, "acknowledge", side_effect=lost_once), \
+             mock.patch.object(self.tg.time, "sleep"):
+            self.service.add(["input", "42.0", "message", "ordinary", {"update_id": 9, "message": {}}])
+            self.wait(lambda: not self.service.tasks)
+        self.assertEqual(seen, [9])
+        self.assertEqual(len(refused), 1)
+
     def test_send_waits_for_its_receipt_and_logs_the_message_id(self):
         self.service.answer = delivered
         reply = self.tg.send_message("hello", "42")
@@ -200,9 +222,10 @@ class DurableTransportTest(unittest.TestCase):
             (lambda k, c: [["rejected", k, "action-not-permitted"]],
              "send failed: the Telegram service rejected it (action-not-permitted)"),
         ]
-        for answer, expected in cases:
+        for chat, (answer, expected) in zip((42, 84, 126, 168), cases):
+            # Separate chats: an uncertain delivery holds its own chat.
             self.service.answer = answer
-            self.assertTrue(self.tg.send_message("x", "42").startswith(expected), expected)
+            self.assertTrue(self.tg.send_message("x", str(chat)).startswith(expected), expected)
         self.assertEqual(self.outbound(), [])
 
     def test_a_late_receipt_is_still_logged(self):
@@ -213,6 +236,54 @@ class DurableTransportTest(unittest.TestCase):
         self.assertTrue(reply.startswith("send accepted by the Telegram service"), reply)
         self.service.add(["delivery", keys[0], 0, 1, ["delivered", 99]])
         self.wait(lambda: any(r.get("message_id") == 99 for r in self.outbound()))
+
+    def test_sends_while_the_service_is_away_are_queued_then_sent_in_order(self):
+        self.service.answer = delivered
+        self.service.unavailable = 10**6
+        with mock.patch.dict(os.environ, {"METTACLAW_TELEGRAM_SERVICE_TIMEOUT": "1"}):
+            first = self.tg.send_message("first", "42")
+            second = self.tg.send_message("second", "42")
+        self.assertTrue(first.startswith("send queued"), first)
+        self.assertTrue(second.startswith("send queued"), second)
+        self.service.unavailable = 0
+        self.wait(lambda: len([e for e in self.service.events if e[0] == "submit"]) == 2, 15)
+        bodies = [json.loads(e[2]) for e in self.service.events if e[0] == "submit"]
+        self.assertEqual(bodies, [[["send", "first", "plain"]], [["send", "second", "plain"]]])
+        self.wait(lambda: [r["text"] for r in self.outbound()] == ["first", "second"], 15)
+
+    def test_the_outbox_survives_a_client_restart(self):
+        self.service.unavailable = 10**6
+        key = self.tg._durable.key(42)
+        self.tg._durable_outbox.enqueue(key, [["send", "kept", "plain"]], {"kind": "send", "chat": "42",
+                                                                          "pieces": ["kept"], "count": 1})
+        self.tg._durable_outbox.stop()          # the client process ends here
+        self.service.unavailable = 0
+        restarted = durable_telegram.Outbox(self.tg._durable, self.outbox_path)
+        self.assertEqual(restarted.entries[key]["pieces"], ["kept"])
+        self.assertIs(restarted.wait_stored(key, 10), True)
+        self.assertEqual(json.loads(self.service.submissions[key]), [["send", "kept", "plain"]])
+        restarted.done(key)
+        self.assertEqual(durable_telegram.Outbox(self.tg._durable, self.outbox_path).entries, {})
+        self.tg._durable_outbox = restarted
+
+    def test_an_uncertain_chat_holds_locally_until_released_while_others_flow(self):
+        self.service.answer = lambda k, c: [["delivery", k, 0, 1,
+            ["uncertain", "transport"] if c[0][1] == "lost" else ["delivered", 80]]]
+        self.assertTrue(self.tg.send_message("lost", "42").startswith("send uncertain"))
+        with mock.patch.dict(os.environ, {"METTACLAW_TELEGRAM_SERVICE_TIMEOUT": "1"}):
+            held = self.tg.send_message("later", "42")
+        self.assertTrue(held.startswith("send held"), held)
+        self.assertTrue(self.tg.send_message("elsewhere", "84").startswith("sent message 80"))
+        submitted = [json.loads(e[2])[0][1] for e in self.service.events if e[0] == "submit"]
+        self.assertEqual(submitted, ["lost", "elsewhere"])
+        restarted = durable_telegram.Outbox(self.tg._durable, self.outbox_path)
+        self.assertTrue(restarted.is_held("42.0"))
+        restarted.stop()
+        lost_key = [e[1] for e in self.service.events if e[0] == "submit"][0]
+        self.service.add(["released", "42.0", lost_key, 0])
+        self.wait(lambda: [json.loads(e[2])[0][1] for e in self.service.events if e[0] == "submit"]
+                  == ["lost", "elsewhere", "later"])
+        self.assertFalse(self.tg._durable_outbox.is_held("42.0"))
 
     def test_deletion_writes_its_tombstone(self):
         self.service.answer = lambda k, c: [["delivery", k, 0, 1, ["delivered", 0]]]
