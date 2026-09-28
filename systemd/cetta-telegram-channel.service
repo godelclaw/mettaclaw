@@ -1,0 +1,32 @@
+[Unit]
+Description=CeTTa Telegram channel service (telegram-channel/1)
+Requires=cetta-telegram-channel.socket
+After=cetta-telegram-channel.socket
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+# CETTA_ROOT is a built CeTTa checkout with lib/durable/telegram_channel.metta,
+# never rebuilt while this unit runs. Replace every placeholder before
+# enabling: one --chat per allowed chat, one --operator per operator user.
+# On the first start only, --initial-offset N hands over from the previous
+# poller: N is the next update id it had not handled (its saved offset).
+ExecStart=CETTA_ROOT/runtime/CETTA_TELEGRAM_SERVICE_BINARY --run --root CETTA_ROOT \
+    --state-dir %S/cetta-telegram-channel --worker agent --program channel \
+    --chat CHAT_ID --operator OPERATOR_ID --credential-file %d/bot-token
+LoadCredential=bot-token:%h/.config/cetta-telegram-channel/token
+StateDirectory=cetta-telegram-channel
+StateDirectoryMode=0700
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+Restart=on-failure
+RestartPreventExitStatus=64 78
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

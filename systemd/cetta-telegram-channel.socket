@@ -1,0 +1,13 @@
+[Unit]
+Description=Private client socket of the CeTTa Telegram channel service
+
+[Socket]
+# The supervisor owns this socket: requests a client sends while the service
+# restarts wait here, and the restarted service answers them.
+ListenSequentialPacket=%t/cetta-telegram-channel/client.sock
+SocketMode=0600
+DirectoryMode=0700
+Accept=no
+
+[Install]
+WantedBy=sockets.target
