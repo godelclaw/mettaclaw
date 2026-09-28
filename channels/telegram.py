@@ -30,6 +30,13 @@ _context_frontier_bytes = None
 _current_batch_update_ids = set()
 _offset = None
 _offset_path = ""
+# "bot-api" polls and sends here. "durable" makes a CeTTa channel service the
+# bot's only poller and sender; this process reads its deliveries and receipts.
+_transport = "bot-api"
+_durable = None
+_durable_receipts = None
+_durable_pending = {}
+_durable_lock = threading.Lock()
 _log_path = ""
 _msg_lock = threading.RLock()
 _log_lock = threading.Lock()
@@ -1704,6 +1711,89 @@ def _dispatch_slash_command(chat, sender, text):
     return "independent"
 
 
+def _process_update(update):
+    """Route one received update. Both transports call this for every update
+    in receipt order; the caller advances its own position afterwards."""
+    update_id = int(update["update_id"])
+    if "callback_query" in update:
+        cq = update["callback_query"] or {}
+        threading.Thread(target=_handle_callback_query,
+                         args=(cq,), daemon=True).start()
+        cb_note = "callback_dispatched"
+        cb_msg = cq.get("message") or {}
+        # log the real allowlist verdict; the outcome is cb_note
+        # (a False here on a successful switch is a lying record)
+        _append_update_log(update, "callback_query", cb_msg,
+                           _chat_is_allowed(cb_msg.get("chat") or {}),
+                           False, cb_note)
+        return
+    kind, message = _extract_message(update)
+    note = ""
+    allowed = False
+    queued = False
+    text = None
+    if not message:
+        note = "unsupported_update"
+    else:
+        chat = message.get("chat") or {}
+        allowed = _chat_is_allowed(chat)
+        if allowed:
+            _chat_titles[str(chat.get("id", ""))] = \
+                _display_chat(chat)
+        text = message.get("text") or message.get("caption")
+        if not allowed:
+            note = "disallowed_chat"
+        else:
+            command_note = _peek_slash_command(
+                text, message.get("from")) if text else None
+            if command_note:
+                # Controls are classified before any attachment
+                # transport. A file captioned `/activity` remains a
+                # control request, not a 120-second poll blockage.
+                note = command_note
+                _dispatch_slash_command(
+                    chat, message.get("from"), text)
+            elif _attachment_info(message):
+                sender = message.get("from") or {}
+                if not _wake_for_operator_message(sender):
+                    _maybe_rest_notice(chat, sender)
+                note = "attachment_dispatched"
+                _enqueue_attachment(
+                    update, kind, message, text or "")
+            elif not text:
+                note = "no_text_or_caption"
+            else:
+                # Only ordinary messages are queued. Slash
+                # commands and attachments have independent lanes.
+                sender = message.get("from")
+                if not _wake_for_operator_message(sender):
+                    _maybe_rest_notice(chat, sender)
+                queued = True
+    # Ordinary inbound activity is logged and queued under the
+    # same lock used to freeze a model turn's causal frontier.
+    # Without this pairing a newly logged message could leak into
+    # one prompt before it had actually been drained for that
+    # turn, then appear again as NEW_ACTIVITY on the next turn.
+    if queued:
+        chat = message.get("chat") or {}
+        sender = message.get("from") or {}
+        with _msg_lock:
+            logged = _append_update_log(
+                update, kind, message, allowed, queued, note)
+            _set_last(
+                chat.get("id", ""),
+                _format_message(update, kind, message, text),
+                bool(sender.get("is_bot")),
+                _tier_for_sender(sender),
+                update_id=update_id,
+            )
+    else:
+        logged = _append_update_log(
+            update, kind, message, allowed, queued, note)
+    if not logged:
+        print("[telegram] continuing after update log failure")
+
+
 def _poll_loop():
     global _offset
     while _running:
@@ -1727,87 +1817,8 @@ def _poll_loop():
             data = resp.json()
             _health_update(poll_status="ok", last_poll_ok_at=time.time())
             for update in data.get("result", []):
-                update_id = int(update["update_id"])
-                if "callback_query" in update:
-                    cq = update["callback_query"] or {}
-                    threading.Thread(target=_handle_callback_query,
-                                     args=(cq,), daemon=True).start()
-                    cb_note = "callback_dispatched"
-                    cb_msg = cq.get("message") or {}
-                    # log the real allowlist verdict; the outcome is cb_note
-                    # (a False here on a successful switch is a lying record)
-                    _append_update_log(update, "callback_query", cb_msg,
-                                       _chat_is_allowed(cb_msg.get("chat") or {}),
-                                       False, cb_note)
-                    _offset = update_id + 1
-                    _save_offset()
-                    continue
-                kind, message = _extract_message(update)
-                note = ""
-                allowed = False
-                queued = False
-                text = None
-                if not message:
-                    note = "unsupported_update"
-                else:
-                    chat = message.get("chat") or {}
-                    allowed = _chat_is_allowed(chat)
-                    if allowed:
-                        _chat_titles[str(chat.get("id", ""))] = \
-                            _display_chat(chat)
-                    text = message.get("text") or message.get("caption")
-                    if not allowed:
-                        note = "disallowed_chat"
-                    else:
-                        command_note = _peek_slash_command(
-                            text, message.get("from")) if text else None
-                        if command_note:
-                            # Controls are classified before any attachment
-                            # transport. A file captioned `/activity` remains a
-                            # control request, not a 120-second poll blockage.
-                            note = command_note
-                            _dispatch_slash_command(
-                                chat, message.get("from"), text)
-                        elif _attachment_info(message):
-                            sender = message.get("from") or {}
-                            if not _wake_for_operator_message(sender):
-                                _maybe_rest_notice(chat, sender)
-                            note = "attachment_dispatched"
-                            _enqueue_attachment(
-                                update, kind, message, text or "")
-                        elif not text:
-                            note = "no_text_or_caption"
-                        else:
-                            # Only ordinary messages are queued. Slash
-                            # commands and attachments have independent lanes.
-                            sender = message.get("from")
-                            if not _wake_for_operator_message(sender):
-                                _maybe_rest_notice(chat, sender)
-                            queued = True
-                # Ordinary inbound activity is logged and queued under the
-                # same lock used to freeze a model turn's causal frontier.
-                # Without this pairing a newly logged message could leak into
-                # one prompt before it had actually been drained for that
-                # turn, then appear again as NEW_ACTIVITY on the next turn.
-                if queued:
-                    chat = message.get("chat") or {}
-                    sender = message.get("from") or {}
-                    with _msg_lock:
-                        logged = _append_update_log(
-                            update, kind, message, allowed, queued, note)
-                        _set_last(
-                            chat.get("id", ""),
-                            _format_message(update, kind, message, text),
-                            bool(sender.get("is_bot")),
-                            _tier_for_sender(sender),
-                            update_id=update_id,
-                        )
-                else:
-                    logged = _append_update_log(
-                        update, kind, message, allowed, queued, note)
-                if not logged:
-                    print("[telegram] continuing after update log failure")
-                _offset = update_id + 1
+                _process_update(update)
+                _offset = int(update["update_id"]) + 1
                 _save_offset()
         except Exception as exc:
             _health_update(force=True, poll_status="error",
@@ -1817,6 +1828,147 @@ def _poll_loop():
             # echo their full text into a persistent service journal.
             print("[telegram] poll error:", type(exc).__name__)
             time.sleep(5)
+
+
+def _durable_timeout():
+    try:
+        return max(1.0, float(os.environ.get(
+            "METTACLAW_TELEGRAM_SERVICE_TIMEOUT", "30")))
+    except ValueError:
+        return 30.0
+
+
+def _durable_record(key, position, result):
+    """Log what a receipt proves, once, whether or not a sender still waits."""
+    with _durable_lock:
+        entry = _durable_pending.get(key)
+        if entry is not None:
+            entry["seen"].add(position)
+            if len(entry["seen"]) >= entry["count"]:
+                _durable_pending.pop(key, None)
+    if entry is not None and isinstance(result, list) and result:
+        if entry["kind"] == "send" and result[0] == "delivered":
+            _log_outbound(entry["chat"], entry["pieces"][position], result[1])
+        elif entry["kind"] == "delete" and result[0] == "delivered":
+            _log_own_delete(entry["chat"], entry["message_id"])
+        elif entry["kind"] == "delete" and result[0] == "failed" and result[1] == 400:
+            _log_own_delete(entry["chat"], entry["message_id"],
+                            "own_delete_terminal")
+    _durable_receipts.record(key, position, result)
+
+
+def _durable_observe(observation):
+    import durable_telegram
+    value = durable_telegram.parse(observation)
+    if value[0] == "input" and len(value) == 5 and isinstance(value[4], dict):
+        _process_update(value[4])
+    elif value[0] == "delivery" and len(value) == 5:
+        _durable_record(value[1], value[2], value[4])
+    elif value[0] == "rejected" and len(value) == 3:
+        with _durable_lock:
+            _durable_pending.pop(value[1], None)
+        _durable_receipts.record(value[1], -1, value[2])
+    elif value[0] == "input-too-large":
+        # The service journal keeps the update; only its size is known here.
+        print("[telegram] durable delivery too large to read:", value[1:4])
+    else:
+        print("[telegram] unknown durable observation:", value[0])
+
+
+def _durable_loop():
+    """Handle deliveries and receipts in order; acknowledge each afterwards,
+    exactly where the Bot API poller advances its offset."""
+    while _running:
+        try:
+            tasks = _durable.pending(64)
+            _health_update(poll_status="ok", last_poll_ok_at=time.time())
+            for task, observation in tasks:
+                _durable_observe(observation)
+                _durable.acknowledge(task)
+            if not tasks:
+                time.sleep(0.25)
+        except Exception as exc:
+            _health_update(poll_status="error", last_poll_error_at=time.time(),
+                           poll_error_type=type(exc).__name__)
+            print("[telegram] durable channel error:", type(exc).__name__)
+            time.sleep(2)
+
+
+def _durable_submit(chat_id, commands, entry):
+    """Submit one keyed batch and wait for its receipts.
+
+    Returns (key, results). results is a rejection reason string, or a list
+    with one receipt per action, None where none arrived in time. A raised
+    ChannelError means the service could not be reached; the batch may or may
+    not have been recorded, and the caller must not claim either outcome. A
+    socket the supervisor keeps open queues requests while the service
+    restarts, so an unanswered batch can still be sent later: its entry stays,
+    and a late receipt is logged like any other.
+    """
+    key = _durable.key(chat_id)
+    entry = dict(entry, seen=set(), count=len(commands))
+    with _durable_lock:
+        _durable_pending[key] = entry
+    _durable.submit(key, commands)
+    return key, _durable_receipts.wait(key, len(commands), _durable_timeout())
+
+
+def _durable_send_message(chat_id, body):
+    import durable_telegram
+    pieces = durable_telegram.chunks(body)
+    if not pieces:
+        return "send failed: empty message"
+    try:
+        key, results = _durable_submit(
+            chat_id, [["send", piece, "plain"] for piece in pieces],
+            {"kind": "send", "chat": str(chat_id), "pieces": pieces})
+    except durable_telegram.ChannelError as exc:
+        print("[telegram] durable send unknown:", exc)
+        return "send status unknown: the Telegram service did not answer"
+    if isinstance(results, str):
+        return "send failed: the Telegram service rejected it (%s)" % results
+    ids = []
+    for result in results:
+        if result is None:
+            return ("send accepted by the Telegram service; delivery is still "
+                    "pending (%s)" % key)
+        if result[0] == "delivered":
+            ids.append(result[1])
+        elif result[0] == "failed":
+            return "send failed: Telegram rejected %s" % result[1]
+        elif result[0] == "not-sent":
+            return "send failed: the message was not sent"
+        else:
+            return ("send uncertain (%s): Telegram may or may not have it; "
+                    "this chat holds later messages until an operator "
+                    "resolves it" % result[1])
+    reply = "sent message %s to chat %s" % (ids[0], chat_id)
+    if len(ids) > 1:
+        reply += " (in %d parts: %s)" % (len(ids), ", ".join(map(str, ids)))
+    return reply
+
+
+def _durable_delete_message(target, message_id):
+    import durable_telegram
+    try:
+        _, results = _durable_submit(
+            target, [["delete", int(message_id)]],
+            {"kind": "delete", "chat": str(target), "message_id": int(message_id)})
+    except durable_telegram.ChannelError as exc:
+        print("[telegram] durable delete unknown:", exc)
+        return "delete status unknown: the Telegram service did not answer"
+    if isinstance(results, str):
+        return "delete failed: the Telegram service rejected it (%s)" % results
+    result = results[0]
+    if result is None:
+        return "delete accepted by the Telegram service; still pending"
+    if result[0] == "delivered":
+        return "deleted message %s from chat %s" % (message_id, target)
+    if result[0] == "failed" and result[1] == 400:
+        return ("cannot delete message %s: it is older than 48h, or a "
+                "forward (whoever forwarded it must delete it), or not the "
+                "bot's own message" % message_id)
+    return "delete failed: %s" % result[1:]
 
 
 def _register_menu_commands():
@@ -1852,6 +2004,7 @@ def _register_menu_commands():
 def start_telegram(token="", chat_id=""):
     global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats
     global _offset_path, _log_path, _bot_username, _primary_chat_id
+    global _transport, _durable, _durable_receipts
     _token = str(
         token
         or os.environ.get("METTACLAW_TELEGRAM_BOT_TOKEN")
@@ -1887,6 +2040,22 @@ def start_telegram(token="", chat_id=""):
         return None
     if _thread and _thread.is_alive():
         return _thread
+    _transport = os.environ.get("METTACLAW_TELEGRAM_TRANSPORT", "bot-api")
+    if _transport == "durable":
+        import durable_telegram
+        socket_path = os.environ.get("METTACLAW_TELEGRAM_SERVICE_SOCKET", "")
+        sequence_path = os.environ.get(
+            "METTACLAW_TELEGRAM_SEQUENCE_PATH",
+            (_offset_path or "telegram") + ".durable-sequence")
+        if not socket_path:
+            print("[telegram] disabled: durable transport needs "
+                  "METTACLAW_TELEGRAM_SERVICE_SOCKET")
+            return None
+        _durable = durable_telegram.Channel(socket_path, sequence_path)
+        _durable_receipts = durable_telegram.Receipts()
+    elif _transport != "bot-api":
+        print("[telegram] disabled: unknown METTACLAW_TELEGRAM_TRANSPORT")
+        return None
     _load_offset()
     initialize_activity_receipts()
     recovered_activity = _recover_pending_activity()
@@ -1904,7 +2073,9 @@ def start_telegram(token="", chat_id=""):
                    recovered_activity_count=recovered_activity,
                    menu_status="pending", poll_status="starting")
     threading.Thread(target=_register_menu_commands, daemon=True).start()
-    _thread = threading.Thread(target=_poll_loop, daemon=True)
+    _thread = threading.Thread(
+        target=_durable_loop if _transport == "durable" else _poll_loop,
+        daemon=True)
     _thread.start()
     return _thread
 
@@ -2015,6 +2186,8 @@ def send_message(text, chat_id=""):
     if (_allowed_chat_ids and str(chat_id) not in _allowed_chat_ids
             and str(chat_id) != _primary_chat_id):
         return "send failed: target chat is not allowed"
+    if _transport == "durable":
+        return _durable_send_message(chat_id, str(text).replace("\\n", "\n"))
     try:
         body = str(text).replace("\\n", "\n")
         resp = requests.post(
@@ -2219,6 +2392,8 @@ def delete_message(chat_id, message_id):
     if (_allowed_chat_ids and target not in _allowed_chat_ids
             and target != _primary_chat_id):
         return "delete refused: target chat is not allowed"
+    if _transport == "durable":
+        return _durable_delete_message(target, message_id)
     try:
         resp = requests.post(_api("deleteMessage", token),
                              json={"chat_id": target,
