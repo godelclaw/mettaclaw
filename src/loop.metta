@@ -98,7 +98,8 @@
            (println! (py-call (goals.kernel_pass)))
            (coordinate-set last-heartbeat $now
              (coordinate-set sleep-interval (sleepInterval)
-               (coordinate-set loops $refuelled $periphery)))))
+               (coordinate-set burst-end budget
+                 (coordinate-set loops $refuelled $periphery))))))
        $periphery))
 
 (= (applyHumanActivity $periphery $has-activity $is-human)
@@ -111,7 +112,8 @@
               (coordinate-set last-heartbeat (get_time)
                 (coordinate-set sleep-interval
                   (if (> $armed 0) (sleepInterval) 60)
-                  (coordinate-set loops $armed $periphery)))))
+                  (coordinate-set burst-end budget
+                    (coordinate-set loops $armed $periphery))))))
        $periphery))
 
 ;; Rest banks the budget instead of spending it. The skill can only post a
@@ -136,6 +138,9 @@
                              $periphery)))
          $periphery)))
 
+;; A renewal starts a new burst. It keeps how the finished burst ended, nop
+;; or budget, for the renewal's own turn to say, and starts the new one as
+;; running on budget.
 (= (applyAutonomousBurst $periphery $autonomous)
    (if $autonomous
        (let $refuelled
@@ -148,7 +153,10 @@
                        at (get_time_as_string)
                        loops $refuelled))
            (coordinate-set sleep-interval (sleepInterval)
-             (coordinate-set loops $refuelled $periphery))))
+             (coordinate-set renewed-after
+               (coordinate-get-or burst-end budget $periphery)
+               (coordinate-set burst-end budget
+                 (coordinate-set loops $refuelled $periphery))))))
        $periphery))
 
 ;; One model-and-tools episode.  It returns a candidate periphery; rest and nop
@@ -156,9 +164,13 @@
 (= (cognitiveTurn $periphery $message $has-activity $is-human
                   $autonomous $heartbeat)
    (let* (($iteration (loop-iteration $periphery))
+          ;; A burst that ended with nop finished its task; one that ran out
+          ;; of budget did not, and its renewal continues it.
           ($lastmessage
             (if $autonomous
-                (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
+                (if (== (coordinate-get-or renewed-after budget $periphery) nop)
+                    (AUTONOMOUS_BURST: TASK_COMPLETE_PICK_A_GOAL_OR_CONSOLIDATE_MEMORY DO_NOT_REPEAT_PRIOR_SENDS)
+                    (AUTONOMOUS_BURST: NO_ADDITIONAL_USER_INPUT_CONTINUE_THE_CURRENT_TASK DO_NOT_REPEAT_PRIOR_SENDS))
                 (NEW_ACTIVITY: $message)))
           ($source
             (if $autonomous autonomous-trigger
@@ -196,6 +208,14 @@
           ($resp (addition-balance-response $respi))
           ($response (addition-envelope-response $resp))
           ($_ (if (== $response $resp) _ (println! $resp)))
+          ;; Prose that no command carries reached no one. It is kept, marked
+          ;; undelivered, so the next turn sees what she wrote and that it
+          ;; was not sent.
+          ($prose (py-call (helper.undelivered_prose $respi)))
+          ($undelivered
+            (if (== (py-call (helper.text_nonempty $prose)) 1)
+                (repr (UNDELIVERED: $prose NOT_DELIVERED_TO_ANY_CHANNEL_USE_send))
+                ""))
           ($parsed (addition-read-response $response))
           ($_ (change-state! &error ()))
           ($_ (HandleError multi_command_parse_error_nothing_ran
@@ -224,14 +244,20 @@
           ($_ (eval (ggb-self-improve-tick oruzi $iteration)))
           ($_ (eval (attention-complete $iteration $parseOutcome)))
           ($_ (println! $results))
-          ($_ (if (or $has-activity (not (== $sexpr ())))
-                  (addToHistory $message $response $has-activity)
+          ($_ (if (or $has-activity
+                      (or (not (== $sexpr ())) (not (== $undelivered ""))))
+                  (addToHistory $message
+                                (if (== $undelivered "") $response $undelivered)
+                                $has-activity)
                   _))
-          ($feedback
+          ($turnFeedback
             (if (== $requestObservations "")
                 (string-safe (repr $results))
                 (string-safe
                   (py-str ($requestObservations " " (repr $results))))))
+          ($feedback
+            (if (== $undelivered "") $turnFeedback
+                (string-safe (py-str ($undelivered " " $turnFeedback)))))
           ($withResults
             (coordinate-set last-results $feedback $periphery))
           ($directed (loop-directives-apply $withResults))

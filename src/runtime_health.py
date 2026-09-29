@@ -6,6 +6,7 @@ import subprocess
 import time
 
 import cognitive_health
+import loop_modes
 import memory_health
 
 
@@ -72,7 +73,7 @@ def status(now=None):
     except (TypeError, ValueError):
         loops = 0
     active_mode = str(mode.get("mode", "default")).strip().lower()
-    autonomous = active_mode in ("iter", "iter-coding", "claw23")
+    autonomous = loop_modes.autonomous(active_mode)
     # An autonomous mode expects cognition, but a rest in flight is a
     # legitimate reason for there to be none. Without this, every long rest
     # under iter would report a stale model turn.

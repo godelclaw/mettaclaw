@@ -16,7 +16,7 @@
               (coordinate sleep-interval 1
                 (coordinate last-results ok
                   (coordinate last-heartbeat 9
-                    (coordinate active-policy agent
+                    (coordinate active-policy godelclaw
                       (coordinate autonomous-ready 0
                         (coordinate banked-loops 0
                           (coordinate pending-continuation no-continuation
@@ -37,8 +37,8 @@
          ($_ (assertEqual (loop-resting $periphery) 0))
          ($_ (assertEqual (loop-resting $resting) 1))
          ;; Renewal is suspended for exactly as long as the rest lasts.
-         ($_ (assertEqual (policy-next-autonomous-ready iter 0 1 (loop-resting $resting)) 0))
-         ($_ (assertEqual (policy-next-autonomous-ready iter 0 1 (loop-resting $periphery)) 1))
+         ($_ (assertEqual (policy-next-autonomous-ready godelclaw 0 1 (loop-resting $resting)) 0))
+         ($_ (assertEqual (policy-next-autonomous-ready godelclaw 0 1 (loop-resting $periphery)) 1))
          ;; Waking hands it back and returns idle pacing to normal.
          ($woken (applyRestRestore $resting))
          ($_ (assertEqual (loop-budget $woken) 43))

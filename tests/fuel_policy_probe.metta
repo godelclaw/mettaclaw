@@ -10,7 +10,7 @@
 
 (= (assertEqual $A $B) (assert (== $A $B)))
 
-!(let* (($grant (policy-burst-budget agent))
+!(let* (($grant (policy-burst-budget godelclaw))
         ($_ (assertEqual $grant 50))
         ;; A renewal never grants less than the offered burst, whatever the
         ;; discipline and whatever is held.

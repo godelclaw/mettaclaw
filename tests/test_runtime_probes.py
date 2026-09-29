@@ -35,6 +35,8 @@ class RuntimeProbeTest(unittest.TestCase):
          "INTERACTIVE_BATCH_POLICY_OK"),
         ("tests/interrupted_cognitive_turn_probe.metta",
          "INTERRUPTED_COGNITIVE_TURN_OK"),
+        ("tests/burst_end_and_prose_probe.metta",
+         "BURST_END_AND_PROSE_OK"),
     )
 
     def assert_witness(self, result, marker, engine):
@@ -53,6 +55,18 @@ class RuntimeProbeTest(unittest.TestCase):
             "PETTA_ROOT", pathlib.Path.home() / "repos" / "PeTTa"))
         if not (petta_root / "run.sh").is_file():
             self.skipTest("PeTTa checkout is unavailable")
+        self.run_probes("petta", {}, "PeTTa")
+
+    def test_each_probe_reaches_its_success_witness_on_cetta(self):
+        """The same probes on CeTTa, the engine Lila runs on."""
+        cetta = os.environ.get("CETTA_BIN", "")
+        if not cetta or not pathlib.Path(cetta).is_file():
+            self.skipTest("set CETTA_BIN to a cetta with Python")
+        cetta = pathlib.Path(cetta).resolve()
+        self.run_probes("cetta", {"CETTA_BIN": os.fspath(cetta),
+                                  "CETTA_ROOT": os.fspath(cetta.parent)}, "CeTTa")
+
+    def run_probes(self, engine, engine_env, label):
         with tempfile.TemporaryDirectory() as directory:
             test_bin = pathlib.Path(directory) / "bin"
             test_bin.mkdir()
@@ -103,7 +117,7 @@ class RuntimeProbeTest(unittest.TestCase):
                     env = dict(os.environ)
                     env.update({
                         "METTACLAW_SKIP_INITIALIZE": "1",
-                        "METTACLAW_ENGINE": "petta",
+                        "METTACLAW_ENGINE": engine,
                         "METTACLAW_ENGINE_STATE_PATH": os.path.join(
                             directory, "engine"),
                         "METTACLAW_LOOP_MODE_PATH": os.path.join(
@@ -126,12 +140,13 @@ class RuntimeProbeTest(unittest.TestCase):
                             os.fspath(test_bin), env.get("PATH", ""),
                         )),
                     })
+                    env.update(engine_env)
                     result = subprocess.run(
                         ["./run.sh", probe], cwd=ROOT, env=env,
                         stdin=subprocess.DEVNULL, capture_output=True,
                         text=True, timeout=30,
                     )
-                    self.assert_witness(result, marker, "PeTTa")
+                    self.assert_witness(result, marker, label)
                     if probe == "tests/interactive_batch_policy_probe.metta":
                         mode_path = pathlib.Path(directory) / "loop-mode.json"
                         history_path = pathlib.Path(directory) / "history.metta"

@@ -17,5 +17,5 @@
          ($_ (assertEqual (loop-iteration (process-periphery $after)) 2))
          ($_ (assertEqual (loop-budget (process-periphery $after)) 50))
          ($_ (assertEqual
-               (loop-active-policy (process-periphery $after)) agent)))
+               (loop-active-policy (process-periphery $after)) godelclaw)))
      (println! WEAK_PROCESS_EPISODE_OK))

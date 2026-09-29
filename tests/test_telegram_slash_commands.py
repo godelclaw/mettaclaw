@@ -308,14 +308,14 @@ class SlashCommandTest(unittest.TestCase):
 
     def test_mode_bare_shows_current(self):
         self.assertEqual(self.handle("/mode"), "slash_command:/mode")
-        self.assertIn("active mode: agent", self.sent[-1][1])
+        self.assertIn("active mode: godelclaw", self.sent[-1][1])
 
     def test_mode_switch_persists_and_wakes_loop(self):
         telegram._wake_event.clear()
         try:
-            self.assertEqual(self.handle("/mode iter"),
+            self.assertEqual(self.handle("/mode coding"),
                              "slash_command:/mode")
-            self.assertEqual(loop_modes.current_mode(), "iter")
+            self.assertEqual(loop_modes.current_mode(), "coding")
             self.assertTrue(telegram._wake_event.is_set())
             self.assertIn("persists", self.sent[-1][1])
         finally:
@@ -330,8 +330,7 @@ class SlashCommandTest(unittest.TestCase):
         payload = posts[-1][1]
         callbacks = [row[0]["callback_data"]
                      for row in payload["reply_markup"]["inline_keyboard"]]
-        self.assertEqual(callbacks, ["mode:agent", "mode:iter",
-                                     "mode:coding", "mode:iter-coding"])
+        self.assertEqual(callbacks, ["mode:godelclaw", "mode:coding"])
 
     def test_engine_bare_shows_active_engine(self):
         self.assertEqual(self.handle("/engine"), "slash_command:/engine")
@@ -430,7 +429,7 @@ class SlashCommandTest(unittest.TestCase):
 
     def test_callback_switches_mode(self):
         posts = []
-        cq = {"id": "88", "data": "mode:iter",
+        cq = {"id": "88", "data": "mode:coding",
               "from": {"id": 111000111},
               "message": {"message_id": 6, "chat": {"id": -4321}}}
         with mock.patch.object(telegram, "_chat_is_allowed",
@@ -440,7 +439,7 @@ class SlashCommandTest(unittest.TestCase):
                                posts.append((url, json)) or mock.Mock()):
             note = telegram._handle_callback_query(cq)
         self.assertEqual(note, "callback_mode_switch")
-        self.assertEqual(loop_modes.current_mode(), "iter")
+        self.assertEqual(loop_modes.current_mode(), "coding")
         self.assertTrue(any("answerCallbackQuery" in u for u, _ in posts))
         self.assertTrue(any("editMessageText" in u for u, _ in posts))
 

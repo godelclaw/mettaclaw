@@ -9,7 +9,7 @@
               (coordinate sleep-interval 1
                 (coordinate last-results before
                   (coordinate last-heartbeat 9
-                    (coordinate active-policy agent
+                    (coordinate active-policy godelclaw
                       (coordinate autonomous-ready 0
                         (coordinate pending-continuation
                           (continuation-value (metta "(+ 1 2)"))

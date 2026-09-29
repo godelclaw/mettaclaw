@@ -10,28 +10,16 @@
 !(initMemory)
 !(configure commchannel telegram)
 
-!(let* (($_ (py-call (loop_modes.set_mode "agent")))
+!(let* (($_ (py-call (loop_modes.set_mode "godelclaw")))
          ($before (initLoop))
          ($after (process-step $before
                    (turnProcess (process-periphery $before))))
-         ($_ (println! (POLICY_PROBE agent
+         ($_ (println! (POLICY_PROBE godelclaw
                        (process-root $after)
                        (loop-active-policy (process-periphery $after)))))
          ($_ (assertEqual (process-root $after) weak-process-core-v1))
          ($_ (assertEqual
-               (loop-active-policy (process-periphery $after)) agent)))
-     (empty))
-
-!(let* (($_ (py-call (loop_modes.set_mode "iter")))
-         ($before (initLoop))
-         ($after (process-step $before
-                   (turnProcess (process-periphery $before))))
-         ($_ (println! (POLICY_PROBE iter
-                       (process-root $after)
-                       (loop-active-policy (process-periphery $after)))))
-         ($_ (assertEqual (process-root $after) weak-process-core-v1))
-         ($_ (assertEqual
-               (loop-active-policy (process-periphery $after)) iter)))
+               (loop-active-policy (process-periphery $after)) godelclaw)))
      (empty))
 
 !(let* (($_ (py-call (loop_modes.set_mode "coding")))
@@ -46,16 +34,17 @@
                (loop-active-policy (process-periphery $after)) coding)))
      (empty))
 
-!(let* (($_ (py-call (loop_modes.set_mode "iter-coding")))
+;; An earlier name selects the mode it now names.
+!(let* (($_ (py-call (loop_modes.set_mode "iter")))
          ($before (initLoop))
          ($after (process-step $before
                    (turnProcess (process-periphery $before))))
-         ($_ (println! (POLICY_PROBE iter-coding
+         ($_ (println! (POLICY_PROBE iter
                        (process-root $after)
                        (loop-active-policy (process-periphery $after)))))
          ($_ (assertEqual (process-root $after) weak-process-core-v1))
          ($_ (assertEqual
-               (loop-active-policy (process-periphery $after)) iter-coding)))
+               (loop-active-policy (process-periphery $after)) godelclaw)))
      (empty))
 
 !(println! SHARED_POLICY_TURN_OK)

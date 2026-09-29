@@ -30,7 +30,237 @@ def balance_parentheses(s):
     while right < len(s) and s[len(s) - 1 - right] == ')':
         right += 1
     core = s[left:len(s) - right if right else len(s)].strip()
-    return f"(({core}))"
+    normalized = f"(({core}))"
+    forms, clean = _top_level_forms(s)
+    # Prose is not a command: text with no parenthesized form whose first
+    # word names no skill runs nothing (undelivered_prose reports it). A
+    # command written without its parentheses still runs.
+    if not forms and not s.startswith("(") and not _is_bare_command(s):
+        return "()"
+    if _is_one_form(normalized) and (s.startswith("(") or not forms):
+        return normalized
+    # A stray ')' or text around the commands used to make the whole batch
+    # unreadable, so nothing ran.  Every complete (command) still runs; text
+    # outside parentheses and unmatched ')' are ignored.  An unclosed string
+    # or form still fails the batch, because reading it would mean guessing.
+    commands = [c for form in forms for c in _commands_in(form)]
+    if not clean or not commands:
+        return normalized
+    print("[helper] recovered %d command(s) from a malformed batch"
+          % len(commands), file=sys.stderr)
+    return "(" + " ".join(commands) + ")"
+
+
+def _is_bare_command(text):
+    """A command written without its parentheses: its first word is a skill."""
+    words = str(text).strip().split(None, 1)
+    if not words:
+        return False
+    import skills_help
+    return words[0] in skills_help.ARITY
+
+
+_AFFECT_TRACE = re.compile(r"⋄⟨[^⟩]*⟩")
+
+
+def undelivered_prose(response):
+    """The text of a model response that no command carries: prose written
+    instead of the command list, or around it. It reached no one. The affect
+    trace is a self-appraisal, not communication, and is not counted."""
+    if not isinstance(response, str):
+        return ""
+    s = response.strip()
+    if not s:
+        return ""
+    forms, _ = _top_level_forms(s)
+    if not forms and not s.startswith("(") and _is_bare_command(s):
+        return ""
+    outside = s
+    for form in forms:
+        outside = outside.replace(form, " ", 1)
+    outside = _AFFECT_TRACE.sub(" ", outside)
+    outside = "\n".join(" ".join(line.split()) for line in outside.replace(")", " ").splitlines())
+    outside = re.sub(r"\n{3,}", "\n\n", outside).strip()
+    return outside if any(c.isalnum() for c in outside) else ""
+
+
+def _is_one_form(text):
+    """True when text is exactly one balanced parenthesized form."""
+    forms, clean = _top_level_forms(text)
+    return clean and forms == [text]
+
+
+def _top_level_forms(text):
+    """Complete top-level (...) forms of text, and whether nothing was left
+    open.  Strings are read as in the S-expression reader; a ')' with
+    nothing open is skipped."""
+    forms = []
+    depth = 0
+    start = 0
+    in_string = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_string:
+            if c == '\\':
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c == '(':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == ')' and depth > 0:
+            depth -= 1
+            if depth == 0:
+                forms.append(text[start:i + 1])
+        i += 1
+    return forms, depth == 0 and not in_string
+
+
+def _commands_in(form):
+    """A command is (head ...); a form opening with '(' is a list of them."""
+    inner = form[1:-1].strip()
+    if not inner:
+        return []
+    if inner[0] != '(':
+        return [form]
+    return [c for sub in _top_level_forms(inner)[0] for c in _commands_in(sub)]
+
+
+# ---- wake vitals -------------------------------------------------------------
+# Interoception measured by the runtime, never inferred by the model: how long
+# since the previous turn, and how loaded the machine is.  The prompt is built
+# more than once per turn, so the view is fixed per iteration.
+
+_WAKE = {"iteration": None, "at": None, "view": ""}
+_HISTORY_STAMP = re.compile(r"(20\d\d-\d\d-\d\d \d\d:\d\d:\d\d)")
+
+
+def _duration(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm%02ds" % (seconds // 60, seconds % 60)
+    return "%dh%02dm" % (seconds // 3600, seconds % 3600 // 60)
+
+
+def _last_turn_from_history():
+    """Time of the newest turn in history, for the first wake after start."""
+    path = path_from_env("METTACLAW_HISTORY_PATH", "./memory/history.metta")
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 65536))
+            stamps = _HISTORY_STAMP.findall(
+                fh.read().decode("utf-8", "replace"))
+        return time.mktime(time.strptime(stamps[-1], "%Y-%m-%d %H:%M:%S"))
+    except (OSError, IndexError, ValueError, OverflowError):
+        return None
+
+
+def _machine_view():
+    parts = []
+    try:
+        with open("/proc/loadavg", encoding="ascii") as fh:
+            load = float(fh.read().split()[0])
+        parts.append("load %g/%d" % (round(load, 1), os.cpu_count() or 1))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        info = {}
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                key, _, value = line.partition(":")
+                info[key] = int(value.split()[0])
+        used = 100 - 100 * info["MemAvailable"] // info["MemTotal"]
+        parts.append("mem %d%%" % used)
+    except (OSError, ValueError, KeyError, ZeroDivisionError):
+        pass
+    return parts
+
+
+def wake_view(iteration):
+    """Compact vitals for one turn: time since the previous turn, machine
+    load against its CPUs, and memory in use."""
+    if _WAKE["iteration"] == str(iteration) and _WAKE["view"]:
+        return _WAKE["view"]
+    now = time.time()
+    previous = (_WAKE["at"] if _WAKE["at"] is not None
+                else _last_turn_from_history())
+    parts = (["+%s since last turn" % _duration(now - previous)]
+             if previous is not None else [])
+    view = " | ".join(parts + _machine_view()) or "unavailable"
+    _WAKE.update(iteration=str(iteration), at=now, view=view)
+    return view
+
+
+def _gigabytes(kib):
+    return "%.1fG" % (kib / 1048576.0)
+
+
+def vitals():
+    """The machine and this agent now, on demand: uptime, load, memory and
+    its pressure stalls, swap, the heaviest processes, background jobs."""
+    lines = []
+    try:
+        with open("/proc/uptime", encoding="ascii") as fh:
+            lines.append("up %s" % _duration(float(fh.read().split()[0])))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        with open("/proc/loadavg", encoding="ascii") as fh:
+            one, five, fifteen = fh.read().split()[:3]
+        lines.append("load %s %s %s (1, 5, 15 min) over %d cpus"
+                     % (one, five, fifteen, os.cpu_count() or 1))
+    except (OSError, ValueError):
+        pass
+    try:
+        info = {}
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                key, _, value = line.partition(":")
+                info[key] = int(value.split()[0])
+        used = 100 - 100 * info["MemAvailable"] // info["MemTotal"]
+        lines.append("memory %d%% used, %s available of %s; swap %s used"
+                     % (used, _gigabytes(info["MemAvailable"]),
+                        _gigabytes(info["MemTotal"]),
+                        _gigabytes(info["SwapTotal"] - info["SwapFree"])))
+    except (OSError, ValueError, KeyError, ZeroDivisionError):
+        pass
+    try:
+        with open("/proc/pressure/memory", encoding="ascii") as fh:
+            stalls = {line.split()[0]: line.split()[1].split("=")[1]
+                      for line in fh if line.strip()}
+        lines.append("memory stalls over 10s: some tasks %s%%, all tasks %s%%"
+                     % (stalls.get("some", "?"), stalls.get("full", "?")))
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        import subprocess
+        listing = subprocess.run(
+            ["ps", "-eo", "user:16,rss,pcpu,etimes,comm", "--sort=-rss"],
+            capture_output=True, text=True, timeout=5).stdout.splitlines()[1:6]
+        heavy = []
+        for row in listing:
+            user, rss, cpu, age, command = row.split(None, 4)
+            heavy.append("%s %s %s cpu %s%% for %s" % (
+                user, command.strip(), _gigabytes(int(rss)), cpu,
+                _duration(int(age))))
+        if heavy:
+            lines.append("heaviest: " + "; ".join(heavy))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        import jobs
+        lines.append("background jobs running: %d" % jobs.running_count())
+    except Exception:  # noqa: BLE001 - vitals must never fail
+        pass
+    return "\n".join(lines) or "vitals unavailable"
 
 
 def normalize_string(value):

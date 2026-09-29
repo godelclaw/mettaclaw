@@ -22,7 +22,7 @@
 (= (loop-last-heartbeat $periphery)
    (coordinate-get-or last-heartbeat 0 $periphery))
 (= (loop-active-policy $periphery)
-   (coordinate-get-or active-policy agent $periphery))
+   (coordinate-get-or active-policy godelclaw $periphery))
 (= (loop-autonomous-ready $periphery)
    (coordinate-get-or autonomous-ready 0 $periphery))
 (= (loop-pending-continuation $periphery)
@@ -53,13 +53,9 @@
 (= (policy-stage $name)
    (coordinate-get $name (policy-registry)))
 
-(= (policy-preset agent)
-   (stage-list base stages-empty))
-(= (policy-preset iter)
+(= (policy-preset godelclaw)
    (stage-list base (stage-list iter-renewal stages-empty)))
 (= (policy-preset coding)
-   (stage-list base (stage-list coding-reasoning stages-empty)))
-(= (policy-preset iter-coding)
    (stage-list base
      (stage-list iter-renewal
        (stage-list coding-reasoning stages-empty))))
