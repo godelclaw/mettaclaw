@@ -19,7 +19,7 @@
 !(initMemory)
 !(configure commchannel telegram)
 
-!(let* (($_ (py-call (loop_modes.set_mode "agent")))
+!(let* (($_ (py-call (loop_modes.set_mode "godelclaw")))
          ($initial (initLoop))
          ($after-agent
           (process-step $initial

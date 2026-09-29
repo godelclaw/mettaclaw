@@ -48,7 +48,7 @@ class RuntimeHealthTest(unittest.TestCase):
         })
         self.write(self.working, {"saved_at": 1, "loops": 50})
         self.write(self.cognitive, {"pending_since": 100})
-        self.write(self.mode, {"mode": "iter"})
+        self.write(self.mode, {"mode": "godelclaw"})
         with mock.patch("lifecycle.cognition_enabled", return_value=0), \
              mock.patch("lifecycle.view", return_value="stopped"), \
              mock.patch.object(runtime_health.memory_health, "drift",
@@ -64,7 +64,7 @@ class RuntimeHealthTest(unittest.TestCase):
         self.write(self.working, {"saved_at": 999, "loops": 50})
         self.write(self.cognitive, {"pending_since": 0})
         with mock.patch("lifecycle.cognition_enabled", return_value=0), \
-             mock.patch("loop_modes.current_mode", return_value="iter"), \
+             mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -183,7 +183,8 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="cetta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -200,8 +201,10 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": False})
+        # A mode that does not renew itself.
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -218,8 +221,10 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 900, "pending_since": 998,
             "budget_at_start": 50, "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": False})
+        # A mode that does not renew itself.
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -241,8 +246,8 @@ class RuntimeHealthTest(unittest.TestCase):
             "budget_at_start": 50,
             "last_outcome": "failed",
         })
-        self.write(self.mode, {"mode": "iter"})
-        with mock.patch("loop_modes.current_mode", return_value="iter"), \
+        self.write(self.mode, {"mode": "godelclaw"})
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -261,8 +266,8 @@ class RuntimeHealthTest(unittest.TestCase):
             "budget_at_start": 50,
             "last_outcome": "failed",
         })
-        self.write(self.mode, {"mode": "iter"})
-        with mock.patch("loop_modes.current_mode", return_value="iter"), \
+        self.write(self.mode, {"mode": "godelclaw"})
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -282,8 +287,8 @@ class RuntimeHealthTest(unittest.TestCase):
             "obligation_since": 600,
             "last_outcome": "failed",
         })
-        self.write(self.mode, {"mode": "iter"})
-        with mock.patch("loop_modes.current_mode", return_value="iter"), \
+        self.write(self.mode, {"mode": "godelclaw"})
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"), \
              mock.patch("telegram.pendingActivityCount", return_value=2), \
@@ -296,7 +301,7 @@ class RuntimeHealthTest(unittest.TestCase):
     def test_a_long_rest_under_autonomous_presets_is_not_a_stale_model_turn(self):
         """The watcher can roll back on problems, so a legitimate rest must
         not look like a hung mind just because the mode is autonomous."""
-        for mode in ("iter", "iter-coding"):
+        for mode in ("godelclaw", "coding"):
             with self.subTest(mode=mode):
                 self.write(self.channel, {
                     "menu_status": "ok", "last_poll_ok_at": 999,
@@ -325,8 +330,10 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": False})
+        # A mode that does not renew itself.
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"):
             report = runtime_health.activity_report(now=1000)
@@ -342,8 +349,9 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": True})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": True})
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"), \
              mock.patch("telegram.rest_status", return_value=(False, 0)):
@@ -362,8 +370,9 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": True})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": True})
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"), \
              mock.patch("telegram.rest_status", return_value=(True, 417)):
@@ -382,8 +391,9 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": True})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": True})
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"), \
              mock.patch("telegram.rest_status", return_value=(True, 20)):
@@ -403,8 +413,10 @@ class RuntimeHealthTest(unittest.TestCase):
             "last_completed_at": 995, "pending_since": 0,
             "last_outcome": "completed",
         })
-        self.write(self.mode, {"mode": "agent", "autonomy_paused": False})
-        with mock.patch("loop_modes.current_mode", return_value="agent"), \
+        self.write(self.mode, {"mode": "godelclaw", "autonomy_paused": False})
+        # A mode that does not renew itself.
+        with mock.patch("loop_modes.current_mode", return_value="godelclaw"), \
+             mock.patch("loop_modes.autonomous", return_value=False), \
              mock.patch("engine_modes.active_engine", return_value="petta"), \
              mock.patch("synthetic_llm.current_model", return_value="glm"), \
              mock.patch("telegram.rest_status", return_value=(False, 0)):

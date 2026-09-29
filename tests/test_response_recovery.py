@@ -2,8 +2,9 @@
 
 A stray ')' or text around the command list used to make the whole model
 response unreadable, so nothing in it ran.  Every complete (command) now runs;
-text outside parentheses and unmatched ')' are ignored.  An unclosed string or
-form still fails the batch, because reading it would mean guessing.
+text outside parentheses and unmatched ')' run nothing, and prose is reported
+back as undelivered.  An unclosed string or form still fails the batch,
+because reading it would mean guessing.
 """
 
 import os
@@ -64,10 +65,28 @@ class ResponseRecoveryTest(unittest.TestCase):
         self.assertFalse(helper._top_level_forms(normalized)[1],
                          "an open string must not be silently dropped")
 
-    def test_prose_and_bare_commands_keep_the_old_reading(self):
-        self.assertEqual(recover("I will rest now."), "((I will rest now.))")
+    def test_bare_commands_keep_the_old_reading(self):
         self.assertEqual(recover('send "hello (world)"'),
                          '((send "hello (world)"))')
+        self.assertEqual(recover('rest 60'), '((rest 60))')
+
+    def test_prose_is_not_a_command(self):
+        """Text whose first word names no skill runs nothing; it is reported
+        back as undelivered instead of failing as an unknown skill."""
+        self.assertEqual(recover("I will rest now."), "()")
+        self.assertEqual(recover(""), "()")
+
+    def test_undelivered_prose_is_the_text_no_command_carries(self):
+        prose = helper.undelivered_prose
+        self.assertEqual(prose("I will rest now."), "I will rest now.")
+        self.assertEqual(prose('Sure! ((send "x") (pin "y")) ⋄⟨Cn:.8 C:.7⟩'), "Sure!")
+        self.assertEqual(prose('((send "x")) ⋄⟨Cn:.8 C:.7⟩'), "")
+        self.assertEqual(prose('((send "x") (pin "y"))'), "")
+        self.assertEqual(prose('send "hello"'), "")
+        self.assertEqual(prose("I think (maybe) this works"), "I think this works")
+        self.assertEqual(prose("  "), "")
+        self.assertEqual(prose(()), "")
+        self.assertEqual(prose("((send \"x\")))"), "")
 
     @unittest.skipUnless(
         shutil.which("swipl") and (pathlib.Path(os.environ.get(

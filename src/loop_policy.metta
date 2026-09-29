@@ -53,13 +53,9 @@
 (= (policy-stage $name)
    (coordinate-get $name (policy-registry)))
 
-(= (policy-preset agent)
-   (stage-list base stages-empty))
-(= (policy-preset iter)
+(= (policy-preset godelclaw)
    (stage-list base (stage-list iter-renewal stages-empty)))
 (= (policy-preset coding)
-   (stage-list base (stage-list coding-reasoning stages-empty)))
-(= (policy-preset iter-coding)
    (stage-list base
      (stage-list iter-renewal
        (stage-list coding-reasoning stages-empty))))

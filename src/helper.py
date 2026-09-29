@@ -32,6 +32,11 @@ def balance_parentheses(s):
     core = s[left:len(s) - right if right else len(s)].strip()
     normalized = f"(({core}))"
     forms, clean = _top_level_forms(s)
+    # Prose is not a command: text with no parenthesized form whose first
+    # word names no skill runs nothing (undelivered_prose reports it). A
+    # command written without its parentheses still runs.
+    if not forms and not s.startswith("(") and not _is_bare_command(s):
+        return "()"
     if _is_one_form(normalized) and (s.startswith("(") or not forms):
         return normalized
     # A stray ')' or text around the commands used to make the whole batch
@@ -44,6 +49,39 @@ def balance_parentheses(s):
     print("[helper] recovered %d command(s) from a malformed batch"
           % len(commands), file=sys.stderr)
     return "(" + " ".join(commands) + ")"
+
+
+def _is_bare_command(text):
+    """A command written without its parentheses: its first word is a skill."""
+    words = str(text).strip().split(None, 1)
+    if not words:
+        return False
+    import skills_help
+    return words[0] in skills_help.ARITY
+
+
+_AFFECT_TRACE = re.compile(r"⋄⟨[^⟩]*⟩")
+
+
+def undelivered_prose(response):
+    """The text of a model response that no command carries: prose written
+    instead of the command list, or around it. It reached no one. The affect
+    trace is a self-appraisal, not communication, and is not counted."""
+    if not isinstance(response, str):
+        return ""
+    s = response.strip()
+    if not s:
+        return ""
+    forms, _ = _top_level_forms(s)
+    if not forms and not s.startswith("(") and _is_bare_command(s):
+        return ""
+    outside = s
+    for form in forms:
+        outside = outside.replace(form, " ", 1)
+    outside = _AFFECT_TRACE.sub(" ", outside)
+    outside = "\n".join(" ".join(line.split()) for line in outside.replace(")", " ").splitlines())
+    outside = re.sub(r"\n{3,}", "\n\n", outside).strip()
+    return outside if any(c.isalnum() for c in outside) else ""
 
 
 def _is_one_form(text):

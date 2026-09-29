@@ -12,7 +12,7 @@
 !(configure commchannel telegram)
 !(py-call (native_iter_scenario.install))
 
-!(let* (($_ (py-call (loop_modes.set_mode "iter-coding")))
+!(let* (($_ (py-call (loop_modes.set_mode "coding")))
          ($_ (py-call (native_iter_scenario.select_stage "first")))
          ($initial (initLoop))
          ($after-first

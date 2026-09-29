@@ -157,10 +157,11 @@
                         intent (py-call (helper.decode_safe_text $why))))))
 
 ;; A burst ends either at its step bound or explicitly via nop. nop ends the
-;; breath and does nothing else: it spends the remaining budget and touches
-;; no other policy state.
+;; breath and records that it ended so: the next renewal treats the task as
+;; complete, where a burst that only ran out of budget continues its task.
 (= (nop)
    (progn (loop-directive-set loops 0)
+          (loop-directive-set burst-end nop)
           (BURST_COMPLETE loops-left 0)))
 
 (= (mode) (py-call (loop_modes.mode_view)))

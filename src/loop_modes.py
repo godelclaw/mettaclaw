@@ -6,26 +6,25 @@ import threading
 
 
 MODES = {
-    "agent": {
-        "description": "event-armed life with bounded bursts",
-    },
-    "iter": {
-        "description": "transformational renewal after each idle boundary",
+    "godelclaw": {
+        "description": "event-armed life, renewed by Iter's transformations after each idle boundary",
+        "autonomous": True,
     },
     "coding": {
-        "description": "event-armed task episodes with high reasoning effort",
-    },
-    "iter-coding": {
-        "description": "transformational renewal with high reasoning effort",
+        "description": "godelclaw with high reasoning effort",
+        "autonomous": True,
     },
 }
 
-# Persisted historical selections retain their behavior while the operator UI
-# exposes only policy names used by the open MeTTa assemblage.
+# Earlier names keep saved selections working. `iter` names today's
+# godelclaw until the upstream Iter loop arrives as a mode of its own.
 ALIASES = {
-    "default": "agent",
-    "generic": "agent",
-    "claw23": "iter",
+    "iter": "godelclaw",
+    "agent": "godelclaw",
+    "default": "godelclaw",
+    "generic": "godelclaw",
+    "claw23": "godelclaw",
+    "iter-coding": "coding",
 }
 
 _lock = threading.RLock()
@@ -35,9 +34,17 @@ def _path():
     return os.environ.get("METTACLAW_LOOP_MODE_PATH", "memory/loop_mode.json")
 
 
-def _canonical(name):
+def canonical(name):
     name = str(name or "").strip().lower()
     return ALIASES.get(name, name)
+
+
+_canonical = canonical
+
+
+def autonomous(name):
+    """Whether the mode renews itself without input, as its policy does."""
+    return bool(MODES.get(canonical(name), {}).get("autonomous", False))
 
 
 def _load():
@@ -48,9 +55,9 @@ def _load():
             raise ValueError("mode state is not an object")
     except (OSError, TypeError, ValueError):
         data = {}
-    mode = _canonical(data.get("mode", "agent"))
+    mode = _canonical(data.get("mode", "godelclaw"))
     if mode not in MODES:
-        mode = "agent"
+        mode = "godelclaw"
     return {"mode": mode}
 
 

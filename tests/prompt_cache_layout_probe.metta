@@ -29,6 +29,6 @@
           ($_ (cut)))
      (py-call (prompt_layout_check.ok $first $second))))
 
-!(let* (($_ (assertEqual (layout-sound "iter") 1))
-        ($_ (assertEqual (layout-sound "agent") 1)))
+!(let* (($_ (assertEqual (layout-sound "godelclaw") 1))
+        ($_ (assertEqual (layout-sound "coding") 1)))
     (println! PROMPT_CACHE_LAYOUT_OK))

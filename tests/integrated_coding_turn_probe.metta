@@ -11,7 +11,7 @@
 !(initMemory)
 !(configure commchannel telegram)
 
-!(let* (($_ (py-call (loop_modes.set_mode "iter-coding")))
+!(let* (($_ (py-call (loop_modes.set_mode "coding")))
          ($initial (initLoop))
          ($after-first
           (process-step $initial

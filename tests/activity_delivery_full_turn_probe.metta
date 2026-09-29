@@ -13,7 +13,7 @@
 !(configure commchannel telegram)
 !(py-call (telegram._set_last "probe" "stable turn input" False "full" 702))
 
-!(let* (($_ (py-call (loop_modes.set_mode "agent")))
+!(let* (($_ (py-call (loop_modes.set_mode "godelclaw")))
          ($initial (initLoop))
          ($afterFailure
           (process-step $initial
