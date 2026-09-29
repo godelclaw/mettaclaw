@@ -639,3 +639,34 @@ def adopt_active_engine():
 def claude_code_toggle():
     import claude_bridge
     return claude_bridge.set_authorized(not claude_bridge.authorized())
+
+
+def menu_state(kind):
+    """What one operator settings menu offers, as JSON for the command
+    responder, which lays out the buttons: the choices and which are
+    current, selected or unavailable. Read locally, never from a provider."""
+    if kind == "modes":
+        import loop_modes
+        state = {"text": loop_modes.mode_view(), "current": loop_modes.current_mode(),
+                 "names": list(loop_modes.MODES)}
+    elif kind == "fuels":
+        import fuel_modes
+        state = {"text": fuel_modes.fuels_view(), "current": fuel_modes.current_fuel(),
+                 "names": list(fuel_modes.FUELS)}
+    elif kind == "engines":
+        adopt_active_engine()
+        import engine_modes
+        state = {"text": engine_modes.engines_view(), "current": engine_modes.active_engine(),
+                 "selected": engine_modes.selected_engine(), "names": list(engine_modes.ENGINES),
+                 "unavailable": [n for n in engine_modes.ENGINES
+                                 if not engine_modes.engine_available(n)]}
+    elif kind == "models":
+        import synthetic_llm
+        names = synthetic_llm.model_ids()
+        state = {"text": "tap to switch — " + synthetic_llm.model_catalog_status(),
+                 "current": synthetic_llm.current_model(), "names": names,
+                 "unavailable": [n for n in names
+                                 if synthetic_llm.model_in_observed_catalog(n) is False]}
+    else:
+        state = {"text": "", "current": "", "names": []}
+    return json.dumps(state, ensure_ascii=False)

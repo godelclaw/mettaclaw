@@ -46,6 +46,21 @@ class BotAPI(Peer):
         with self.lock:
             self.updates.append({"update_id": update, "message": message})
 
+    def tap(self, update, chat, sender, data, message_id):
+        with self.lock:
+            self.updates.append({"update_id": update, "callback_query": {
+                "id": "q%d" % update, "from": {"id": sender, "first_name": "Zed", "is_bot": False},
+                "data": data, "message": {"message_id": message_id, "date": 1790000000,
+                                          "chat": {"id": chat, "type": "private", "first_name": "Zed"}}}})
+
+    def menus(self):
+        with self.lock:
+            return [(n, d) for n, d in self.calls if "reply_markup" in d]
+
+    def tap_answers(self, update):
+        with self.lock:
+            return [d for n, d in self.calls if n == "answerCallbackQuery" and d["callback_query_id"] == "q%d" % update]
+
     def receipt(self, connection, method, path, body):
         data = json.loads(body)
         name = path.rsplit("/", 1)[-1]
@@ -55,7 +70,7 @@ class BotAPI(Peer):
             return 200, [], json.dumps({"ok": True, "result": updates}).encode()
         with self.lock:
             self.calls.append((name, data))
-            if name == "deleteMessage":
+            if name in ("deleteMessage", "answerCallbackQuery"):
                 return 200, [], b'{"ok":true,"result":true}'
             self.message += 1
             message = self.message
@@ -270,23 +285,68 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             with api.lock:
                 keyboards = [d for n, d in api.calls if n == "sendMessage" and "reply_markup" in d]
             assert keyboards and keyboards[-1]["text"].startswith("arming energy"), api.calls[-3:]
-            print("commands: the service asks, the responder answers and wakes her; menus stay Python's")
+            energy_menu = keyboards[-1]
+            buttons = [b["callback_data"] for row in energy_menu["reply_markup"]["inline_keyboard"] for b in row]
+            assert buttons[:3] == ["energy:default:full", "energy:default:mid", "energy:default:light"], buttons
+            assert "energy:%d:mid" % FRIEND in buttons, buttons
+            print("commands: the service asks, the responder answers and wakes her; menus come with their buttons")
+
+            # 8b. Taps on menu buttons: the responder changes the setting, the
+            #     tap is answered with the outcome, and the menu is redrawn in
+            #     place. Nothing reaches her loop.
+            def menu_message(text_start):
+                with api.lock:
+                    sent = [(i, d) for i, (n, d) in enumerate(api.calls) if n == "sendMessage"
+                            and "reply_markup" in d and d["text"].startswith(text_start)]
+                return sent[-1] if sent else None
+            def await_(predicate, label, seconds=10):
+                until = time.monotonic() + seconds
+                while time.monotonic() < until:
+                    value = predicate()
+                    if value:
+                        return value
+                    time.sleep(.05)
+                raise AssertionError((label, api.calls[-4:]))
+            api.tap(86, CHAT, OPERATOR, "energy:%d:mid" % FRIEND, 777)
+            answer = await_(lambda: api.tap_answers(86), "energy tap answered")
+            assert answer[0]["text"] == "%d arming set to mid(30)" % FRIEND, answer
+            assert json.loads((temp / "energy.json").read_text())["senders"][str(FRIEND)] == "mid"
+            redraw = await_(lambda: [d for n, d in api.calls if n == "editMessageText" and d["message_id"] == 777],
+                            "energy menu redrawn")
+            labels = [b["text"] for row in redraw[-1]["reply_markup"]["inline_keyboard"] for b in row]
+            assert "● %d: mid" % FRIEND in labels and redraw[-1]["text"].startswith("arming energy — "), labels
+            import loop_modes
+            api.add(87, CHAT, OPERATOR, "/modes")
+            await_(lambda: menu_message(loop_modes.mode_view()[:20]), "modes menu")
+            other = next(m for m in loop_modes.MODES if m != loop_modes.current_mode())
+            wake_file = temp / "wake.requested"
+            if wake_file.exists():
+                wake_file.unlink()
+            api.tap(88, CHAT, OPERATOR, "mode:" + other, 778)
+            answer = await_(lambda: api.tap_answers(88), "mode tap answered")
+            assert loop_modes.current_mode() == other and wake_file.read_text() == "mode switch", answer
+            redraw = await_(lambda: [d for n, d in api.calls if n == "editMessageText" and d["message_id"] == 778],
+                            "modes menu redrawn")
+            labels = [b["text"] for row in redraw[-1]["reply_markup"]["inline_keyboard"] for b in row]
+            assert "● " + other in labels, labels
+            wake_file.unlink()
+            print("taps: energy and mode changed by the responder, answered, and redrawn in place")
 
             # 9. Runtime events from Python threads (a finished job) become
             #    activity; Python and Prolog callers read the client's state.
-            api.add(84, CHAT, OPERATOR, "unread in 42")
+            api.add(104, CHAT, OPERATOR, "unread in 42")
             lines, err = run('!(tg:start)\n!(py-call (telegram.enqueue_runtime_event "job 7 done" "job"))\n'
                              '!(fs:write "%s" (tg:activity-batch))\n'
                              '!(py-call (telegram.pendingActivityCount))\n'
                              '!(py-call (telegram.preparedActivityCount))\n' % out, env)
             batch_text = out.read_text()
-            assert "[runtime] job 7 done" in batch_text and "unread in 42" in batch_text, batch_text
+            assert "[runtime] job 7 done" in batch_text and "unread in 42" in batch_text, (batch_text, lines[-6:], err[-1500:])
             assert lines[-2:] == ["2", "2"], lines
-            api.add(85, CHAT, OPERATOR, "newer in 42")
+            api.add(105, CHAT, OPERATOR, "newer in 42")
             time.sleep(1.0)
             lines, err = run('!(tg:start)\n!(fs:write "%s" (tg:activity-batch))\n'
                              '!(py-call (telegram.begin_effect_turn "t9"))\n'
-                             '!(py-call (telegram.metta_publish "batch_update_ids" "84"))\n'
+                             '!(py-call (telegram.metta_publish "batch_update_ids" "104"))\n'
                              '!(py-call (telegram.effect_command_unaffected "t9" ("send-telegram-chat" "42" "x")))\n'
                              '!(py-call (telegram.effect_command_unaffected "t9" ("send-telegram-chat" "%d" "x")))\n'
                              % (out, GROUP), env)
@@ -306,14 +366,14 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
                 wake_file = temp / "wake.requested"
                 expected_view = py._command_answer("/mode", "", str(CHAT))
                 sent_at = api.command_time = time.monotonic()
-                api.add(90, CHAT, OPERATOR, "/mode")
+                api.add(110, CHAT, OPERATOR, "/mode")
                 deadline = time.monotonic() + 10
                 while expected_view not in [t for c, t in api.texts()] and time.monotonic() < deadline:
                     time.sleep(.05)
                 assert expected_view in [t for c, t in api.texts()], (expected_view, api.texts()[-3:])
                 latency = time.monotonic() - sent_at
                 other = next(m for m in loop_modes.MODES if m != loop_modes.current_mode())
-                api.add(91, CHAT, OPERATOR, "/mode " + other)
+                api.add(111, CHAT, OPERATOR, "/mode " + other)
                 deadline = time.monotonic() + 10
                 while not wake_file.exists() and time.monotonic() < deadline:
                     time.sleep(.05)
@@ -322,14 +382,14 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
                 # /wake during the rest ends it.
                 rest = start('!(tg:start)\n!(tg:sleep-until-message 30)\n', env)
                 time.sleep(2.0); assert rest[0].poll() is None and not wake_file.exists()
-                began = time.monotonic(); api.add(92, CHAT, OPERATOR, "/wake")
+                began = time.monotonic(); api.add(112, CHAT, OPERATOR, "/wake")
                 lines, err = finish(rest)
                 assert lines[-1] == '"woken by /wake"' and time.monotonic() - began < 5, (lines, err[-500:])
                 # /delete stays with the loop client: answered once it runs.
                 own = [json.loads(l) for l in ledger.read_text().splitlines() if '"own_send"' in l]
                 deleted = {json.loads(l)["message_id"] for l in ledger.read_text().splitlines() if '"outbound_delete"' in l}
                 target = next(r for r in reversed(own) if r["message_id"] not in deleted and r["chat_id"] == str(CHAT))
-                api.add(93, CHAT, OPERATOR, "/delete %d %d" % (CHAT, target["message_id"]))
+                api.add(113, CHAT, OPERATOR, "/delete %d %d" % (CHAT, target["message_id"]))
                 time.sleep(1.0)
                 lines, err = run('!(tg:start)\n!(tg:poll)\n', env)
                 deadline = time.monotonic() + 10
@@ -342,8 +402,8 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             #     Python reader renders it, for a turn that has prepared input
             #     and for one that has not; and the per-chat recall skill,
             #     for Czech text too.
-            api.add(95, GROUP, FRIEND, "Ahoj, jak se máš? " + "č" * 300)
-            api.add(96, CHAT, OPERATOR, "a newer message")
+            api.add(115, GROUP, FRIEND, "Ahoj, jak se máš? " + "č" * 300)
+            api.add(116, CHAT, OPERATOR, "a newer message")
             time.sleep(1.0)
             window_file = temp / "window.txt"
             recent_file = temp / "recent.txt"
@@ -360,7 +420,7 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             # The batch was the last thing logged, so the frontier is the
             # ledger's end; the prepared messages are excluded.
             py._context_frontier_bytes = None
-            py._current_batch_update_ids = {"95", "96"}
+            py._current_batch_update_ids = {"115", "116"}
             expected = py.conversation_window(max_events=64)
             assert mine == expected, ("window", mine[-600:], expected[-600:])
             assert recent_file.read_text() == py.recent_activity(5, "lab", 40), (

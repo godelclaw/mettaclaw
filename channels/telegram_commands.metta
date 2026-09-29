@@ -3,12 +3,10 @@
 ;
 ; help, stop and start are the service's own: it answers them at once, and
 ; stop holds everything Lila submits until start. Every delegated command is
-; asked of Lila's runtime and answered from its own thread, never from her
-; cognition; if that answer is late, the service replies with a notice and
-; edits it when the answer arrives.
-;
-; The menu commands (/energy, /engines, /fuels, /modes, /models) are not
-; declared yet: they reach Lila as ordinary input and keep their buttons.
+; asked of Lila's command responder, never of her cognition; if that answer
+; is late, the service replies with a notice and edits it when the answer
+; arrives. The menus answer with buttons; a tap on one is asked of the
+; responder the same way and answered within the same deadline.
 
 (tg-cmd:agent "Lila")
 
@@ -22,6 +20,11 @@
 (tg-cmd:command "/fuel" delegated "Show or switch what a renewal does to the budget")
 (tg-cmd:command "/mode" delegated "Show or switch the cognitive loop mode")
 (tg-cmd:command "/model" delegated "Show or switch the language model")
+(tg-cmd:command "/engines" delegated "Evaluator engines, as buttons")
+(tg-cmd:command "/fuels" delegated "Fuel disciplines, as buttons")
+(tg-cmd:command "/modes" delegated "Cognitive loop modes, as buttons")
+(tg-cmd:command "/models" delegated "Language models, as buttons")
+(tg-cmd:command "/energy" delegated "Arming energy per sender, as buttons")
 (tg-cmd:command "/quota" delegated "Show model budget")
 (tg-cmd:command "/delete" delegated "Delete a message: /delete chat message-id")
 (tg-cmd:command "/claude_code_authorization" delegated "Toggle Claude Code authorization")

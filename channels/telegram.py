@@ -2251,15 +2251,9 @@ def metta_attachment(update_json, kind, text):
     return 1
 
 
-def metta_callback_query(update_json):
-    cq = json.loads(update_json).get("callback_query") or {}
-    threading.Thread(target=_handle_callback_query, args=(cq,), daemon=True).start()
-    return "callback_dispatched"
-
-
 def metta_slash_command(update_json, kind):
-    """A control the service does not answer itself: a button menu, or a
-    command addressed with @bot. Handled on its own thread, as before."""
+    """A command addressed with @bot, which the service does not answer
+    itself. Handled on its own thread, as before."""
     message = json.loads(update_json).get(kind) or {}
     text = message.get("text") or message.get("caption") or ""
     note = _peek_slash_command(text, message.get("from")) or "slash_command_unknown"

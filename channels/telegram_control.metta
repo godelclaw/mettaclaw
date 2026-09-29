@@ -1,12 +1,13 @@
 ; Lila's operator-command responder, in MeTTa.
 ;
 ; The CeTTa Telegram channel service asks about the operator commands it does
-; not answer itself. /engine, /mode, /fuel, /model, /quota, /health,
-; /activity, /wake, /start, /stop and /claude_code_authorization read or
-; change Lila's settings, never her thinking, so they are answered here, in a
-; process of its own beside her loop that makes no model call: an answer
-; never waits for her turn. /delete stays with her loop's Telegram client,
-; which owns her sends and their receipts.
+; not answer itself, and about taps on the buttons of their menus. /engine,
+; /mode, /fuel, /model, /quota, /health, /activity, /wake, /start, /stop,
+; /claude_code_authorization and the menus /engines, /modes, /fuels, /models
+; and /energy read or change Lila's settings, never her thinking, so they are
+; answered here, in a process of its own beside her loop that makes no model
+; call: an answer never waits for her turn. /delete stays with her loop's
+; Telegram client, which owns her sends and their receipts.
 ;
 ; Run by `run.sh telegram-control`. The service answers the operator itself
 ; if this process is not there to answer in time.
@@ -17,6 +18,7 @@
 !(import! &self cwp)
 !(import! &self system)
 !(import! &self ./src/helper.py)
+!(import! &self ./channels/energy.metta)
 
 (= (tc:env $name $default) (system:getenv-or-default $name $default))
 (= (tc:socket) (tc:env "METTACLAW_TELEGRAM_SERVICE_SOCKET" ""))
@@ -31,14 +33,24 @@
            (cons-atom ($task $body) $rest)))
         ($other ())))))
 
-(= (tc:answer-task $task $text)
-   (let $cut (if (> (str:char-length $text) 3800) (str:char-slice $text 0 3800) $text)
-     (let $body (json-stringify (JsonArray ((JsonString "answer") (JsonString $cut))))
-       (case (tc:call 2 $task $body)
-         (((cwp:reply 66 $n $b) True)
-          ((cwp:reply 68 $n $b) True)
-          ((cwp:reply 69 $n $b) True)
-          ($other False))))))
+(= (tc:cut $text $n) (if (> (str:char-length $text) $n) (str:char-slice $text 0 $n) $text))
+
+; A reply is text, or a menu: (tc:menu TOAST TEXT ROWS), ROWS a JsonArray of
+; rows of [label, data] buttons. The toast answers a tap on a button.
+(= (tc:body $reply)
+   (case $reply
+     (((tc:menu $toast $text $rows)
+       (json-stringify (JsonArray ((JsonString "menu") (JsonString (tc:cut $toast 190))
+                                   (JsonString (tc:cut $text 3800)) $rows))))
+      ($text (json-stringify (JsonArray ((JsonString "answer") (JsonString (tc:cut $text 3800)))))))))
+
+(= (tc:answer-task $task $reply)
+   (let $body (tc:body $reply)
+     (case (tc:call 2 $task $body)
+       (((cwp:reply 66 $n $b) True)
+        ((cwp:reply 68 $n $b) True)
+        ((cwp:reply 69 $n $b) True)
+        ($other False)))))
 
 (= (tc:text $value) (format-args "{}" ($value)))
 
@@ -48,6 +60,84 @@
      (if (== $file "") () (fs:write $file $reason))))
 
 (= (tc:with-hint $view $hint) (format-args "{} — {}" ($view $hint)))
+
+;; ------------------------------------------------------------- menus
+
+(= (tc:items $items)
+   (if (== $items ()) (empty)
+     (superpose ((car-atom $items) (tc:items (cdr-atom $items))))))
+(= (tc:at $object $key)
+   (case $object
+     (((JsonObject $pairs) (tc:pair $pairs $key))
+      ($other JsonNull))))
+(= (tc:pair $pairs $key)
+   (if (== $pairs ()) JsonNull
+     (let $head (car-atom $pairs)
+       (case $head
+         (((JsonPair $key $value) $value)
+          ($other (tc:pair (cdr-atom $pairs) $key)))))))
+(= (tc:string $value) (case $value (((JsonString $s) $s) ($other ""))))
+(= (tc:strings $value)
+   (case $value
+     (((JsonArray $items) (collapse (let $item (tc:items $items) (tc:string $item))))
+      ($other ()))))
+(= (tc:member? $x $items) (not (== (collapse (let $i (tc:items $items) (if (== $i $x) True (empty)))) ())))
+
+; A settings menu: one button a choice, the current one marked, the selected
+; one (an engine chosen but not yet running) marked apart, and those not
+; available said so. Its data is PREFIX:NAME.
+(= (tc:settings-menu $kind $prefix $toast)
+   (let $state (json-parse (py-call (helper.menu_state $kind)))
+     (let $current (tc:string (tc:at $state "current"))
+       (let $selected (tc:string (tc:at $state "selected"))
+         (let $unavailable (tc:strings (tc:at $state "unavailable"))
+           (let $rows (collapse (let $name (tc:items (tc:strings (tc:at $state "names")))
+                                  (let $data (format-args "{}:{}" ($prefix $name))
+                                    (if (> (str:length $data) 64) (empty)
+                                      (let $off (tc:member? $name $unavailable)
+                                        (let $mark (if (== $name $current) "● "
+                                                     (if (== $name $selected) "◌ "
+                                                       (if (and $off (== $kind "models")) "⚠ " "")))
+                                          (let $label (format-args "{}{}{}" ($mark $name (if (and $off (== $kind "engines")) " (unavailable)" "")))
+                                            (JsonArray ((JsonArray ((JsonString (tc:cut $label 64)) (JsonString $data))))))))))))
+             (tc:menu $toast (tc:string (tc:at $state "text")) (JsonArray $rows))))))))
+
+(= (tc:energy-menu $toast)
+   (let $view (energy:view)
+     (tc:menu $toast (format-args "arming energy — {}" ($view)) (energy:menu))))
+
+; Switch the engine, and restart Lila's loop on it when it is not the one
+; running.
+(= (tc:switch-engine $name)
+   (let $adopted (py-call (helper.adopt_active_engine))
+     (let $reply (tc:text (py-call (engine_modes.set_engine $name)))
+       (let $selected (tc:text (py-call (engine_modes.selected_engine)))
+         (let $active (tc:text (py-call (engine_modes.active_engine)))
+           (if (and (not (str:starts-with $reply "engine-set failed:")) (not (== $selected $active)))
+             (let $recycle (py-call (engine_modes.request_recycle))
+               (let $woken (tc:wake "engine switch") $reply))
+             $reply))))))
+
+; A tap on a menu's button: PREFIX:ARGUMENT. The answer is the menu again,
+; redrawn, with the outcome as the tap's toast.
+(= (tc:tap $data)
+   (case (str:find $data ":")
+     (((TextNotFound $needle) (format-args "unknown button {}" ($data)))
+      ($at (let $kind (str:slice $data 0 $at)
+             (let $arg (str:slice $data (+ $at 1) (str:length $data))
+               (case $kind
+                 (("mode" (let $reply (tc:text (py-call (loop_modes.set_mode $arg)))
+                            (let $woken (tc:wake "mode switch") (tc:settings-menu "modes" "mode" $reply))))
+                  ("fuel" (let $reply (tc:text (py-call (fuel_modes.set_fuel $arg)))
+                            (tc:settings-menu "fuels" "fuel" $reply)))
+                  ("engine" (let $reply (tc:switch-engine $arg) (tc:settings-menu "engines" "engine" $reply)))
+                  ("model" (let $reply (tc:text (py-call (synthetic_llm.set_model $arg)))
+                             (tc:settings-menu "models" "model" $reply)))
+                  ("energy" (case (str:find $arg ":")
+                              (((TextNotFound $n) (format-args "unknown button {}" ($data)))
+                               ($cut (let $reply (energy:set (str:slice $arg 0 $cut) (str:slice $arg (+ $cut 1) (str:length $arg)))
+                                       (tc:energy-menu $reply))))))
+                  ($other (format-args "unknown button {}" ($data)))))))))))
 
 (= (tc:answer $name $args)
    (case $name
@@ -63,16 +153,15 @@
       ("/health" (tc:text (py-call (runtime_health.report))))
       ("/activity" (tc:text (py-call (runtime_health.activity_report))))
       ("/engine"
-       (let $adopted (py-call (helper.adopt_active_engine))
-         (if (== $args "")
-           (tc:with-hint (tc:text (py-call (engine_modes.engine_view))) "/engine <name> to switch, /engines to list")
-           (let $reply (tc:text (py-call (engine_modes.set_engine $args)))
-             (let $selected (tc:text (py-call (engine_modes.selected_engine)))
-               (let $active (tc:text (py-call (engine_modes.active_engine)))
-                 (if (and (not (str:starts-with $reply "engine-set failed:")) (not (== $selected $active)))
-                   (let $recycle (py-call (engine_modes.request_recycle))
-                     (let $woken (tc:wake "engine switch") $reply))
-                   $reply)))))))
+       (if (== $args "")
+         (let $adopted (py-call (helper.adopt_active_engine))
+           (tc:with-hint (tc:text (py-call (engine_modes.engine_view))) "/engine <name> to switch, /engines to list"))
+         (tc:switch-engine $args)))
+      ("/engines" (tc:settings-menu "engines" "engine" ""))
+      ("/modes" (tc:settings-menu "modes" "mode" ""))
+      ("/fuels" (tc:settings-menu "fuels" "fuel" ""))
+      ("/models" (tc:settings-menu "models" "model" ""))
+      ("/energy" (tc:energy-menu ""))
       ("/fuel"
        (if (== $args "")
          (tc:with-hint (tc:text (py-call (fuel_modes.fuel_view))) "/fuel <name> to switch, /fuels to list")
@@ -90,7 +179,7 @@
          (tc:text (py-call (synthetic_llm.set_model $args)))))
       ($other (format-args "unknown command {}" ($name))))))
 
-; Answer every command task but /delete, once each.
+; Answer every command task but /delete, and every tap, once each.
 (= (tc:handle $tasks)
    (if (== $tasks ()) 0
      (let $head (car-atom $tasks)
@@ -100,8 +189,11 @@
                 (case (json-parse $body)
                   (((JsonArray ((JsonString "command") (JsonString $key) (JsonString $name) (JsonString $args) (JsonString $lane)))
                     (if (== $name "/delete") 0
-                      (let $text (tc:answer $name $args)
-                        (if (tc:answer-task $task $text) 1 0))))
+                      (let $reply (tc:answer $name $args)
+                        (if (tc:answer-task $task $reply) 1 0))))
+                   ((JsonArray ((JsonString "callback") (JsonString $key) (JsonString $data) (JsonString $lane) $message))
+                    (let $reply (tc:tap $data)
+                      (if (tc:answer-task $task $reply) 1 0)))
                    ($other 0)))
              (+ $done (tc:handle $tail))))))))
 

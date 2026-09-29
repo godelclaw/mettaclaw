@@ -11,16 +11,18 @@
 ; turn that read it is in history (tg:ack-activity-batch). A restart reads
 ; it again from the service; there is no offset or receipt file here.
 ;
-; Python still provides, through channels/telegram.py: the button menus and
-; attachment downloads (both call the Bot API directly), file and image
-; uploads, and the ledger readers used by her Python context and health code,
-; which read state this client publishes there.
+; Python still provides, through channels/telegram.py: commands addressed as
+; /command@bot, attachment downloads (both call the Bot API directly), file
+; and image uploads, and the ledger readers used by her Python context and
+; health code, which read state this client publishes there. Arming energy is
+; channels/energy.metta's.
 
 !(import! &self str)
 !(import! &self json)
 !(import! &self fs)
 !(import! &self cwp)
 !(import! &self system)
+!(import! &self ./channels/energy.metta)
 
 ;; ---------------------------------------------------------------- lists
 ;; A list built by cons-atom onto a computed tail may be an open PeTTa cell.
@@ -402,36 +404,11 @@
        (let $gone (remove-atom &self (tg:title $chat $head)) (tg:drop-titles $chat $tail)))))
 
 ;; ------------------------------------------------------------- energy
-;; Per-sender arming tiers, in the JSON file the operator's /energy menu and
-;; Lila's energy skills both edit.
+;; Per-sender arming tiers: channels/energy.metta.
 
-(= (tg:energy-path) (tg:env "METTACLAW_ENERGY_PATH" "memory/energy.json"))
-
-(= (tg:energy)
-   (let $path (tg:energy-path)
-     (if (py-call (os.path.exists $path))
-       (case (json-parse (fs:read-text $path))
-         (((JsonObject $pairs) (JsonObject $pairs))
-          ($other (JsonObject ()))))
-       (JsonObject ()))))
-
-(= (tg:tier? $tier) (tg:member $tier ("full" "mid" "light")))
-
-(= (tg:default-tier)
-   (let $d (tg:str (tg:at (tg:energy) "default"))
-     (if (tg:tier? $d) $d "full")))
-
-(= (tg:tier-for $sender-id)
-   (let $t (tg:str (tg:at (tg:at (tg:energy) "senders") $sender-id))
-     (if (tg:tier? $t) $t (tg:default-tier))))
-
-(= (tg:tier-loops $tier)
-   (let $override (tg:str (tg:at (tg:at (tg:energy) "tier_loops") $tier))
-     (if (not (== $override ""))
-       (let $n (parse $override) (if (< $n 1) 1 $n))
-       (let $name (case $tier (("mid" "METTACLAW_LOOPS_MID") ("light" "METTACLAW_LOOPS_LIGHT") ($f "METTACLAW_LOOPS_FULL")))
-         (let $default (case $tier (("mid" "30") ("light" "10") ($f "50")))
-           (let $n (parse (tg:env $name $default)) (if (< $n 1) 1 $n)))))))
+(= (tg:tier? $tier) (energy:tier? $tier))
+(= (tg:tier-for $sender-id) (energy:tier-for $sender-id))
+(= (tg:tier-loops $tier) (energy:tier-loops $tier))
 
 ;; ----------------------------------------------------------- activity
 
@@ -635,11 +612,15 @@
          (let $r (if (tg:own-key? $key) (add-atom &self (tg:receipt $key $position (released)))
                    (py-call (telegram.metta_foreign_receipt (json-stringify $value))))
            (tg:acknowledge $task))))
-      ; Commands are the responder's (channels/telegram_control.metta), except
-      ; /delete, which acts through this client's sends and receipts.
+      ; Commands and taps on their menus are the responder's
+      ; (channels/telegram_control.metta), except /delete, which acts through
+      ; this client's sends and receipts. Answering one here would take it
+      ; from the responder.
       ((JsonArray ((JsonString "command") (JsonString $key) (JsonString "/delete") (JsonString $args) (JsonString $lane)))
        (let $seen (tg:see $task) (tg:command $task "/delete" $args $lane)))
       ((JsonArray ((JsonString "command") (JsonString $key) (JsonString $name) (JsonString $args) (JsonString $lane)))
+       ())
+      ((JsonArray ((JsonString "callback") (JsonString $key) (JsonString $data) (JsonString $lane) $message))
        ())
       ((JsonArray ((JsonString "input-too-large") (JsonString $lane) (JsonString $kind) (JsonString $role)))
        (tg:acknowledge $task))
@@ -667,8 +648,9 @@
                (let $ec (tg:at $update "edited_channel_post")
                  (if (tg:truthy $ec) ("edited_channel_post" $ec) ("unsupported" JsonNull))))))))))
 
-; Operator controls the service does not answer itself (the button menus,
-; and commands addressed with @bot) are Python's, as before.
+; The service answers an operator's commands and taps on their buttons, so
+; neither reaches this client. A command addressed as /command@bot does:
+; Python's, as before.
 (= (tg:local-control? $text $sender-id)
    (if (not (str:starts-with $text "/")) False
      (let $head (car-atom (str:split-whitespace $text))
@@ -679,12 +661,7 @@
               (or (tg:operator? $sender-id) (> (size-atom (str:split "@" $head)) 1)))))))
 
 (= (tg:intake $task $lane $kind $role $update)
-   (if (tg:truthy (tg:at $update "callback_query"))
-     (let $note (py-call (telegram.metta_callback_query (json-stringify $update)))
-       (let $message (tg:at (tg:at $update "callback_query") "message")
-         (let $l (tg:log-update $update "callback_query" $message True False $note)
-           (tg:acknowledge $task))))
-     (let ($mkind $message) (tg:message-of $update)
+   (let ($mkind $message) (tg:message-of $update)
        (if (== $mkind "unsupported")
          (let $l (tg:log-update $update $mkind JsonNull False False "unsupported_update") (tg:acknowledge $task))
          (let $chat (tg:at $message "chat")
@@ -710,7 +687,7 @@
                                    (let $wake (tg:wake-reason-for $sender-id)
                                      (let $added (tg:activity-add $task $chat-id $formatted $bot $tier (tg:str (tg:at $update "update_id")) $wake)
                                        (let $notice (if (== $wake False) (tg:maybe-rest-notice $chat-id $sender-id) ())
-                                         (tg:publish-counts)))))))))))))))))))))
+                                         (tg:publish-counts))))))))))))))))))))
 
 (= (tg:wake-reason-for $sender-id)
    (if (tg:operator? $sender-id) "operator message"
