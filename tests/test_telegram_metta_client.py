@@ -18,6 +18,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import unittest
+
+# An end-to-end script, run directly. Imported by test discovery it would run
+# at import time and leave its environment in the process for every test.
+if __name__ != "__main__":
+    raise unittest.SkipTest("an end-to-end script: run it with python3 directly")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CETTA_ROOT = pathlib.Path(os.environ["CETTA_CHANNEL_ROOT"]).resolve()
