@@ -153,7 +153,13 @@ class ContextContinuityTest(unittest.TestCase):
         additions = (ROOT / "src" / "turn_additions.metta").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(additions.count("context_sources.bundle"), 1)
+        start = additions.index("(= (addition-context-sources)")
+        definition = additions[start:additions.index("\n\n", start)]
+        # One bundle per turn: the Telegram client in use picks the one call
+        # that builds it, and nothing else in the additions builds one.
+        self.assertIn("(if (tg:client-metta?)", definition)
+        self.assertEqual(definition.count("context_sources.bundle"), 2)
+        self.assertEqual(additions.count("context_sources.bundle"), 2)
         self.assertNotIn("(getHistory)", context)
         self.assertNotIn("telegram.recent_activity", context)
         self.assertNotIn("telegram.conversation_window", context)
