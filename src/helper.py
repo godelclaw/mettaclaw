@@ -602,3 +602,25 @@ def history_append(addition):
     except Exception as exc:
         print("[helper] history append error:", type(exc).__name__)
         return 0
+
+
+def local_clock(epoch):
+    """Telegram's own send time, local, in the same format as TIME."""
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(float(epoch))))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def pad20(number):
+    return "%020d" % int(number)
+
+
+def rest_notice_text(left):
+    """The one notice an operator gets when writing to a resting agent."""
+    left = max(0, int(float(left)))
+    wake_at = time.strftime("%H:%M", time.localtime(time.time() + left))
+    mins, secs = left // 60, left % 60
+    span = ("%dm%02ds" % (mins, secs)) if mins else ("%ds" % secs)
+    return ("\U0001F4A4 resting — wakes in %s (at %s). Your message is queued "
+            "and will be read then; send /wake to end the rest now." % (span, wake_at))

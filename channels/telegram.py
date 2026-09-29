@@ -672,6 +672,10 @@ def energy_set(who, tier):
 
 def _set_last(chat_id, text, from_bot=False, arm_tier="full", update_id=None):
     global _last_chat_id, _activity_epoch
+    if metta_client():
+        _metta_queue({"chat": str(chat_id), "text": str(text), "from_bot": bool(from_bot),
+                      "tier": str(arm_tier), "update_id": "" if update_id is None else str(update_id)})
+        return
     with _msg_lock:
         _last_chat_id = str(chat_id)
         _pending_messages.append(
@@ -696,6 +700,10 @@ def enqueue_runtime_event(text, reason="runtime event"):
     """Deliver a runtime event as ordinary activity for the next turn and end
     any rest.  A plain send afterwards still goes where it would have."""
     global _activity_epoch
+    if metta_client():
+        _metta_queue({"chat": RUNTIME_CHAT, "text": "[runtime] " + str(text), "from_bot": False,
+                      "tier": "light", "update_id": "", "wake": str(reason)})
+        return True
     with _msg_lock:
         _pending_messages.append(
             (RUNTIME_CHAT, "[runtime] " + str(text), False, "light", None))
@@ -970,12 +978,16 @@ def ackActivityBatch():
 
 def pendingActivityCount():
     """Number of ordinary inputs not yet history-acknowledged."""
+    if metta_client():
+        return int(_metta.get("pending_count", 0))
     with _msg_lock:
         return len(_pending_messages)
 
 
 def preparedActivityCount():
     """Number of those inputs frozen into the current stable observation."""
+    if metta_client():
+        return int(_metta.get("prepared_count", 0))
     with _msg_lock:
         return len(_prepared_messages)
 
@@ -1229,6 +1241,8 @@ def _wake_peer_ids():
 def _request_wake(reason):
     """Interrupt a timed rest and retain truthful provenance for its result."""
     global _wake_reason
+    if metta_client():
+        _metta_queue({"wake_only": str(reason)})
     with _wake_lock:
         _wake_reason = str(reason)
         _wake_event.set()
@@ -2097,6 +2111,177 @@ def _register_menu_commands():
               type(exc).__name__)
 
 
+# ---- MeTTa client ----------------------------------------------------------
+# With METTACLAW_TELEGRAM_CLIENT=metta, channels/telegram.metta is Lila's
+# Telegram client and this module starts no thread of its own. It keeps what
+# calls the Bot API directly (button menus, attachment downloads, uploads),
+# answers the Python and Prolog code that asks about Telegram from state the
+# MeTTa client publishes here, and checks the channel service itself where
+# an answer must be current (the unread-input guard on sends).
+
+_metta = {}
+_metta_lock = threading.Lock()
+_metta_events = []
+
+
+def metta_client():
+    return os.environ.get("METTACLAW_TELEGRAM_CLIENT", "python") == "metta"
+
+
+def _metta_queue(item):
+    with _metta_lock:
+        _metta_events.append(item)
+
+
+def metta_take_runtime_events():
+    """Runtime events, finished attachments and wake requests, oldest first,
+    as one JSON array; each is handed over once."""
+    with _metta_lock:
+        items = _metta_events[:]
+        del _metta_events[:]
+    return json.dumps(items, ensure_ascii=False)
+
+
+def metta_publish(name, value):
+    global _context_frontier_bytes, _current_batch_update_ids, _sleep_until
+    global _reply_chat_id, _activity_epoch, _context_activity_epoch
+    name = str(name)
+    _metta[name] = value
+    if name == "context_frontier":
+        _context_frontier_bytes = int(value)
+    elif name == "batch_update_ids":
+        _current_batch_update_ids = {v for v in str(value).split(",") if v}
+    elif name == "batch_tasks":
+        pass
+    elif name == "sleep_until":
+        _sleep_until = float(value)
+        if _sleep_until:
+            _health_update(force=True, loop_status="waiting",
+                           waiting_since=time.time(), waiting_until=_sleep_until)
+        else:
+            _health_update(force=True, loop_status="awake", waiting_until=0.0,
+                           last_wait_completed_at=time.time())
+    elif name == "reply_chat":
+        _reply_chat_id = str(value)
+    elif name == "activity_epoch":
+        with _msg_lock:
+            _activity_epoch = int(value)
+    elif name == "context_epoch":
+        with _msg_lock:
+            _context_activity_epoch = int(value)
+    elif name == "last_poll":
+        _health_update(poll_status="ok", last_poll_ok_at=float(value))
+    elif name == "title":
+        chat, _, title = str(value).partition(":")
+        if chat:
+            _chat_titles[chat] = title
+    return 1
+
+
+def poll_age_seconds(now=None):
+    last = float(_metta.get("last_poll", 0) or _health_state.get("last_poll_ok_at", 0) or 0)
+    if not last:
+        return None
+    return max(0.0, float(now if now is not None else time.time()) - last)
+
+
+def _metta_unread_chats():
+    """Chats with input the current turn has not read: messages still pending
+    in the channel service that are not in the prepared batch. None when the
+    service cannot be asked, which withholds the send."""
+    import durable_telegram
+    path = os.environ.get("METTACLAW_TELEGRAM_SERVICE_SOCKET", "")
+    if not path:
+        return None
+    prepared = set(_current_batch_update_ids)
+    try:
+        tasks = durable_telegram.Channel(path, os.devnull).pending(256)
+    except (OSError, durable_telegram.ChannelError):
+        return None
+    unread = set()
+    for _, observation in tasks:
+        try:
+            value = json.loads(observation)
+        except ValueError:
+            continue
+        if value and value[0] == "input" and len(value) == 5:
+            update = value[4] if isinstance(value[4], dict) else {}
+            if str(update.get("update_id", "")) not in prepared:
+                unread.add(str(value[1]).split(".", 1)[0])
+    return unread
+
+
+def metta_effect_turn():
+    with _effect_lock:
+        return "" if _effect_turn is None else str(_effect_turn)
+
+
+def metta_has_attachment(message_json):
+    try:
+        return bool(_attachment_info(json.loads(message_json)))
+    except ValueError:
+        return False
+
+
+def metta_attachment(update_json, kind, text):
+    update = json.loads(update_json)
+    message = update.get(kind) or {}
+    _enqueue_attachment(update, kind, message, text or "")
+    return 1
+
+
+def metta_callback_query(update_json):
+    cq = json.loads(update_json).get("callback_query") or {}
+    threading.Thread(target=_handle_callback_query, args=(cq,), daemon=True).start()
+    return "callback_dispatched"
+
+
+def metta_slash_command(update_json, kind):
+    """A control the service does not answer itself: a button menu, or a
+    command addressed with @bot. Handled on its own thread, as before."""
+    message = json.loads(update_json).get(kind) or {}
+    text = message.get("text") or message.get("caption") or ""
+    note = _peek_slash_command(text, message.get("from")) or "slash_command_unknown"
+    _dispatch_slash_command(message.get("chat") or {}, message.get("from"), text)
+    return note
+
+
+def metta_command_answer(name, args, chat):
+    """The text of a delegated operator command the service asked about."""
+    try:
+        text = _command_answer(str(name), str(args), str(chat))
+    except Exception as exc:
+        print("[telegram] operator command failed:", name, type(exc).__name__)
+        return "%s failed: %s" % (name, type(exc).__name__)
+    if text is None:
+        return "Waking." if name == "/wake" else "Done."
+    return str(text)
+
+
+def metta_resolve_chat(who):
+    return _resolve_known_chat_id(who)
+
+
+def metta_foreign_receipt(observation):
+    """A receipt for a send this module made (a menu's text reply)."""
+    value = json.loads(observation)
+    if value[0] == "delivery":
+        _durable_record(value[1], value[2], value[4])
+    elif value[0] == "rejected":
+        with _durable_lock:
+            known = _durable_pending.pop(value[1], None) is not None
+        if known:
+            _durable_outbox.done(value[1])
+        _durable_receipts.record(value[1], -1, value[2])
+    elif value[0] == "released":
+        with _durable_lock:
+            entry = _durable_pending.pop(value[2], None)
+        if entry is not None:
+            _durable_outbox.done(value[2])
+        _durable_outbox.release(value[1])
+    return 1
+
+
 def start_telegram(token="", chat_id=""):
     global _running, _thread, _token, _allowed_chat_ids, _allow_private_chats
     global _offset_path, _log_path, _bot_username, _primary_chat_id
@@ -2159,6 +2344,16 @@ def start_telegram(token="", chat_id=""):
     elif _transport != "bot-api":
         print("[telegram] disabled: unknown METTACLAW_TELEGRAM_TRANSPORT")
         return None
+    if metta_client():
+        if _transport != "durable":
+            print("[telegram] disabled: the MeTTa client needs the durable transport")
+            return None
+        _running = True
+        _health_update(force=True, running=True, started_at=time.time(),
+                       client="metta", menu_status="pending", poll_status="starting")
+        threading.Thread(target=_register_menu_commands, daemon=True).start()
+        _recover_pending_attachments()
+        return "metta"
     _load_offset()
     initialize_activity_receipts()
     recovered_activity = _recover_pending_activity()
@@ -2373,7 +2568,12 @@ def effect_command_unaffected(turn, command):
         return 0
     if not isinstance(command, (list, tuple)) or not command:
         return 1
-    with _msg_lock:
+    if metta_client():
+        unread = _metta_unread_chats()
+        if unread is None:
+            return 0
+    else:
+      with _msg_lock:
         unread = {str(item[0])
                   for item in _pending_messages[len(_prepared_messages):]}
     head = str(command[0])
@@ -2408,6 +2608,9 @@ def effect_turn_stimulus_free(turn):
         # their old behavior; real model turns always call begin_effect_turn.
         if _effect_turn != turn or _effect_activity_epoch is None:
             return 1
+        if metta_client():
+            unread = _metta_unread_chats()
+            return 1 if unread == set() else 0
         return 1 if live_epoch == _effect_activity_epoch else 0
 
 

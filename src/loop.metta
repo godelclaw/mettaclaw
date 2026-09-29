@@ -109,7 +109,7 @@
    (if (and $has-activity $is-human)
        (let $armed
             (max (loop-budget $periphery)
-                 (py-call (telegram.lastMessageArmLoops)))
+                 (if (tg:client-metta?) (tg:last-message-arm-loops) (py-call (telegram.lastMessageArmLoops))))
             (progn
               (println! (py-call (goals.kernel_pass)))
               (coordinate-set last-heartbeat (get_time)
@@ -252,7 +252,7 @@
             (if (and $has-activity
                      (and (== $providerSucceeded 1)
                           (== $historyReceipt 1)))
-                (py-call (telegram.ackActivityBatch))
+                (if (tg:client-metta?) (tg:ack-activity-batch) (py-call (telegram.ackActivityBatch)))
                 (if $has-activity 0 1)))
           ($_ (if (and (== $providerSucceeded 1)
                        (and (== $historyReceipt 1)
@@ -389,7 +389,8 @@
                 (policy-wait-seconds $policy $loops
                                      (loop-sleep $periphery) $paused)
                 60))
-          ($waitResult (py-call (telegram.sleep_until_message $wait)))
+          ($waitResult (if (tg:client-metta?) (tg:sleep-until-message $wait)
+                           (py-call (telegram.sleep_until_message $wait))))
           ($timedOut (py-call (loop_modes.wait_timed_out $waitResult)))
           ($continued
             (if $enabled

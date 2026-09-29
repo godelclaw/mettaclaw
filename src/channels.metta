@@ -20,7 +20,8 @@
           (if (== (commchannel) telegram)
               (progn (configure TG_BOT_TOKEN "")
                      (configure TG_CHAT_ID "")
-                     (py-call (telegram.start_telegram (TG_BOT_TOKEN) (TG_CHAT_ID))))
+                     (let $started (py-call (telegram.start_telegram (TG_BOT_TOKEN) (TG_CHAT_ID)))
+                       (if (tg:client-metta?) (println! (tg:start)) $started)))
               (if (== (commchannel) irc)
                   (progn (configure IRC_channel ##metta)
                          (configure IRC_server "irc.quakenet.org")
@@ -35,14 +36,14 @@
 ;Receive the latest user message considering all communication channels:
 (= (receive)
    (if (== (commchannel) telegram)
-       (py-call (telegram.getActivityBatch))
+       (if (tg:client-metta?) (tg:activity-batch) (py-call (telegram.getActivityBatch)))
        (if (== (commchannel) irc)
            (py-call (irc.getLastMessage))
            (py-call (mattermost.getLastMessage)))))
 
 (= (lastMessageIsHuman)
    (if (== (commchannel) telegram)
-       (== (py-call (telegram.lastMessageIsHuman)) 1)
+       (== (if (tg:client-metta?) (tg:last-message-is-human) (py-call (telegram.lastMessageIsHuman))) 1)
        True))
 
 ;Send a message to all communication channels:
@@ -52,26 +53,30 @@
              (if (== (commchannel) irc)
                  (let $temp (cut) (py-call (irc.send_message $outmsg)))
 	                 (if (== (commchannel) telegram)
-	                     (let $temp (cut) (py-call (telegram.send_effect_message $outmsg)))
+	                     (let $temp (cut) (if (tg:client-metta?) (tg:send-effect $outmsg "")
+	                                            (py-call (telegram.send_effect_message $outmsg))))
 	                     (let $temp (cut) (py-call (mattermost.send_message $outmsg))))))))
 
 (= (send-telegram-chat $chat_id $msg)
    (let $safemsg (string-replace $msg  "\n" "\\n")
         (let $outmsg (py-call (helper.decode_safe_text $safemsg))
-             (let $temp (cut) (py-call (telegram.send_effect_message_to_chat $chat_id $outmsg))))))
+             (let $temp (cut) (if (tg:client-metta?) (tg:send-effect $outmsg (format-args "{}" ($chat_id)))
+                                  (py-call (telegram.send_effect_message_to_chat $chat_id $outmsg)))))))
 
 ;; Clean up after a test send: delete your own last k messages to a chat,
 ;; newest first, using the ids recorded when they were sent. Only your own
 ;; messages, only within Telegram's 48h window.
 (= (delete-my-recent $chat_id $k)
-   (py-call (telegram.delete_my_recent $chat_id $k)))
+   (if (tg:client-metta?) (tg:delete-my-recent (format-args "{}" ($chat_id)) $k)
+     (py-call (telegram.delete_my_recent $chat_id $k))))
 
 ;; Exact-address cleanup for a receipt-backed bot-owned Telegram message.
 ;; Legacy ids absent from the own-send ledger require the authenticated
 ;; operator's /delete fast path; group-admin deletion authority is not exposed
 ;; through the model skill.
 (= (delete-message-exact $chat_id $message_id)
-   (py-call (telegram.delete_recorded_message $chat_id $message_id)))
+   (if (tg:client-metta?) (tg:delete-recorded (format-args "{}" ($chat_id)) $message_id)
+     (py-call (telegram.delete_recorded_message $chat_id $message_id))))
 
 ;Search the internet for some information:
 (= (search $msg)
