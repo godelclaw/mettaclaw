@@ -230,39 +230,17 @@ class FullShadow:
             encoding="utf-8",
         )
         if self.engine == "cetta":
-            petta_root = Path(os.environ.get(
-                "PETTA_ROOT", Path.home() / "repos" / "PeTTa"
-            ))
             cetta = Path(self.environment()["CETTA_BIN"])
             if not cetta.is_file():
                 raise FileNotFoundError("CeTTa executable is unavailable")
-            # Match run.sh's live CeTTa source order.  A one-file probe whose
-            # body imports relative modules is not equivalent: CeTTa and
-            # SWI-PeTTa intentionally differ in import ownership.  The live
-            # service crosses this explicit preloaded-program boundary.
+            # Match run.sh's live CeTTa launch: the bootstrap imports the
+            # whole program, as run.metta does, and the probe takes the place
+            # of cetta_run.metta.  Listing the program's modules as well
+            # would load every equation twice.  The shadow's own channel
+            # configuration follows the program's.
             sources = [
                 ROOT / "cetta_bootstrap.metta",
-                petta_root / "lib" / "lib_import.metta",
-                petta_root / "lib" / "lib_patrick.metta",
-                petta_root / "lib" / "lib_llm.metta",
-                petta_root / "lib" / "lib_vector.metta",
-                petta_root / "lib" / "lib_combinatorics.metta",
-                ROOT / "lib_nal.metta",
-                ROOT / "lib_nal7.metta",
-                ROOT / "src" / "utils.metta",
                 self.channel_config_path,
-                ROOT / "src" / "channels.metta",
-                ROOT / "src" / "weak_process_core.metta",
-                ROOT / "src" / "open_assemblage.metta",
-                ROOT / "src" / "loop_policy.metta",
-                ROOT / "src" / "iter_process_policy.metta",
-                ROOT / "src" / "metta_coding_policy.metta",
-                ROOT / "src" / "skills.metta",
-                ROOT / "src" / "command_pipeline.metta",
-                ROOT / "src" / "turn_additions.metta",
-                ROOT / "src" / "memory.metta",
-                ROOT / "src" / "attention_graph.metta",
-                ROOT / "src" / "loop.metta",
                 probe,
             ]
             command = [
