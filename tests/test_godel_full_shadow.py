@@ -14,6 +14,26 @@ sys.path.insert(0, str(ROOT / "src"))
 from godel_shadow import FullShadow, LAUNCH_COMMAND  # noqa: E402
 
 
+_saved_openai_key = None
+
+
+def setUpModule():
+    # PeTTa's lib_llm builds an OpenAI client when it is imported, and a
+    # client without a key raises, which ends the shadow's program. The
+    # shadow never calls the model, so any key will do; the process
+    # environment is restored afterwards.
+    global _saved_openai_key
+    _saved_openai_key = os.environ.get("OPENAI_API_KEY")
+    os.environ.setdefault("OPENAI_API_KEY", "test-only-unused")
+
+
+def tearDownModule():
+    if _saved_openai_key is None:
+        os.environ.pop("OPENAI_API_KEY", None)
+    else:
+        os.environ["OPENAI_API_KEY"] = _saved_openai_key
+
+
 class FullGodelShadowTests(unittest.TestCase):
     ENGINE = "petta"
 

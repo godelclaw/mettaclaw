@@ -24,6 +24,10 @@ class CommandDispatchEngineTest(unittest.TestCase):
 
     def _cetta_env(self):
         env = dict(os.environ)
+        # PeTTa's lib_llm builds an OpenAI client when it is imported, and a
+        # client without a key raises, which ends the program. No request is
+        # made here, so any key will do.
+        env.setdefault("OPENAI_API_KEY", "test-only-unused")
         python_env = pathlib.Path(os.environ.get(
             "PETTA_PY_ENV",
             pathlib.Path.home() / "miniforge3" / "envs" / "petta"))
@@ -296,7 +300,7 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "(coordinate loops 0 (coordinate sleep-interval 1 "
                 "(coordinate last-results before "
                 "(coordinate last-heartbeat 9 "
-                "(coordinate active-policy agent "
+                "(coordinate active-policy godelclaw "
                 "(coordinate autonomous-ready 0 "
                 "(coordinate pending-continuation "
                 "(continuation-value (shell %s)) "
@@ -417,7 +421,7 @@ class CommandDispatchEngineTest(unittest.TestCase):
                 "(coordinate loops 0 (coordinate sleep-interval 1 "
                 "(coordinate last-results before "
                 "(coordinate last-heartbeat 9 "
-                "(coordinate active-policy agent "
+                "(coordinate active-policy godelclaw "
                 "(coordinate autonomous-ready 0 "
                 "(coordinate pending-continuation "
                 "(continuation-value (shell %s)) "

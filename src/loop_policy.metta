@@ -22,7 +22,7 @@
 (= (loop-last-heartbeat $periphery)
    (coordinate-get-or last-heartbeat 0 $periphery))
 (= (loop-active-policy $periphery)
-   (coordinate-get-or active-policy agent $periphery))
+   (coordinate-get-or active-policy godelclaw $periphery))
 (= (loop-autonomous-ready $periphery)
    (coordinate-get-or autonomous-ready 0 $periphery))
 (= (loop-pending-continuation $periphery)
