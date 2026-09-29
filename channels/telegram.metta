@@ -1090,10 +1090,14 @@
                (let $start (if (> $end 524288) (- $end 524288) 0)
                  (let $records (tg:window-records (fs:read-lines-between $path $start $end) (tg:get batch-ids ""))
                    (let $events (tg:render-events (tg:newest-revisions $records))
-                     (let $chosen (tg:choose-events (tg:reverse $events ()) 30000 $max-events 0 0 ())
+                     ; The whole source must fit its 30000-character context budget
+                     ; with the route line first: the route is where a plain send
+                     ; goes, and a trimmed front would drop it.
+                     (let $budget (- 30000 (+ (str:char-length $route) 2))
+                     (let $chosen (tg:choose-events (tg:reverse $events ()) $budget $max-events 0 0 ())
                        (let $history (if (== $chosen ()) "(no prior conversation events)"
                                        (str:join "\n\n" (tg:list $chosen)))
-                         (format-args "{}\n\n{}" ($route $history))))))))))))))
+                         (format-args "{}\n\n{}" ($route $history)))))))))))))))
 
 (= (tg:window-records $lines $excluded)
    (if (== $lines ()) ()

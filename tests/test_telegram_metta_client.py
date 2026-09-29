@@ -366,6 +366,15 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             assert recent_file.read_text() == py.recent_activity(5, "lab", 40), (
                 recent_file.read_text(), py.recent_activity(5, "lab", 40))
             assert "…" in recent_file.read_text() and "Ahoj" in recent_file.read_text()
+            # A history that fills the budget still leaves the route line in.
+            big = "\n".join(json.dumps({"received_at": "2026-09-29T10:00:00+0200", "kind": "message", "allowed": True,
+                                         "queued": True, "note": "", "chat_id": str(CHAT), "chat_title": "Zed",
+                                         "message_id": 9000 + i, "from": "Zed", "text": "y" * 900}) for i in range(60))
+            with ledger.open("a") as f:
+                f.write(big + "\n")
+            lines, err = run('!(tg:start)\n!(tg:set context-frontier -1)\n!(fs:write "%s" (tg:conversation-window 64))\n' % window_file, env)
+            full = window_file.read_text()
+            assert full.startswith("TELEGRAM ROUTE") and len(full) <= 30000, (len(full), full[:80])
             print("conversation window and chat recall match the Python readers")
 
             print("responder: /mode answered in %.0f ms with no loop running, as the Python handler words it; "
