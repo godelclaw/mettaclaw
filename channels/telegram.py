@@ -1562,44 +1562,6 @@ def _handle_slash_command(chat, sender, text):
         # flows to the agent as ordinary conversation instead.
         return None
     try:
-        if cmd in ("/start", "/stop"):
-            import lifecycle
-            if cmd == "/start":
-                reply = lifecycle.start()
-                if lifecycle.cognition_enabled():
-                    _request_wake("operator start")
-            else:
-                reply = lifecycle.stop()
-                _request_wake("operator stop")
-            send_message_to_chat(str(chat.get("id", "")), reply)
-            return "slash_command:" + cmd
-        if cmd == "/wake":
-            # Wake silently. The agent's next real reply is the confirmation;
-            # a separate "awake" acknowledgement is just noise in the chat.
-            _request_wake("/wake")
-            return "slash_command:/wake"
-        if cmd == "/delete":
-            fields = arg.rsplit(None, 1)
-            if len(fields) != 2:
-                reply = "usage: /delete <known-chat-id-or-title> <message-id>"
-            else:
-                target = _resolve_known_chat_id(fields[0])
-                if not target:
-                    reply = "delete refused: chat is not in the local ledger"
-                elif (_allowed_chat_ids
-                      and target not in _allowed_chat_ids
-                      and target != str(chat.get("id", ""))):
-                    reply = "delete refused: chat is not allowed"
-                else:
-                    reply = delete_message(target, fields[1])
-            send_message_to_chat(str(chat.get("id", "")), reply)
-            return "slash_command:/delete"
-        if cmd == "/claude_code_authorization":
-            import claude_bridge
-            state = not claude_bridge.authorized()
-            reply = claude_bridge.set_authorized(state)
-            send_message_to_chat(str(chat.get("id", "")), reply)
-            return "slash_command:/claude_code_authorization"
         if cmd == "/energy":
             requests.post(_api("sendMessage"), json={
                 "chat_id": chat.get("id"),
@@ -1607,72 +1569,32 @@ def _handle_slash_command(chat, sender, text):
                 "reply_markup": _energy_keyboard(),
             }, timeout=15)
             return "slash_command:/energy"
-        if cmd == "/health":
-            import runtime_health
-            send_message_to_chat(str(chat.get("id", "")),
-                                 runtime_health.report())
-            return "slash_command:/health"
-        if cmd == "/activity":
-            import runtime_health
-            send_message_to_chat(str(chat.get("id", "")),
-                                 runtime_health.activity_report())
-            return "slash_command:/activity"
-        if cmd in ("/engine", "/engines"):
+        if cmd == "/engines":
             import engine_modes
-            if cmd == "/engines":
-                requests.post(_api("sendMessage"), json={
-                    "chat_id": chat.get("id"),
-                    "text": engine_modes.engines_view(),
-                    "reply_markup": _engines_keyboard(),
-                }, timeout=15)
-                return "slash_command:/engines"
-            if arg:
-                reply = engine_modes.set_engine(arg)
-            else:
-                reply = (engine_modes.engine_view()
-                         + " — /engine <name> to switch, /engines to list")
-            send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
-            if (arg and not str(reply).startswith("engine-set failed:")
-                    and engine_modes.selected_engine()
-                    != engine_modes.active_engine()):
-                engine_modes.request_recycle()
-                _request_wake("engine switch")
-            return "slash_command:/engine"
-        if cmd in ("/fuel", "/fuels"):
+            requests.post(_api("sendMessage"), json={
+                "chat_id": chat.get("id"),
+                "text": engine_modes.engines_view(),
+                "reply_markup": _engines_keyboard(),
+            }, timeout=15)
+            return "slash_command:/engines"
+        if cmd == "/fuels":
             import fuel_modes
-            if cmd == "/fuels":
-                requests.post(_api("sendMessage"), json={
-                    "chat_id": chat.get("id"),
-                    "text": fuel_modes.fuels_view(),
-                    "reply_markup": _fuels_keyboard(),
-                }, timeout=15)
-                return "slash_command:/fuels"
-            if arg:
-                reply = fuel_modes.set_fuel(arg)
-            else:
-                reply = (fuel_modes.fuel_view()
-                         + " — /fuel <name> to switch, /fuels to list")
-            send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
-            return "slash_command:/fuel"
-        if cmd in ("/mode", "/modes"):
+            requests.post(_api("sendMessage"), json={
+                "chat_id": chat.get("id"),
+                "text": fuel_modes.fuels_view(),
+                "reply_markup": _fuels_keyboard(),
+            }, timeout=15)
+            return "slash_command:/fuels"
+        if cmd == "/modes":
             import loop_modes
-            if cmd == "/modes":
-                requests.post(_api("sendMessage"), json={
-                    "chat_id": chat.get("id"),
-                    "text": loop_modes.mode_view(),
-                    "reply_markup": _modes_keyboard(),
-                }, timeout=15)
-                return "slash_command:/modes"
-            if arg:
-                reply = loop_modes.set_mode(arg)
-                _request_wake("mode switch")
-            else:
-                reply = (loop_modes.mode_view()
-                         + " — /mode <name> to switch, /modes to list")
-            send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
-            return "slash_command:/mode"
-        import synthetic_llm
+            requests.post(_api("sendMessage"), json={
+                "chat_id": chat.get("id"),
+                "text": loop_modes.mode_view(),
+                "reply_markup": _modes_keyboard(),
+            }, timeout=15)
+            return "slash_command:/modes"
         if cmd == "/models":
+            import synthetic_llm
             requests.post(_api("sendMessage"), json={
                 "chat_id": chat.get("id"),
                 "text": "tap to switch — "
@@ -1680,20 +1602,91 @@ def _handle_slash_command(chat, sender, text):
                 "reply_markup": _models_keyboard(),
             }, timeout=15)
             return "slash_command:/models"
-        elif cmd == "/quota":
-            reply = synthetic_llm.quota()
-        elif arg:
-            reply = synthetic_llm.set_model(arg)
-        else:
-            reply = (
-                f"active model: {synthetic_llm.current_model()} — "
-                "/model <name> to switch, /models to list, /quota for budget"
-            )
-        send_message_to_chat(str(chat.get("id", "")), str(reply)[:3800])
+        reply = _command_answer(cmd, arg, str(chat.get("id", "")))
+        if reply is not None:
+            send_message_to_chat(str(chat.get("id", "")), reply)
         return "slash_command:" + cmd
     except Exception as exc:
         print("[telegram] slash command error:", exc)
         return "slash_command_error:" + cmd
+
+
+def _command_answer(cmd, arg, chat_id):
+    """Carry out one operator control and return its reply text, or None when
+    it has nothing to say. No Telegram call: the Bot API path sends the text
+    itself; on the durable path the channel service sends it, and answers the
+    operator itself if this takes too long."""
+    if cmd in ("/start", "/stop"):
+        import lifecycle
+        if cmd == "/start":
+            reply = lifecycle.start()
+            if lifecycle.cognition_enabled():
+                _request_wake("operator start")
+        else:
+            reply = lifecycle.stop()
+            _request_wake("operator stop")
+        return reply
+    if cmd == "/wake":
+        # Wake silently. The agent's next real reply is the confirmation;
+        # a separate "awake" acknowledgement is just noise in the chat.
+        _request_wake("/wake")
+        return None
+    if cmd == "/delete":
+        fields = arg.rsplit(None, 1)
+        if len(fields) != 2:
+            return "usage: /delete <known-chat-id-or-title> <message-id>"
+        target = _resolve_known_chat_id(fields[0])
+        if not target:
+            return "delete refused: chat is not in the local ledger"
+        if (_allowed_chat_ids
+                and target not in _allowed_chat_ids
+                and target != chat_id):
+            return "delete refused: chat is not allowed"
+        return delete_message(target, fields[1])
+    if cmd == "/claude_code_authorization":
+        import claude_bridge
+        return claude_bridge.set_authorized(not claude_bridge.authorized())
+    if cmd == "/health":
+        import runtime_health
+        return runtime_health.report()
+    if cmd == "/activity":
+        import runtime_health
+        return runtime_health.activity_report()
+    if cmd == "/engine":
+        import engine_modes
+        if not arg:
+            return (engine_modes.engine_view()
+                    + " — /engine <name> to switch, /engines to list")[:3800]
+        reply = engine_modes.set_engine(arg)
+        if (not str(reply).startswith("engine-set failed:")
+                and engine_modes.selected_engine()
+                != engine_modes.active_engine()):
+            engine_modes.request_recycle()
+            _request_wake("engine switch")
+        return str(reply)[:3800]
+    if cmd == "/fuel":
+        import fuel_modes
+        if arg:
+            return str(fuel_modes.set_fuel(arg))[:3800]
+        return (fuel_modes.fuel_view()
+                + " — /fuel <name> to switch, /fuels to list")[:3800]
+    if cmd == "/mode":
+        import loop_modes
+        if arg:
+            reply = loop_modes.set_mode(arg)
+            _request_wake("mode switch")
+            return str(reply)[:3800]
+        return (loop_modes.mode_view()
+                + " — /mode <name> to switch, /modes to list")[:3800]
+    import synthetic_llm
+    if cmd == "/quota":
+        return str(synthetic_llm.quota())[:3800]
+    if cmd == "/model":
+        if arg:
+            return str(synthetic_llm.set_model(arg))[:3800]
+        return (f"active model: {synthetic_llm.current_model()} — "
+                "/model <name> to switch, /models to list, /quota for budget")[:3800]
+    return "unknown command " + cmd
 
 
 def _dispatch_slash_command(chat, sender, text):
@@ -1894,9 +1887,62 @@ def _durable_observe(observation):
         print("[telegram] unknown durable observation:", value[0])
 
 
+_durable_commands_lock = threading.Lock()
+_durable_command_running = set()
+_durable_command_answers = {}   # task -> text, computed at most once
+
+
+def _durable_command_of(observation):
+    try:
+        value = json.loads(observation)
+    except ValueError:
+        return None
+    if (isinstance(value, list) and len(value) == 5 and value[0] == "command"
+            and all(isinstance(v, str) for v in value)):
+        return value
+    return None
+
+
+def _durable_command(task, value):
+    """Answer one operator command the channel service asked about, on its
+    own thread: never the cognition thread, never the delivery loop. The
+    service waits for this only until its deadline; a later answer edits the
+    service's notice. A command runs at most once in this process, however
+    often its answer has to be resent."""
+    import durable_telegram
+    _, key, name, args, lane = value
+    with _durable_commands_lock:
+        text = _durable_command_answers.get(task)
+    if text is None:
+        try:
+            text = _command_answer(name, args, lane.split(".", 1)[0])
+        except Exception as exc:
+            print("[telegram] operator command failed:", name, type(exc).__name__)
+            text = "%s failed: %s" % (name, type(exc).__name__)
+        if text is None:
+            text = "Waking." if name == "/wake" else "Done."
+        with _durable_commands_lock:
+            _durable_command_answers[task] = text
+            while len(_durable_command_answers) > 256:
+                _durable_command_answers.pop(next(iter(_durable_command_answers)))
+    try:
+        for delay in (0, 0.5, 1, 2, 4):
+            time.sleep(delay)
+            try:
+                _durable.answer(task, text)
+                return
+            except (OSError, durable_telegram.ChannelError) as exc:
+                failure = type(exc).__name__
+        print("[telegram] operator command answer not recorded yet:", name, failure)
+    finally:
+        with _durable_commands_lock:
+            _durable_command_running.discard(task)
+
+
 def _durable_loop():
     """Handle deliveries and receipts in order; acknowledge each afterwards,
-    exactly where the Bot API poller advances its offset.
+    exactly where the Bot API poller advances its offset. An operator command
+    is answered by its own thread instead.
 
     If the service stops after a task was handled here but before the
     acknowledgment committed, it offers the same task again: that task is
@@ -1907,6 +1953,16 @@ def _durable_loop():
             tasks = _durable.pending(64)
             _health_update(poll_status="ok", last_poll_ok_at=time.time())
             for task, observation in tasks:
+                command = _durable_command_of(observation)
+                if command is not None:
+                    with _durable_commands_lock:
+                        start = task not in _durable_command_running
+                        _durable_command_running.add(task)
+                    if start:
+                        threading.Thread(target=_durable_command, args=(task, command),
+                                         name="telegram-command-" + command[2].lstrip("/").replace("_", "-"),
+                                         daemon=True).start()
+                    continue
                 if task not in handled:
                     _durable_observe(observation)
                     handled.append(task)

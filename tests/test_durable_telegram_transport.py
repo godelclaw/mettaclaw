@@ -34,6 +34,7 @@ class FakeService:
         self.tasks = []          # [(id, observation)] pending, oldest first
         self.events = []         # ("ack", id) / ("submit", key, body)
         self.submissions = {}
+        self.results = {}        # id -> body of its result
         self.answer = None       # key, commands -> list of receipt observations
         self.unavailable = 0     # refuse this many submissions first
         self.lock = threading.Lock()
@@ -84,6 +85,7 @@ class FakeService:
             if code == RESULT:
                 self.tasks = [(t, o) for t, o in self.tasks if t != name]
                 self.events.append(("ack", name))
+                self.results[name] = body
                 return self.reply(conn, STORED, name)
             if code == SUBMIT:
                 if self.unavailable:
@@ -193,6 +195,58 @@ class DurableTransportTest(unittest.TestCase):
             self.wait(lambda: not self.service.tasks)
         self.assertEqual(seen, [9])
         self.assertEqual(len(refused), 1)
+
+    def test_a_command_is_answered_by_its_own_thread(self):
+        with mock.patch.object(self.tg, "_command_answer", return_value="engine: cetta") as answer:
+            task = self.service.add(["command", "11", "/engine", "cetta", "42.0"])
+            self.wait(lambda: task in self.service.results)
+        answer.assert_called_once_with("/engine", "cetta", "42")
+        self.assertEqual(self.service.results[task], '["answer","engine: cetta"]')
+
+    def test_a_slow_command_never_holds_up_deliveries(self):
+        release = threading.Event()
+        seen = []
+
+        def slow(cmd, arg, chat):
+            release.wait(5)
+            return "late"
+
+        with mock.patch.object(self.tg, "_command_answer", side_effect=slow), \
+             mock.patch.object(self.tg, "_process_update", side_effect=lambda u: seen.append(u["update_id"])):
+            task = self.service.add(["command", "12", "/quota", "", "42.0"])
+            self.service.add(["input", "42.0", "message", "operator", {"update_id": 30, "message": {}}])
+            self.wait(lambda: seen == [30])
+            self.assertNotIn(task, self.service.results)
+            release.set()
+            self.wait(lambda: task in self.service.results)
+        self.assertEqual(self.service.results[task], '["answer","late"]')
+
+    def test_a_failed_or_silent_command_still_answers(self):
+        with mock.patch.object(self.tg, "_command_answer", side_effect=RuntimeError("boom")):
+            failed = self.service.add(["command", "13", "/health", "", "42.0"])
+            self.wait(lambda: failed in self.service.results)
+        self.assertEqual(self.service.results[failed], '["answer","/health failed: RuntimeError"]')
+        with mock.patch.object(self.tg, "_command_answer", return_value=None):
+            woken = self.service.add(["command", "14", "/wake", "", "42.0"])
+            self.wait(lambda: woken in self.service.results)
+        self.assertEqual(self.service.results[woken], '["answer","Waking."]')
+
+    def test_an_answer_is_resent_without_running_the_command_again(self):
+        calls = []
+        original = self.tg._durable.answer
+
+        def lost_once(task, text):
+            if not calls:
+                calls.append(task)
+                raise OSError("service restarting")
+            original(task, text)
+
+        with mock.patch.object(self.tg, "_command_answer", return_value="mode: loop") as answer, \
+             mock.patch.object(self.tg._durable, "answer", side_effect=lost_once):
+            task = self.service.add(["command", "15", "/mode", "loop", "42.0"])
+            self.wait(lambda: task in self.service.results)
+        answer.assert_called_once()
+        self.assertEqual(self.service.results[task], '["answer","mode: loop"]')
 
     def test_send_waits_for_its_receipt_and_logs_the_message_id(self):
         self.service.answer = delivered

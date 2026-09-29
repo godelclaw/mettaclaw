@@ -3,7 +3,10 @@
 
 This process plays the agent. Its unmodified Telegram module reads the
 service's deliveries into ordinary activity and sends, deletes and reports
-through it. No real Telegram, model provider or live state is involved.
+through it. Operator commands declared in channels/telegram_commands.metta
+are answered by the service, with this client answering the delegated ones
+from its own threads. No real Telegram, model provider or live state is
+involved.
 
 Environment: CETTA_CHANNEL_ROOT (a CeTTa checkout with telegram-channel/1)
 and CETTA_SERVICE_BIN (its core Telegram service binary).
@@ -53,7 +56,7 @@ class BotAPI(Peer):
             if name == "deleteMessage":
                 self.deleted.append((data["chat_id"], data["message_id"]))
                 return 200, [], b'{"ok":true,"result":true}'
-            assert name == "sendMessage", name
+            assert name in ("sendMessage", "editMessageText"), name
             self.sent.append((data["chat_id"], data["text"]))
             self.message += 1
             message = self.message
@@ -90,7 +93,9 @@ with tempfile.TemporaryDirectory(prefix="lila-durable-telegram-") as temp:
         args = [SERVICE, "--run", "--root", str(CETTA), "--state-dir", str(state), "--worker", "lila",
                 "--chat", "42", "--chat", "84", "--operator", "7", "--program", "channel",
                 "--credential-file", str(token), "--mock-origin", origin,
-                "--listener-fd", str(listener.fileno())]
+                "--listener-fd", str(listener.fileno()),
+                "--commands", str(ROOT / "channels" / "telegram_commands.metta"),
+                "--command-deadline-ms", "1500"]
         processes = []
 
         def start():
@@ -152,9 +157,29 @@ with tempfile.TemporaryDirectory(prefix="lila-durable-telegram-") as temp:
             assert tg.send_message("other chat", "84").endswith("to chat 84")
             api.add(72, 84, 5, "second message")
             wait(lambda: tg.pendingActivityCount() == 2, "delivery after restart")
+            # Operator commands, while chat 42 is still held: the service's own
+            # /help, and delegated ones answered by this client's threads.
+            # (Stop and start are left out: they would touch real lifecycle state.)
+            answer = tg._command_answer
+            tg._command_answer = lambda cmd, arg, chat: (
+                "engine: cetta" if cmd == "/engine" else answer(cmd, arg, chat))
+            api.add(73, 42, 7, "/help")
+            wait(lambda: any(t.startswith("/help — List these commands") for c, t in api.sent), "help")
+            help_text = next(t for c, t in api.sent if t.startswith("/help"))
+            assert "/wake — End the current rest" in help_text and "/energy" not in help_text, help_text
+            api.add(74, 42, 7, "/wake")
+            wait(lambda: (42, "Waking.") in api.sent, "wake answered by the client")
+            api.add(75, 42, 7, "/engine")
+            wait(lambda: (42, "engine: cetta") in api.sent, "engine answered by the client")
+            assert not any(t.startswith("No answer from Lila") for c, t in api.sent), api.sent
+            # From someone who is not an operator it is ordinary conversation.
+            api.add(76, 42, 5, "/help")
+            wait(lambda: tg.pendingActivityCount() == 3, "non-operator command as activity")
+            assert sum(t.startswith("/help") for c, t in api.sent) == 1
+            tg._command_answer = answer
             print("durable Telegram transport: service deliveries as activity, keyed replies and "
                   "unprompted sends, own-send log and delete, honest unknown while down, restart "
-                  "without repetition, held uncertainty passed")
+                  "without repetition, held uncertainty, operator commands passed")
         finally:
             tg._running = False
             loop.join(timeout=5)

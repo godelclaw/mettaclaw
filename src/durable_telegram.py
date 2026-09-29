@@ -6,6 +6,10 @@ sent, so neither survives only in this process. This client reads delivery
 and receipt tasks, acknowledges each one after handling it, and submits keyed
 action batches.
 
+An operator command the service asks about is a task answered with its
+reply text rather than acknowledged; the service answers the operator itself
+if the answer is late.
+
 Protocol: CWP1 over a private Unix seqpacket socket. A packet is b"CWP1",
 a code byte, an ID length byte, the ID and a UTF-8 body.
 """
@@ -104,6 +108,14 @@ class Channel:
         code, _, _ = self.rpc(RESULT, task, "[]")
         if code != STORED:
             raise ChannelError("acknowledgment failed: %d" % code)
+
+    def answer(self, task, text):
+        """Answer a command task. Resending the same answer is safe; a task
+        already answered or no longer pending needs nothing more."""
+        body = json.dumps(["answer", str(text)[:3800]], ensure_ascii=False, separators=(",", ":"))
+        code, _, _ = self.rpc(RESULT, task, body)
+        if code not in (STORED, UNKNOWN, CONFLICT):
+            raise ChannelError("answer failed: %d" % code)
 
     def key(self, chat_id, thread=0):
         """A fresh LANE.SEQUENCE key, strictly increasing across restarts."""
