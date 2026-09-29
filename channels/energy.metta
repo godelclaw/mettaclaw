@@ -102,8 +102,12 @@
 (= (energy:save $data)
    (let $path (energy:path)
      (let $tmp (format-args "{}.tmp" ($path))
-       (let $written (fs:write $tmp (json-stringify $data))
-         (let $renamed (py-call (os.replace $tmp $path)) True)))))
+       (case (fs:write $tmp (json-stringify $data))
+         (((Error $call $why) False)
+          ($written
+           (case (catch (py-call (os.replace $tmp $path)))
+             (((Error $call $why) False)
+              ($renamed True)))))))))
 
 ;; ----------------------------------------------------------- reading it
 
@@ -129,13 +133,20 @@
 
 (= (energy:at-least-one $n) (if (< $n 1) 1 $n))
 
+; The number TEXT reads as, or DEFAULT when it reads as no number: arithmetic
+; on anything else raises, and a misspelt setting must not stop the loop.
+(= (energy:number $text $default)
+   (case (catch (+ 0 (parse $text)))
+     (((Error $call $why) $default)
+      ($n $n))))
+
 (= (energy:loops $data $tier)
-   (case (energy:at (energy:at $data "tier_loops") $tier)
-     (((JsonNumber $n) (energy:at-least-one (parse $n)))
-      ($other
-       (let $name (case $tier (("mid" "METTACLAW_LOOPS_MID") ("light" "METTACLAW_LOOPS_LIGHT") ($f "METTACLAW_LOOPS_FULL")))
-         (let $default (case $tier (("mid" "30") ("light" "10") ($f "50")))
-           (energy:at-least-one (parse (energy:env $name $default)))))))))
+   (let $default (case $tier (("mid" 30) ("light" 10) ($f 50)))
+     (case (energy:at (energy:at $data "tier_loops") $tier)
+       (((JsonNumber $n) (energy:at-least-one (energy:number $n $default)))
+        ($other
+         (let $name (case $tier (("mid" "METTACLAW_LOOPS_MID") ("light" "METTACLAW_LOOPS_LIGHT") ($f "METTACLAW_LOOPS_FULL")))
+           (energy:at-least-one (energy:number (energy:env $name "") $default))))))))
 
 (= (energy:tier-for $id) (energy:tier-of (energy:data) $id))
 (= (energy:tier-loops $tier) (energy:loops (energy:data) $tier))

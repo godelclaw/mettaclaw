@@ -590,8 +590,40 @@
    (if (== $tasks ()) ()
      (let ($head $tail) (tg:uncons $tasks)
        (let ($task $body) $head
-         (let $done (if (tg:seen? $task) () (tg:handle $task (json-parse $body)))
+         (let $done (if (tg:seen? $task) () (tg:handle-guarded $task $body))
            (tg:handle-tasks $tail))))))
+
+; A task whose handling raises is tried again on the next polls, and never
+; holds up the tasks behind it. The third failure writes the task and the
+; failure to her ledger and acknowledges it, so the service's queue moves on
+; and nothing is lost unrecorded.
+(= (tg:failures $task)
+   (case (collapse (match &self (tg:failed $task $n) $n))
+     ((() 0)
+      (($n) $n)
+      ($other 0))))
+
+(= (tg:handle-guarded $task $body)
+   (case (catch (tg:handle $task (json-parse $body)))
+     (((Error $call $why)
+       (let $unseen (tg:unsee $task)
+         (let $n (+ 1 (tg:failures $task))
+           (let $cleared (collapse (match &self (tg:failed $task $old) (remove-atom &self (tg:failed $task $old))))
+             (if (< $n 3)
+               (add-atom &self (tg:failed $task $n))
+               (let $logged (tg:log-client-error $task $body $why)
+                 (tg:acknowledge $task)))))))
+      ($ok $ok))))
+
+(= (tg:log-client-error $task $body $why)
+   (let $stamp (tg:now-iso)
+     (let $reason (format-args "{}" ($why))
+       (tg:ledger-append
+         (JsonObject ((JsonPair "received_at" (JsonString $stamp))
+                      (JsonPair "kind" (JsonString "client_error"))
+                      (JsonPair "task" (JsonString $task))
+                      (JsonPair "note" (JsonString (tg:compact $reason 300)))
+                      (JsonPair "observation" (JsonString (tg:compact $body 4000)))))))))
 
 (= (tg:handle $task $value)
    (case $value

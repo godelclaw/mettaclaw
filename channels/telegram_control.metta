@@ -61,6 +61,15 @@
 
 (= (tc:with-hint $view $hint) (format-args "{} — {}" ($view $hint)))
 
+; A command or tap whose code raises is answered with what failed. A raise
+; must never end this process: the service would only ask the same task
+; again, and every command after it would wait for the notice.
+(= (tc:guarded $reply $what)
+   (case $reply
+     (((Error $call $why)
+       (tc:cut (format-args "{} failed: {}" ($what $why)) 300))
+      ($ok $ok))))
+
 ;; ------------------------------------------------------------- menus
 
 (= (tc:items $items)
@@ -189,10 +198,10 @@
                 (case (json-parse $body)
                   (((JsonArray ((JsonString "command") (JsonString $key) (JsonString $name) (JsonString $args) (JsonString $lane)))
                     (if (== $name "/delete") 0
-                      (let $reply (tc:answer $name $args)
+                      (let $reply (tc:guarded (catch (tc:answer $name $args)) $name)
                         (if (tc:answer-task $task $reply) 1 0))))
                    ((JsonArray ((JsonString "callback") (JsonString $key) (JsonString $data) (JsonString $lane) $message))
-                    (let $reply (tc:tap $data)
+                    (let $reply (tc:guarded (catch (tc:tap $data)) $data)
                       (if (tc:answer-task $task $reply) 1 0)))
                    ($other 0)))
              (+ $done (tc:handle $tail))))))))
@@ -201,6 +210,6 @@
 
 ; Forever: answer what is waiting, then look again shortly.
 (= (tc:serve)
-   (let $answered (tc:serve-once)
+   (let $answered (catch (tc:serve-once))
      (let $slept (py-call (time.sleep 0.1))
        (tc:serve))))
