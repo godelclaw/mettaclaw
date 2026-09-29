@@ -72,6 +72,9 @@ class BotAPI(Peer):
             self.calls.append((name, data))
             if name in ("deleteMessage", "answerCallbackQuery"):
                 return 200, [], b'{"ok":true,"result":true}'
+            if name == "getMe":
+                return 200, [], json.dumps({"ok": True, "result": {"id": int(TOKEN.split(":")[0]), "is_bot": True,
+                                                                    "username": "LilaTestBot"}}).encode()
             self.message += 1
             message = self.message
         return 200, [], json.dumps({"ok": True, "result": {"message_id": message,
@@ -331,6 +334,13 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             assert "● " + other in labels, labels
             wake_file.unlink()
             print("taps: energy and mode changed by the responder, answered, and redrawn in place")
+
+            # 8c. A command addressed to her bot by name, as a group's command
+            #     menu sends it, is a command: the service learned the name.
+            api.add(89, CHAT, OPERATOR, "/activity@LilaTestBot")
+            await_(lambda: [d for n, d in api.calls if n == "sendMessage" and
+                            d.get("reply_parameters", {}).get("message_id") == 89], "addressed command answered")
+            print("a command addressed to her bot by name is answered")
 
             # 9. Runtime events from Python threads (a finished job) become
             #    activity; Python and Prolog callers read the client's state.
