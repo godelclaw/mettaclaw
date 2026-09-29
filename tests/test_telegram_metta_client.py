@@ -338,6 +338,36 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
                     time.sleep(.1)
                 assert wanted in [t for c, t in api.texts()], api.texts()[-3:]
                 rss = int(next(l.split()[1] for l in open("/proc/%d/status" % responder[0].pid) if l.startswith("VmRSS")))
+            # 11. Her conversation history, rendered in MeTTa exactly as the
+            #     Python reader renders it, for a turn that has prepared input
+            #     and for one that has not; and the per-chat recall skill,
+            #     for Czech text too.
+            api.add(95, GROUP, FRIEND, "Ahoj, jak se máš? " + "č" * 300)
+            api.add(96, CHAT, OPERATOR, "a newer message")
+            time.sleep(1.0)
+            window_file = temp / "window.txt"
+            recent_file = temp / "recent.txt"
+            lines, err = run('!(tg:start)\n!(tg:activity-batch)\n'
+                             '!(fs:write "%s" (tg:conversation-window 64))\n'
+                             '!(fs:write "%s" (tg:recent-activity 5 "lab" 40))\n'
+                             '!(py-call (telegram.metta_value "pending_count" 0))\n'
+                             % (window_file, recent_file), env)
+            py._log_path = str(ledger)
+            py._primary_chat_id = str(CHAT)
+            # Both learn chat titles from the messages they read.
+            py._chat_titles = {str(CHAT): "Zed", str(GROUP): "Lab"}
+            mine = window_file.read_text()
+            # The batch was the last thing logged, so the frontier is the
+            # ledger's end; the prepared messages are excluded.
+            py._context_frontier_bytes = None
+            py._current_batch_update_ids = {"95", "96"}
+            expected = py.conversation_window(max_events=64)
+            assert mine == expected, ("window", mine[-600:], expected[-600:])
+            assert recent_file.read_text() == py.recent_activity(5, "lab", 40), (
+                recent_file.read_text(), py.recent_activity(5, "lab", 40))
+            assert "…" in recent_file.read_text() and "Ahoj" in recent_file.read_text()
+            print("conversation window and chat recall match the Python readers")
+
             print("responder: /mode answered in %.0f ms with no loop running, as the Python handler words it; "
                   "/wake ends a rest; /delete stays with the loop client (responder RSS %d kB)" % (latency * 1000, rss))
         finally:

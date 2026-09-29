@@ -2,7 +2,10 @@
 ;; This file does not decide success or failure and owns no process root.
 
 (= (addition-context-sources)
-   (py-call (context_sources.bundle)))
+   (if (tg:client-metta?)
+       (let $conversation (tg:conversation-window (tg:conversation-events))
+         (py-call (context_sources.bundle $conversation)))
+       (py-call (context_sources.bundle))))
 
 (= (addition-effect-turn-begin $turn)
    (py-call (effect_frontier.begin $turn)))

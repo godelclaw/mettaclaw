@@ -94,4 +94,5 @@
 ;; On-demand short-term recall for any chat the bot is in: last $k messages
 ;; (both sides) from the local update log, matched by chat title or id.
 (= (recent-messages $chat $k)
-   (py-call (telegram.recent_activity $k $chat 400)))
+   (if (tg:client-metta?) (tg:recent-activity $k $chat 400)
+     (py-call (telegram.recent_activity $k $chat 400))))

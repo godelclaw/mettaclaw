@@ -32,7 +32,7 @@
         ($other ())))))
 
 (= (tc:answer-task $task $text)
-   (let $cut (if (> (str:length $text) 3800) (str:slice $text 0 3800) $text)
+   (let $cut (if (> (str:char-length $text) 3800) (str:char-slice $text 0 3800) $text)
      (let $body (json-stringify (JsonArray ((JsonString "answer") (JsonString $cut))))
        (case (tc:call 2 $task $body)
          (((cwp:reply 66 $n $b) True)

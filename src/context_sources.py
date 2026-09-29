@@ -124,7 +124,7 @@ class Projector:
 _PROJECTOR = Projector()
 
 
-def _loaders():
+def _loaders(conversation=None):
     import active_queries
     import commitment_projection
     import development_state
@@ -157,8 +157,10 @@ def _loaders():
          lambda: helper.relevant_files(history, limit=turns)),
         (specs["project-evidence"], project_evidence.view),
         (specs["project-capabilities"], project_capabilities.view),
+        # The MeTTa Telegram client renders the conversation itself.
         (specs["conversation"],
-         lambda: telegram.conversation_window(max_events=events)),
+         (lambda: conversation) if conversation is not None
+         else (lambda: telegram.conversation_window(max_events=events))),
     )
 
 
@@ -178,12 +180,12 @@ def layout(observations):
         Projector.render_observations(group) for group in groups)
 
 
-def bundle():
+def bundle(conversation=None):
     """One ordered context bundle; never raises across the MeTTa boundary."""
     try:
         import active_queries
         import context_certificate
-        observations = _PROJECTOR.project(_loaders())
+        observations = _PROJECTOR.project(_loaders(conversation))
         projection = layout(observations)
         certificate = context_certificate.issue(
             observations, active_queries.from_observations(observations),

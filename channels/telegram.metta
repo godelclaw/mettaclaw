@@ -173,7 +173,7 @@
       ($other False))))
 
 (= (tg:answer-task $task $text)
-   (let $cut (if (> (str:length $text) 3800) (str:slice $text 0 3800) $text)
+   (let $cut (if (> (str:char-length $text) 3800) (str:char-slice $text 0 3800) $text)
      (let $body (json-stringify (JsonArray ((JsonString "answer") (JsonString $cut))))
        (case (tg:call 2 $task $body)
          (((cwp:reply 66 $n $b) True)
@@ -191,10 +191,12 @@
 
 ;; ------------------------------------------------------------ formatting
 
+; Lengths and cuts count Unicode scalars (str:char-*), as Python does; the
+; byte-based str:length and str:slice could split a UTF-8 sequence.
 (= (tg:compact $text $limit)
    (let $flat (str:join " " (str:split-whitespace $text))
-     (if (> (str:length $flat) $limit)
-       (let $head (str:slice $flat 0 (- $limit 1)) (str:concat $head "…"))
+     (if (> (str:char-length $flat) $limit)
+       (let $head (str:char-slice $flat 0 (- $limit 1)) (str:concat $head "…"))
        $flat)))
 
 ; key="value" for a present value, () when empty.
@@ -499,18 +501,22 @@
                       (let $frontier (tg:ledger-size)
                         (let $ids (str:join "," (tg:list (tg:update-ids $pending)))
                           (let $epoch (tg:get activity-epoch 0)
+                            (let $f1 (tg:set context-frontier $frontier)
+                            (let $f2 (tg:set batch-ids $ids)
                             (let $p1 (py-call (telegram.metta_publish "context_frontier" $frontier))
                               (let $p2 (py-call (telegram.metta_publish "batch_update_ids" $ids))
                                 (let $p3 (py-call (telegram.metta_publish "context_epoch" $epoch))
-                                  $pending)))))))))))
+                                  $pending)))))))))))))
          (if (== $items ())
            (let $a (tg:set last-human 0)
              (let $b (tg:set last-tier "full")
                (let $frontier (tg:ledger-size)
+                (let $f1 (tg:set context-frontier $frontier)
+                (let $f2 (tg:set batch-ids "")
                  (let $p1 (py-call (telegram.metta_publish "context_frontier" $frontier))
                    (let $p2 (py-call (telegram.metta_publish "batch_update_ids" ""))
                      (let $epoch (tg:get activity-epoch 0)
-                       (let $p3 (py-call (telegram.metta_publish "context_epoch" $epoch)) "")))))))
+                       (let $p3 (py-call (telegram.metta_publish "context_epoch" $epoch)) "")))))))))
            (let $routed (tg:route-batch $items () () ())
              (let $applied (tg:apply-route $routed)
                (let $published (tg:publish-counts)
@@ -539,8 +545,9 @@
          (let $receipt (tg:log-activity-ack (tg:list (tg:update-ids $prepared)))
          (let $gone (tg:forget-items $prepared)
            (let $reset (tg:set prepared-upto 0)
+             (let $b (tg:set batch-ids "")
              (let $p (py-call (telegram.metta_publish "batch_update_ids" ""))
-               (let $c (tg:publish-counts) 1)))))
+               (let $c (tg:publish-counts) 1))))))
          0))))
 
 ; The Python client's acknowledgement record, so either client, and a
@@ -807,19 +814,27 @@
            (let $padded (py-call (helper.pad20 $sequence))
              (format-args "{}.0.{}" ($chat $padded))))))))
 
-; Telegram-sized pieces, preferring line boundaries.
+; Telegram-sized pieces of at most 4096 scalars, preferring line boundaries;
+; the newlines at a cut are dropped, as the Python client did.
 (= (tg:chunks $text)
-   (if (<= (str:length $text) 4096) (if (== $text "") () ($text))
-     (let $window (str:slice $text 0 4097)
-       (let $cut (tg:last-newline $window 4096)
-         (let $at (if (<= $cut 0) 4096 $cut)
-           (let $piece (str:slice $text 0 $at)
-             (let $rest (str:slice $text $at (str:length $text))
-               (let $rest2 (if (str:starts-with $rest "\n") (str:slice $rest 1 (str:length $rest)) $rest)
-                 (let $more (tg:chunks $rest2) (cons-atom $piece $more))))))))))
-(= (tg:last-newline $text $from)
-   (if (< $from 0) -1
-     (if (== (str:slice $text $from (+ $from 1)) "\n") $from (tg:last-newline $text (- $from 1)))))
+   (let $n (str:char-length $text)
+     (if (<= $n 4096) (if (== $text "") () ($text))
+       (let $window (str:char-slice $text 0 4097)
+         (let $cut (tg:last-newline $window)
+           (let $at (if (<= $cut 0) 4096 $cut)
+             (let $piece (str:char-slice $text 0 $at)
+               (let $rest (tg:drop-newlines (str:char-slice $text $at $n))
+                 (let $more (tg:chunks $rest) (cons-atom $piece $more))))))))))
+; Index of the last newline in a text, or -1.
+(= (tg:last-newline $text)
+   (let $parts (str:split "\n" $text)
+     (if (<= (size-atom $parts) 1) -1
+       (- (- (str:char-length $text) (str:char-length (tg:last-item $parts))) 1))))
+(= (tg:last-item $items)
+   (let ($head $tail) (tg:uncons $items)
+     (if (== $tail ()) $head (tg:last-item $tail))))
+(= (tg:drop-newlines $text)
+   (if (str:starts-with $text "\n") (tg:drop-newlines (str:char-slice $text 1 (str:char-length $text))) $text))
 
 (= (tg:submit $key $body $deadline)
    (case (tg:call 4 $key $body)
@@ -1044,6 +1059,164 @@
    (case (str:find $text $needle)
      (((TextNotFound $n) False)
       ($at True))))
+
+;; --------------------------------------------------- conversation history
+;; Her recent conversation as her context shows it: the ledger up to the
+;; frontier fixed when this turn's input was prepared, without that input
+;; (it is shown as new activity), one entry per message (its newest
+;; revision), commands and control replies left out, newest last, within a
+;; character budget.
+
+(= (tg:conversation-events) (parse (tg:env "METTACLAW_CONVERSATION_EVENTS" "64")))
+
+(= (tg:route-view)
+   (let $primary (tg:primary)
+     (if (not (== $primary ""))
+       (let $known (tg:chat-title $primary)
+         (let $title (if (== $known $primary) "primary operator" $known)
+           (format-args "TELEGRAM ROUTE: plain (send ...) is bound to {} chat_id={}. For every other audience use (send-telegram-chat chat_id \"message\"). Reading another chat cannot change this route." ($title $primary))))
+       (let $current (tg:get reply-chat "")
+         (let $shown (if (== $current "") "" (str:concat " chat_id=" $current))
+           (format-args "TELEGRAM ROUTE: no primary chat is configured; plain (send ...) uses the current reply chat{}. Prefer an explicit addressed send when multiple chats are visible." ($shown)))))))
+
+(= (tg:conversation-window $max-events)
+   (let $route (tg:route-view)
+     (let $path (tg:ledger)
+       (if (or (== $path "") (not (py-call (os.path.exists $path))))
+         (format-args "{}\n\n(no prior conversation events)" ($route))
+         (let $size (py-call (os.path.getsize $path))
+           (let $frontier (tg:get context-frontier -1)
+             (let $end (if (or (< $frontier 0) (> $frontier $size)) $size $frontier)
+               (let $start (if (> $end 524288) (- $end 524288) 0)
+                 (let $records (tg:window-records (fs:read-lines-between $path $start $end) (tg:get batch-ids ""))
+                   (let $events (tg:render-events (tg:newest-revisions $records))
+                     (let $chosen (tg:choose-events (tg:reverse $events ()) 30000 $max-events 0 0 ())
+                       (let $history (if (== $chosen ()) "(no prior conversation events)"
+                                       (str:join "\n\n" (tg:list $chosen)))
+                         (format-args "{}\n\n{}" ($route $history))))))))))))))
+
+(= (tg:window-records $lines $excluded)
+   (if (== $lines ()) ()
+     (let ($line $rest) (tg:uncons $lines)
+       (let $more (tg:window-records $rest $excluded)
+         (case (json-parse $line)
+           (((JsonObject $pairs)
+             (let $record (JsonObject $pairs)
+               (let $id (tg:str (tg:at $record "update_id"))
+                 (if (and (not (== $id "")) (tg:csv-member? $id $excluded)) $more (cons-atom $record $more)))))
+            ($bad $more)))))))
+
+; Keep the newest revision of each message, where it stands.
+(= (tg:newest-revisions $records)
+   (let $scan (tg:next-number revision-scan)
+     (let $kept (tg:keep-newest (tg:reverse $records ()) $scan ())
+       (let $clean (tg:forget-revisions $scan) $kept))))
+(= (tg:keep-newest $newest-first $scan $kept)
+   (if (== $newest-first ()) $kept
+     (let ($record $rest) (tg:uncons $newest-first)
+       (let $key (tg:revision-key $record)
+         (if (== $key "") (tg:keep-newest $rest $scan (cons-atom $record $kept))
+           (if (== (collapse (match &self (tg:revision-seen $scan $key) True)) (True))
+             (tg:keep-newest $rest $scan $kept)
+             (let $seen (add-atom &self (tg:revision-seen $scan $key))
+               (tg:keep-newest $rest $scan (cons-atom $record $kept)))))))))
+(= (tg:revision-key $record)
+   (if (not (tg:member (tg:str (tg:at $record "kind")) ("message" "edited_message" "channel_post" "edited_channel_post"))) ""
+     (let $chat (tg:str (tg:at $record "chat_id"))
+       (let $message (tg:str (tg:at $record "message_id"))
+         (if (or (== $chat "") (== $message "")) "" (format-args "{}|{}" ($chat $message)))))))
+(= (tg:forget-revisions $scan)
+   (tg:drop-revisions $scan (collapse (match &self (tg:revision-seen $scan $key) $key))))
+(= (tg:drop-revisions $scan $keys)
+   (if (== $keys ()) ()
+     (let ($key $rest) (tg:uncons $keys)
+       (let $gone (remove-atom &self (tg:revision-seen $scan $key)) (tg:drop-revisions $scan $rest)))))
+
+(= (tg:control-reply? $text)
+   (tg:any-prefix (str:lower $text)
+     ("activity:" "runtime-health:" "active engine:" "active model:" "active mode:" "arming energy"
+      "model set to " "mode set to " "engine set to " "tap to switch:" "deleted message "
+      "delete refused:" "delete failed:" "cannot delete message ")))
+(= (tg:any-prefix $text $prefixes)
+   (if (== $prefixes ()) False
+     (let ($head $tail) (tg:uncons $prefixes)
+       (if (str:starts-with $text $head) True (tg:any-prefix $text $tail)))))
+
+(= (tg:render-events $records)
+   (if (== $records ()) ()
+     (let ($record $rest) (tg:uncons $records)
+       (let $more (tg:render-events $rest)
+         (case (tg:render-event $record)
+           ((() $more)
+            (($event) (cons-atom $event $more))))))))
+
+(= (tg:render-event $record)
+   (let $raw (let $t (tg:str (tg:at $record "text")) (if (== $t "") (tg:str (tg:at $record "caption")) $t))
+     (let $kind (tg:str (tg:at $record "kind"))
+       (let $note (tg:str (tg:at $record "note"))
+         (if (or (not (tg:truthy (tg:at $record "allowed"))) (== $raw "")) ()
+           (if (or (str:starts-with $note "slash_command:")
+                   (or (str:starts-with $note "slash_command_other_bot:")
+                       (or (== $kind "callback_query") (== $kind "outbound_delete")))) ()
+             (let $text (str:trim $raw)
+               (if (and (== $kind "outbound") (tg:control-reply? $text)) ()
+                 (let $cut (if (> (str:char-length $text) 6000) (str:concat (str:char-slice $text 0 5999) "…") $text)
+                   (let $stamp (tg:str (tg:at $record "received_at"))
+                     (let $from (tg:str (tg:at $record "from"))
+                       (let $who (if (== $kind "outbound") "GODEL" (if (== $from "") "unknown" $from))
+                         (let $direction (if (== $kind "outbound") "OUT" "IN")
+                           (let $title (tg:str (tg:at $record "chat_title"))
+                             (let $id (tg:str (tg:at $record "chat_id"))
+                               (let $chat (if (not (== $title "")) $title (if (not (== $id "")) $id "?"))
+                                 (let $message (tg:str (tg:at $record "message_id"))
+                                   (let $head (if (== $message "")
+                                                (format-args "[{} {} {} chat={}" ($stamp $direction $who $chat))
+                                                (format-args "[{} {} {} chat={} message_id={}" ($stamp $direction $who $chat $message)))
+                                     ((format-args "{}]\n{}" ($head $cut)))))))))))))))))))))
+
+; From the newest back, as many as fit; the newest alone is cut to fit.
+(= (tg:choose-events $newest-first $limit $max $used $count $chosen)
+   (if (== $newest-first ()) $chosen
+     (let ($event $rest) (tg:uncons $newest-first)
+       (let $cost (+ (str:char-length $event) (if (== $count 0) 0 2))
+         (if (and (> $count 0) (or (>= $count $max) (> (+ $used $cost) $limit))) $chosen
+           (if (and (== $count 0) (> $cost $limit))
+             (let $length (str:char-length $event)
+               (let $tail (str:char-slice $event (- $length $limit) $length)
+                 (tg:choose-events $rest $limit $max $limit 1 (cons-atom $tail $chosen))))
+             (tg:choose-events $rest $limit $max (+ $used $cost) (+ $count 1) (cons-atom $event $chosen))))))))
+
+; The last n allowed messages mentioning a chat (by title or id), both
+; sides, as "[hh:mm chat sender: text…]".
+(= (tg:recent-activity $n $chat $snippet)
+   (let $path (tg:ledger)
+     (if (or (== $path "") (not (py-call (os.path.exists $path)))) ""
+       (let $needle (str:lower (format-args "{}" ($chat)))
+         (let $entries (tg:recent-entries (fs:read-lines $path) $needle $snippet)
+           (str:join " " (tg:list (tg:newest-in-order $entries $n))))))))
+(= (tg:recent-entries $lines $needle $snippet)
+   (if (== $lines ()) ()
+     (let ($line $rest) (tg:uncons $lines)
+       (let $more (tg:recent-entries $rest $needle $snippet)
+         (if (not (tg:contains? (str:lower $line) $needle)) $more
+           (case (json-parse $line)
+             (((JsonObject $pairs)
+               (let $record (JsonObject $pairs)
+                 (let $text (tg:str (tg:at $record "text"))
+                   (let $title (tg:str (tg:at $record "chat_title"))
+                     (if (or (not (tg:truthy (tg:at $record "allowed"))) (== $text "")) $more
+                       (if (not (or (tg:contains? (str:lower $title) $needle) (== $needle (tg:str (tg:at $record "chat_id"))))) $more
+                         (let $stamp (tg:str (tg:at $record "received_at"))
+                           (let $clock (if (>= (str:char-length $stamp) 16) (str:char-slice $stamp 11 16) "")
+                             (let $flat (str:join " " (str:split-whitespace $text))
+                               (let $short (if (> (str:char-length $flat) $snippet)
+                                             (str:concat (str:char-slice $flat 0 $snippet) "…") $flat)
+                                 (let $from (tg:str (tg:at $record "from"))
+                                   (cons-atom (format-args "[{} {} {}: {}]" ($clock $title $from $short)) $more))))))))))))
+              ($bad $more))))))))
+(= (tg:newest-in-order $items $n)
+   (let $count (size-atom (tg:list $items))
+     (if (<= $count $n) $items (tg:newest-in-order (cdr-atom $items) $n))))
 
 ;; -------------------------------------------------------------- startup
 
