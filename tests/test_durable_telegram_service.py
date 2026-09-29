@@ -21,6 +21,12 @@ import sys
 import tempfile
 import threading
 import time
+import unittest
+
+# An end-to-end script, run directly. Imported by test discovery it would run
+# at import time and leave its environment in the process for every test.
+if __name__ != "__main__":
+    raise unittest.SkipTest("an end-to-end script: run it with python3 directly")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CETTA = pathlib.Path(os.environ["CETTA_CHANNEL_ROOT"]).resolve()
@@ -166,7 +172,8 @@ with tempfile.TemporaryDirectory(prefix="lila-durable-telegram-") as temp:
             api.add(73, 42, 7, "/help")
             wait(lambda: any(t.startswith("/help — List these commands") for c, t in api.sent), "help")
             help_text = next(t for c, t in api.sent if t.startswith("/help"))
-            assert "/wake — End the current rest" in help_text and "/energy" not in help_text, help_text
+            # The menu commands are declared too, so the help lists them.
+            assert "/wake — End the current rest" in help_text and "/energy — " in help_text, help_text
             api.add(74, 42, 7, "/wake")
             wait(lambda: (42, "Waking.") in api.sent, "wake answered by the client")
             api.add(75, 42, 7, "/engine")
