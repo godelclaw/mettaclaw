@@ -536,11 +536,26 @@
    (let $prepared (tg:sorted-items (tg:prepared-items))
      (if (== $prepared ()) 1
        (if (tg:ack-all $prepared)
+         (let $receipt (tg:log-activity-ack (tg:list (tg:update-ids $prepared)))
          (let $gone (tg:forget-items $prepared)
            (let $reset (tg:set prepared-upto 0)
              (let $p (py-call (telegram.metta_publish "batch_update_ids" ""))
-               (let $c (tg:publish-counts) 1))))
+               (let $c (tg:publish-counts) 1)))))
          0))))
+
+; The Python client's acknowledgement record, so either client, and a
+; switch between them, reads the ledger the same way.
+(= (tg:log-activity-ack $ids)
+   (if (== $ids ()) True
+     (let $stamp (tg:now-iso)
+       (tg:ledger-append
+         (JsonObject ((JsonPair "received_at" (JsonString $stamp))
+                      (JsonPair "kind" (JsonString "activity_ack"))
+                      (JsonPair "update_ids" (JsonArray (tg:list (tg:json-strings $ids))))))))))
+(= (tg:json-strings $items)
+   (if (== $items ()) ()
+     (let ($head $tail) (tg:uncons $items)
+       (let $rest (tg:json-strings $tail) (cons-atom (JsonString $head) $rest)))))
 
 (= (tg:ack-all $items)
    (if (== $items ()) True

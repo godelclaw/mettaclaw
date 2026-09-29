@@ -91,6 +91,9 @@ def main():
     # service_socket is its private client socket. Absent: the Bot API poller.
     emit("METTACLAW_TELEGRAM_TRANSPORT", telegram.get("transport"))
     emit("METTACLAW_TELEGRAM_SERVICE_SOCKET", expand(telegram.get("service_socket"), root))
+    # "metta": channels/telegram.metta is the client of that service; absent
+    # or "python": channels/telegram.py is.
+    emit("METTACLAW_TELEGRAM_CLIENT", telegram.get("client"))
     # Telegram identities and authorization sets intentionally do not pass
     # through generated .env. Keep them in mode-600 config/secrets.env, which
     # run.sh sources after .env and which is excluded from Git.

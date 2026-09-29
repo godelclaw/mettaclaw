@@ -189,6 +189,8 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             # 3. Acknowledged, they are gone from the service.
             lines, err = run('!(tg:start)\n!(tg:activity-batch)\n!(tg:ack-activity-batch)\n!(tg:pending-count)\n', env)
             assert lines[-2:] == ["1", "0"], lines[-4:]
+            acks = [json.loads(l) for l in ledger.read_text().splitlines() if '"activity_ack"' in l]
+            assert acks and acks[-1]["update_ids"] == ["71", "72"], acks
             empty, lines, err = batch()
             assert empty == "", empty
             print("unacknowledged input survives a restart; acknowledged input is gone")
