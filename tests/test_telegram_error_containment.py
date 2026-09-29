@@ -149,6 +149,17 @@ class Containment(unittest.TestCase):
         self.assertIn('"energy-set failed: could not persist"', lines)
         self.assertIn("50", lines)
         self.assertIn("still-running", lines)
+        # The temporary file is written, and the rename onto a directory raises.
+        occupied = self.dir / "occupied"
+        occupied.mkdir()
+        env = dict(self.env, METTACLAW_ENERGY_PATH=str(occupied))
+        p = self.run_program('!(import! &self ./channels/energy.metta)\n'
+                             '!(energy:set "default" "mid")\n'
+                             '!(println! still-running)\n', env)
+        self.assertEqual(p.returncode, 0, p.stderr[-800:])
+        lines = [line for line in p.stdout.splitlines() if line]
+        self.assertIn('"energy-set failed: could not persist"', lines)
+        self.assertIn("still-running", lines)
 
     def test_client_retries_then_records_a_raising_task(self):
         fake = self.fakes / "telegram.py"
