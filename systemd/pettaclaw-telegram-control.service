@@ -1,0 +1,21 @@
+# Lila's Telegram command responder: answers the operator commands the CeTTa
+# Telegram channel service asks about (/engine, /mode, /fuel, /model, /quota,
+# /health, /activity, /wake, /start, /stop, ...) in a process of its own,
+# so an answer never waits for her loop's turn. Install beside her agent unit
+# with the same checkout path.
+[Unit]
+Description=PeTTaClaw Telegram command responder (MeTTa)
+After=cetta-telegram-channel.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pettaclaw-lila
+Environment=HOME=%h
+ExecStart=%h/pettaclaw-lila/run.sh telegram-control
+Restart=always
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

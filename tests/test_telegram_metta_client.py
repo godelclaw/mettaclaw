@@ -127,6 +127,11 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
                METTACLAW_ENERGY_PATH=str(temp / "energy.json"),
                METTACLAW_TELEGRAM_OFFSET_PATH=str(temp / "offset"),
                METTACLAW_LIFECYCLE_PATH=str(temp / "lifecycle.json"),
+               METTACLAW_WAKE_REQUEST_PATH=str(temp / "wake.requested"),
+               METTACLAW_LOOP_MODE_PATH=str(temp / "loop-mode"),
+               METTACLAW_FUEL_MODE_PATH=str(temp / "fuel-mode"),
+               METTACLAW_ENGINE_STATE_PATH=str(temp / "engine"),
+               METTACLAW_MODEL_STATE_PATH=str(temp / "model-state.json"),
                XDG_STATE_HOME=str(temp / "state-home"),
                METTACLAW_TELEGRAM_BOT_TOKEN=TOKEN,
                PYTHONPATH=os.pathsep.join([str(ROOT / "src"), str(ROOT / "channels")]))
@@ -143,6 +148,9 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
                                     "--listener-fd", str(listener.fileno())],
                                    pass_fds=(listener.fileno(),), stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True)
+        # The command responder runs beside the loop throughout, as in
+        # production (run.sh telegram-control).
+        responder = start('!(import! &self ./channels/telegram_control.metta)\n!(tc:serve)\n', env)
         try:
             out = temp / "out.txt"
 
@@ -244,7 +252,7 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             print("rest: ordinary input waits, the operator wakes")
 
             # 8. Operator commands: /wake is declared, so the service asks and
-            #    this client answers; it also ends a rest. /energy is a button
+            #    the responder answers, ending the rest. /energy is a button
             #    menu, still Python's, which sends its keyboard directly.
             rest = start('!(tg:start)\n!(tg:sleep-until-message 30)\n', env)
             time.sleep(1.5); began = time.monotonic(); api.add(82, CHAT, OPERATOR, "/wake")
@@ -262,7 +270,7 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             with api.lock:
                 keyboards = [d for n, d in api.calls if n == "sendMessage" and "reply_markup" in d]
             assert keyboards and keyboards[-1]["text"].startswith("arming energy"), api.calls[-3:]
-            print("commands: the service asks, the MeTTa client answers; menus stay Python's")
+            print("commands: the service asks, the responder answers and wakes her; menus stay Python's")
 
             # 9. Runtime events from Python threads (a finished job) become
             #    activity; Python and Prolog callers read the client's state.
@@ -289,6 +297,52 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
                              '!(py-call (telegram.pendingActivityCount))\n' % out, env)
             assert lines[-2:] == ["1", "0"], lines
             print("runtime events, published counts and the unread-input guard work from the MeTTa client")
+
+            # 10. The command responder, a process of its own with no model
+            #     call, answers settings commands while no loop client runs at
+            #     all, exactly as the Python handler words them.
+            import loop_modes
+            if True:
+                wake_file = temp / "wake.requested"
+                expected_view = py._command_answer("/mode", "", str(CHAT))
+                sent_at = api.command_time = time.monotonic()
+                api.add(90, CHAT, OPERATOR, "/mode")
+                deadline = time.monotonic() + 10
+                while expected_view not in [t for c, t in api.texts()] and time.monotonic() < deadline:
+                    time.sleep(.05)
+                assert expected_view in [t for c, t in api.texts()], (expected_view, api.texts()[-3:])
+                latency = time.monotonic() - sent_at
+                other = next(m for m in loop_modes.MODES if m != loop_modes.current_mode())
+                api.add(91, CHAT, OPERATOR, "/mode " + other)
+                deadline = time.monotonic() + 10
+                while not wake_file.exists() and time.monotonic() < deadline:
+                    time.sleep(.05)
+                assert wake_file.read_text() == "mode switch" and loop_modes.current_mode() == other
+                # A rest begins after that wake request: the request is stale.
+                # /wake during the rest ends it.
+                rest = start('!(tg:start)\n!(tg:sleep-until-message 30)\n', env)
+                time.sleep(2.0); assert rest[0].poll() is None and not wake_file.exists()
+                began = time.monotonic(); api.add(92, CHAT, OPERATOR, "/wake")
+                lines, err = finish(rest)
+                assert lines[-1] == '"woken by /wake"' and time.monotonic() - began < 5, (lines, err[-500:])
+                # /delete stays with the loop client: answered once it runs.
+                own = [json.loads(l) for l in ledger.read_text().splitlines() if '"own_send"' in l]
+                deleted = {json.loads(l)["message_id"] for l in ledger.read_text().splitlines() if '"outbound_delete"' in l}
+                target = next(r for r in reversed(own) if r["message_id"] not in deleted and r["chat_id"] == str(CHAT))
+                api.add(93, CHAT, OPERATOR, "/delete %d %d" % (CHAT, target["message_id"]))
+                time.sleep(1.0)
+                lines, err = run('!(tg:start)\n!(tg:poll)\n', env)
+                deadline = time.monotonic() + 10
+                wanted = "deleted message %d from chat %d" % (target["message_id"], CHAT)
+                while wanted not in [t for c, t in api.texts()] and time.monotonic() < deadline:
+                    time.sleep(.1)
+                assert wanted in [t for c, t in api.texts()], api.texts()[-3:]
+                rss = int(next(l.split()[1] for l in open("/proc/%d/status" % responder[0].pid) if l.startswith("VmRSS")))
+            print("responder: /mode answered in %.0f ms with no loop running, as the Python handler words it; "
+                  "/wake ends a rest; /delete stays with the loop client (responder RSS %d kB)" % (latency * 1000, rss))
         finally:
+            if responder[0].poll() is None:
+                responder[0].kill()
+            responder[0].communicate(timeout=10); os.unlink(responder[1])
             service.send_signal(signal.SIGTERM); service.communicate(timeout=15); listener.close()
     print("telegram.metta: Lila's Telegram client in MeTTa passed end to end")

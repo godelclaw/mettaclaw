@@ -18,6 +18,7 @@ export METTACLAW_INSTANCE="$INSTANCE"
 REQUESTED_TARGET="${1:-run.metta}"
 case "$REQUESTED_TARGET" in
     run.metta|"$ROOT/run.metta") NONLIVE_TARGET=0 ;;
+    telegram-control) NONLIVE_TARGET=0 ;;
     *) NONLIVE_TARGET=1 ;;
 esac
 STATE_PATH_NAMES=(
@@ -30,7 +31,7 @@ STATE_PATH_NAMES=(
     METTACLAW_LOOP_MODE_PATH METTACLAW_FUEL_MODE_PATH
     METTACLAW_ENERGY_PATH METTACLAW_MODEL_STATE_PATH
     METTACLAW_ANTHROPIC_USAGE_PATH METTACLAW_EFFECT_RECEIPT_PATH
-    METTACLAW_STIMULUS_FRONTIER_PATH
+    METTACLAW_STIMULUS_FRONTIER_PATH METTACLAW_WAKE_REQUEST_PATH
     METTACLAW_MEMORY_LOG_DIR METTACLAW_CHROMA_DIR
     METTACLAW_TELEGRAM_ATTACHMENTS_DIR METTACLAW_SELFMOD_LOG
     METTACLAW_SELFMOD_PROPOSAL_STORE
@@ -147,6 +148,8 @@ export METTACLAW_COGNITIVE_HEALTH_PATH="${METTACLAW_COGNITIVE_HEALTH_PATH:-$STAT
 export METTACLAW_LIFECYCLE_PATH="${METTACLAW_LIFECYCLE_PATH:-$STATE_HOME/$INSTANCE/lifecycle.json}"
 export METTACLAW_DEPLOYMENT_STATE_PATH="${METTACLAW_DEPLOYMENT_STATE_PATH:-$STATE_HOME/$INSTANCE/deployment.json}"
 export METTACLAW_STIMULUS_FRONTIER_PATH="${METTACLAW_STIMULUS_FRONTIER_PATH:-$STATE_HOME/$INSTANCE/stimulus-frontier}"
+# The Telegram command responder asks the loop to end a rest through this file.
+export METTACLAW_WAKE_REQUEST_PATH="${METTACLAW_WAKE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/wake.requested}"
 if [ "$NONLIVE_TARGET" = 0 ]; then
     export METTACLAW_EFFECT_RECEIPT_PATH="${METTACLAW_EFFECT_RECEIPT_PATH:-$STATE_HOME/$INSTANCE/effect-receipts.jsonl}"
 fi
@@ -186,6 +189,16 @@ mkdir -p "$METTACLAW_CHROMA_DIR" "$METTACLAW_MEMORY_LOG_DIR" "$ROOT/chat" "$ROOT
 # ./repos clone dir resolve relative to CWD, so always launch from the repo
 # root regardless of where this script was invoked from.
 cd "$ROOT"
+
+# Lila's Telegram command responder (channels/telegram_control.metta): a
+# process of its own beside her loop, in the same configured environment.
+# It is MeTTa only, so it always runs on CeTTa, and it touches none of the
+# loop's lifecycle: no recycle acknowledgement, no engine fallback.
+if [ "$REQUESTED_TARGET" = telegram-control ]; then
+    CETTA_BIN="${CETTA_BIN:-$CETTA_ROOT/cetta}"
+    exec "$CETTA_BIN" --lang petta --import-mode ancestor-walk \
+        "$ROOT/channels/telegram_control_main.metta" default
+fi
 
 # Default target is the agent loop (run.metta). Pass an alternate repo-relative
 # or absolute .metta to run it in this same configured environment, e.g.

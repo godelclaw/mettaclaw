@@ -979,7 +979,7 @@ def ackActivityBatch():
 def pendingActivityCount():
     """Number of ordinary inputs not yet history-acknowledged."""
     if metta_client():
-        return int(_metta.get("pending_count", 0))
+        return int(metta_value("pending_count", 0) or 0)
     with _msg_lock:
         return len(_pending_messages)
 
@@ -987,7 +987,7 @@ def pendingActivityCount():
 def preparedActivityCount():
     """Number of those inputs frozen into the current stable observation."""
     if metta_client():
-        return int(_metta.get("prepared_count", 0))
+        return int(metta_value("prepared_count", 0) or 0)
     with _msg_lock:
         return len(_prepared_messages)
 
@@ -2142,11 +2142,32 @@ def metta_take_runtime_events():
     return json.dumps(items, ensure_ascii=False)
 
 
+_METTA_SHARED = ("pending_count", "prepared_count", "sleep_until", "last_poll",
+                 "active_engine")
+
+
+def metta_value(name, default=None):
+    """What the MeTTa client published: here if it runs in this process, else
+    from the health file it keeps, as the command responder reads it."""
+    if name in _metta:
+        return _metta[name]
+    try:
+        with open(_health_path(), encoding="utf-8") as stream:
+            return (json.load(stream).get("metta") or {}).get(name, default)
+    except (OSError, ValueError):
+        return default
+
+
 def metta_publish(name, value):
     global _context_frontier_bytes, _current_batch_update_ids, _sleep_until
     global _reply_chat_id, _activity_epoch, _context_activity_epoch
     name = str(name)
     _metta[name] = value
+    if name in _METTA_SHARED:
+        with _health_lock:
+            shared = dict(_health_state.get("metta") or {})
+            shared[name] = value
+        _health_update(force=name in ("sleep_until", "active_engine"), metta=shared)
     if name == "context_frontier":
         _context_frontier_bytes = int(value)
     elif name == "batch_update_ids":
@@ -2179,7 +2200,7 @@ def metta_publish(name, value):
 
 
 def poll_age_seconds(now=None):
-    last = float(_metta.get("last_poll", 0) or _health_state.get("last_poll_ok_at", 0) or 0)
+    last = float(metta_value("last_poll", 0) or _health_state.get("last_poll_ok_at", 0) or 0)
     if not last:
         return None
     return max(0.0, float(now if now is not None else time.time()) - last)
@@ -2674,7 +2695,8 @@ def sleep_until_message(seconds):
 
 def rest_status():
     """(is_resting, seconds_left) as seen from outside the sleeping loop."""
-    left = _sleep_until - time.time()
+    until = float(metta_value("sleep_until", 0) or 0) if metta_client() else _sleep_until
+    left = until - time.time()
     return (left > 0, math.ceil(left) if left > 0 else 0)
 
 

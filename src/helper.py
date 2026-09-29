@@ -624,3 +624,18 @@ def rest_notice_text(left):
     span = ("%dm%02ds" % (mins, secs)) if mins else ("%ds" % secs)
     return ("\U0001F4A4 resting — wakes in %s (at %s). Your message is queued "
             "and will be read then; send /wake to end the rest now." % (span, wake_at))
+
+
+def adopt_active_engine():
+    """The command responder runs beside Lila's loop: the engine that loop
+    runs is the one it published, not this process's own start value."""
+    import telegram
+    active = telegram.metta_value("active_engine", "")
+    if active:
+        os.environ["METTACLAW_ACTIVE_ENGINE"] = str(active)
+    return 1
+
+
+def claude_code_toggle():
+    import claude_bridge
+    return claude_bridge.set_authorized(not claude_bridge.authorized())

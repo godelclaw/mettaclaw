@@ -628,8 +628,12 @@
          (let $r (if (tg:own-key? $key) (add-atom &self (tg:receipt $key $position (released)))
                    (py-call (telegram.metta_foreign_receipt (json-stringify $value))))
            (tg:acknowledge $task))))
+      ; Commands are the responder's (channels/telegram_control.metta), except
+      ; /delete, which acts through this client's sends and receipts.
+      ((JsonArray ((JsonString "command") (JsonString $key) (JsonString "/delete") (JsonString $args) (JsonString $lane)))
+       (let $seen (tg:see $task) (tg:command $task "/delete" $args $lane)))
       ((JsonArray ((JsonString "command") (JsonString $key) (JsonString $name) (JsonString $args) (JsonString $lane)))
-       (let $seen (tg:see $task) (tg:command $task $name $args $lane)))
+       ())
       ((JsonArray ((JsonString "input-too-large") (JsonString $lane) (JsonString $kind) (JsonString $role)))
        (tg:acknowledge $task))
       ($other (tg:acknowledge $task)))))
@@ -751,20 +755,38 @@
    (let $n (if (< $seconds 0) 0 $seconds)
      (let $deadline (+ (tg:now) $n)
        (let $a (tg:set wake-reason "")
+        (let $stale (tg:drop-wake-request)
          (let $b (tg:set rest-notice 0)
            (let $c (tg:set sleep-until $deadline)
              (let $p (py-call (telegram.metta_publish "sleep_until" $deadline))
                (let $result (tg:rest-loop $deadline $n)
                  (let $d (tg:set sleep-until 0)
                    (let $q (py-call (telegram.metta_publish "sleep_until" 0))
-                     (let $e (tg:set wake-reason "") $result)))))))))))
+                     (let $e (tg:set wake-reason "") $result))))))))))))
+
+; A wake requested while she was not resting belongs to that time, as with
+; the Python client: a new rest starts from a clean request.
+(= (tg:drop-wake-request)
+   (let $file (tg:wake-file)
+     (if (or (== $file "") (not (py-call (os.path.exists $file)))) ()
+       (py-call (os.remove $file)))))
+
+; A wake request from the command responder, which runs in its own process.
+(= (tg:wake-file) (tg:env "METTACLAW_WAKE_REQUEST_PATH" ""))
+(= (tg:take-wake-request)
+   (let $file (tg:wake-file)
+     (if (or (== $file "") (not (py-call (os.path.exists $file)))) ()
+       (let $reason (str:trim (fs:read-text $file))
+         (let $gone (py-call (os.remove $file))
+           (tg:wake-request (if (== $reason "") "wake request" $reason)))))))
 
 (= (tg:rest-loop $deadline $seconds)
    (let $polled (tg:poll)
+    (let $requested (tg:take-wake-request)
      (let $reason (tg:get wake-reason "")
        (if (not (== $reason "")) (format-args "woken by {}" ($reason))
          (if (>= (tg:now) $deadline) (format-args "rested {}s" ($seconds))
-           (let $slept (tg:sleep 0.25) (tg:rest-loop $deadline $seconds)))))))
+           (let $slept (tg:sleep 0.25) (tg:rest-loop $deadline $seconds))))))))
 
 ;; ----------------------------------------------------------------- send
 
@@ -996,14 +1018,36 @@
        (let $fields (str:split-whitespace $args)
          (if (not (== (size-atom $fields) 2)) "usage: /delete <known-chat-id-or-title> <message-id>"
            (let ($who $mid) $fields
-             (let $target (py-call (telegram.metta_resolve_chat $who))
+             (let $target (tg:resolve-chat $who)
                (if (== $target "") "delete refused: chat is not in the local ledger"
                  (tg:delete $target (parse $mid))))))))
       ($other (py-call (telegram.metta_command_answer $name $args $chat))))))
+
+;; One chat named by its exact id or exact title in the ledger, or "".
+(= (tg:resolve-chat $who)
+   (let $wanted (str:trim $who)
+     (let $path (tg:ledger)
+       (if (or (== $wanted "") (or (== $path "") (not (py-call (os.path.exists $path))))) ""
+         (let $by-id (format-args "\"chat_id\":{}" ((tg:quote $wanted)))
+           (let $by-title (format-args "\"chat_title\":{}" ((tg:quote $wanted)))
+             (let $ids (tg:chats-named (fs:read-lines $path) $by-id $by-title ())
+               (if (== (size-atom $ids) 1) (car-atom $ids) ""))))))))
+(= (tg:chats-named $lines $by-id $by-title $found)
+   (if (== $lines ()) $found
+     (let ($line $rest) (tg:uncons $lines)
+       (let $hit (or (tg:contains? $line $by-id) (tg:contains? $line $by-title))
+         (if (not $hit) (tg:chats-named $rest $by-id $by-title $found)
+           (let $chat (tg:str (tg:at (json-parse $line) "chat_id"))
+             (tg:chats-named $rest $by-id $by-title
+               (if (or (== $chat "") (tg:member $chat $found)) $found (cons-atom $chat $found)))))))))
+(= (tg:contains? $text $needle)
+   (case (str:find $text $needle)
+     (((TextNotFound $n) False)
+      ($at True))))
 
 ;; -------------------------------------------------------------- startup
 
 (= (tg:start)
    (if (== (tg:socket) "") "telegram disabled: the durable service socket is not configured"
-     (let $a (py-call (telegram.metta_publish "client" "metta"))
+     (let $a (py-call (telegram.metta_publish "active_engine" (tg:env "METTACLAW_ACTIVE_ENGINE" "")))
        (let $b (tg:poll) "telegram client started"))))
