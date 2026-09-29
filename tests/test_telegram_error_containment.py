@@ -6,7 +6,8 @@ error in arithmetic) raises, and an uncaught raise ends the program. These
 processes must outlive any one bad command, tap or task:
 
 - the command responder answers a command or tap whose Python raises with
-  the failure, keeps answering, and stays alive; restarting it would only be
+  the failure, the exception's type and message, keeps answering, and stays
+  alive; restarting it would only be
   asked the same task again;
 - the energy file never raises: an unwritable file is a failed set, and a
   setting that reads as no number is the default;
@@ -130,8 +131,10 @@ class Containment(unittest.TestCase):
         answer = self.answered(quota)
         self.assertEqual(answer[0], "answer")
         self.assertTrue(answer[1].startswith("/quota failed:"), answer)
+        self.assertIn("RuntimeError: provider exploded", answer[1])
         answer = self.answered(tap)
         self.assertTrue(answer[1].startswith("model:x failed:"), answer)
+        self.assertIn("RuntimeError: provider exploded", answer[1])
         self.assertEqual(self.answered(mode)[0], "answer")
         later = self.service.add(["command", "4", "/fuel", "", "42.0"])
         self.assertEqual(self.answered(later)[0], "answer")

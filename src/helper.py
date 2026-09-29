@@ -263,6 +263,30 @@ def vitals():
     return "\n".join(lines) or "vitals unavailable"
 
 
+_CREDENTIAL_PATTERNS = (
+    (re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{30,}"), "<redacted>"),
+    (re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 <redacted>"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), "<redacted>"),
+    (re.compile(r"(?i)\b((?:api[_-]?)?key|token|secret|password|passwd)"
+                r"(['\"]?\s*[:=]\s*['\"]?)[^\s'\"&,;)]{6,}"), r"\1\2<redacted>"),
+)
+
+
+def exception_text(value):
+    """A raised Python error as an operator reads it: its type and message,
+    with credentials screened out."""
+    try:
+        if isinstance(value, BaseException):
+            text = "%s: %s" % (type(value).__name__, value)
+        else:
+            text = str(value)
+        for pattern, replacement in _CREDENTIAL_PATTERNS:
+            text = pattern.sub(replacement, text)
+        return text
+    except Exception:
+        return "an error that could not be shown"
+
+
 def normalize_string(value):
     """Return Janus/tool output as valid UTF-8 text without raising."""
     try:

@@ -67,8 +67,16 @@
 (= (tc:guarded $reply $what)
    (case $reply
      (((Error $call $why)
-       (tc:cut (format-args "{} failed: {}" ($what $why)) 300))
+       (tc:cut (format-args "{} failed: {}" ($what (tc:reason $call $why))) 300))
       ($ok $ok))))
+
+;; A raised Python error names its exception, which reads as its type and
+;; message; any other error reads as its reason.
+(= (tc:reason $call $why)
+   (case $call
+     (((python_error $type $exception)
+       (py-call (helper.exception_text $exception)))
+      ($other $why))))
 
 ;; ------------------------------------------------------------- menus
 
