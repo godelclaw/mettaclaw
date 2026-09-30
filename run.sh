@@ -255,6 +255,21 @@ fallback_to_petta() {
     exec "$PETTA_ROOT/run.sh" "$TARGET" default
 }
 
+if [ "$TARGET" = "$ROOT/run.metta" ] && [ -f "$ROOT/modes/launch.py" ]; then
+    LOOP_MODE="$("$PETTA_PY_ENV/bin/python3" -c 'import loop_modes; print(loop_modes.current_mode())')"
+    export METTACLAW_ACTIVE_LOOP_MODE="$LOOP_MODE"
+    case "$LOOP_MODE" in
+        iter|omega)
+            exec "$PETTA_PY_ENV/bin/python3" "$ROOT/modes/launch.py" \
+                --repo "$ROOT" --mode "$LOOP_MODE" --engine "$METTACLAW_ENGINE"
+            ;;
+        *)
+            "$PETTA_PY_ENV/bin/python3" -c \
+                'import os,loop_modes; loop_modes.record_active(os.environ["METTACLAW_ACTIVE_LOOP_MODE"],os.getppid())'
+            ;;
+    esac
+fi
+
 # Memory-index startup diagnostic and best-effort hard-drift recovery.
 # Chroma flushes its HNSW index only every sync_threshold writes; an index far
 # behind the write-ahead log segfaults the process when the backlog is replayed

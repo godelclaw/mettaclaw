@@ -709,7 +709,8 @@ def menu_state(kind):
     current, selected or unavailable. Read locally, never from a provider."""
     if kind == "modes":
         import loop_modes
-        state = {"text": loop_modes.mode_view(), "current": loop_modes.current_mode(),
+        state = {"text": loop_modes.mode_view(), "current": loop_modes.active_mode(),
+                 "selected": loop_modes.current_mode(),
                  "names": list(loop_modes.MODES)}
     elif kind == "fuels":
         import fuel_modes

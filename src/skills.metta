@@ -57,7 +57,7 @@
     ;CODE EXECUTION:
     "- Execute MeTTa expression: (metta \"expression string\")"
     ;CLAUDE CODE AND TMUX:
-    "- Ask Claude Code one headless question (needs Zar's authorization toggle): (claude-code \"prompt\")"
+    "- Ask Claude Code one headless question (needs the operator's authorization toggle): (claude-code \"prompt\")"
     "- List tmux windows: (tmux-windows)"
     "- Read the last n lines of any window on this user's tmux server: (tmux-peek \"session:window\" 30)"
     "- Type into any window on this user's tmux server: (tmux-send \"session:window\" \"message\")"

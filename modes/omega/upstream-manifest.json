@@ -1,0 +1,1854 @@
+{
+  "repository": "https://github.com/singnet/Omega",
+  "commit": "ee0618a293ec3662a32b10b09c6cbb073f59d6b2",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/Issue_template_from_community.yaml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feature_request.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/plugin_addition_request.yaml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/renovate-config.js",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/autotests.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/build.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/cleanup.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/common.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/manual.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/renovate.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".github/workflows/sonar.yml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": ".gitignore",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/README_live.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/cleanup_legacy.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/conftest.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/helpers.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/import_knowledge/README.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/import_knowledge/conftest.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/import_knowledge/test_import_knowledge.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/import_knowledge/test_import_knowledge_integration.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/README.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/comm.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/conftest.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/llm.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/ocgw_stub.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/rpc.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_comm.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_complex_weather_flow_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_convert_format_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_create_empty_file_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_create_file_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_create_script_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_credentials_scrubbed_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_edit_add_timestamp_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_edit_append_line_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_edit_delete_line_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_git_local_commit_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_git_pull_public_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_git_push_to_remote_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_io_policy_skill_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_last_skill_results_visible_next_turn_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_llm.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_memory_chromadb_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_memory_episode_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_memory_history_byte_window_truncation_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_memory_history_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_memory_missing_history_file_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_memory_pin_window_visibility_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_openclaw_delegate_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_pin_invisible_within_iteration_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_prompt_missing_files_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_rpc.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_run_create_dirs_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_run_error_script_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_run_repeated_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_search_basic_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_search_invalid_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_search_weather_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_skill_episodes_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_skill_metta_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_skill_pin_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_skill_query_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_transition_episodes_after_eviction_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_transition_metta_to_remember_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_transition_pin_to_remember_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock/test_workflow_plugin_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_memory/README.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/README.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/conftest.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/real_driver.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/slack_helpers.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_complex_weather_flow_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_convert_format_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_create_empty_file_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_create_file_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_create_script_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_edit_add_timestamp_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_edit_append_line_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_edit_delete_line_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_git_local_commit_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_git_pull_public_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_git_push_to_remote_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_memory_chromadb_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_memory_episode_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_memory_history_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_run_create_dirs_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_run_error_script_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_run_repeated_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_search_basic_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_search_invalid_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_search_weather_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_skill_episodes_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_skill_metta_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_skill_pin_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_skill_query_slack_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_slack/test_slack_unwrap.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/README.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/conftest.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/real_driver.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_complex_weather_flow_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_convert_format_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_create_empty_file_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_create_file_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_create_script_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_edit_add_timestamp_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_edit_append_line_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_edit_delete_line_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_git_local_commit_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_git_pull_public_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_git_push_to_remote_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_memory_chromadb_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_memory_episode_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_memory_history_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_run_create_dirs_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_run_error_script_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_run_repeated_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_search_basic_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_search_invalid_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_search_weather_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_skill_episodes_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_skill_metta_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_skill_pin_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/test_skill_query_telegram_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_telegram/tg_helpers.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/README.md",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/conftest.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_create_file_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_memory_chromadb_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_ws_delivery_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_ws_frame_robustness_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_ws_outbox_flush_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_ws_queue_merge_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_ws_resume_dedup_ws_mock.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/test_wschat_unit.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/ws_driver.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/mock_websocket/ws_helpers.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/run_mandatory",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/run_optional",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_complex_weather_flow.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_convert_format.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_create_empty_file.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_create_file.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_create_script.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_edit_add_timestamp.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_edit_append_line.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_edit_delete_line.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_git_local_commit.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_git_pull_public.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_git_push_to_remote.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_memory_chromadb.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_memory_episode.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_memory_history.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_memory_no_autoremember.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_openai_runtime_embeddings.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_prompt_grounding.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_run_create_dirs.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_run_error_script.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_run_repeated.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_search_basic.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_search_invalid.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_search_weather.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_skill_episodes.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_skill_metta.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_skill_pin.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_skill_query.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_websearch_smoke.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/test_wschat.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/unit/test_fileio_verified_deletes.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/unit/test_fileio_verified_writes.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/unit/test_helper_parsing.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "c817a4feba3945863b60f168611fce877624b40d0f9ff402d5ec0d671f826762"
+    },
+    {
+      "path": "Autotests/unit/test_llm_budget.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Autotests/unit/test_openclaw_unit.py",
+      "classification": "conformance",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "CODE_OF_CONDUCT.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "Dockerfile",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "LICENSE",
+      "classification": "deployment-or-optional-addon",
+      "vendored": true,
+      "sha256": "66c21d9bc47c8f2615f6cb73a51070f32818f8e34404215bdb544d92b8ba8c5b"
+    },
+    {
+      "path": "NOTICE",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "README.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/auth.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/delivery_queue.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/irc.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/mattermost.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/mockchannel.py",
+      "classification": "provider/channel-addon",
+      "vendored": true,
+      "sha256": "e317cf460d3f8dbef6c4e27a8baab3a58d3ce1ac826682fd25dd5159c0ab259a"
+    },
+    {
+      "path": "channels/slack.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/telegram.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "channels/wschat.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "config/config.yaml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "config/logging.conf",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "config/plugins.yaml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/README.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/assets/create_new_issue_screenshot.png",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/assets/tg-button.png",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/development/release-process.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/introduction.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-channels.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-configuration.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-failure-modes.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-internals-extension-points.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-internals-loop.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-internals-memory-store.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-internals-skill-dispatch.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-lib-nal.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-lib-ona.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-lib-pln.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-memory-portability.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-orchestration.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-plugin-api.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-plugins-publishing.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-python-bridges.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-skills-communication.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-skills-io.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-skills-memory.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/reference-skills-reasoning.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-01-teaching-memories.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-02-shell-and-files.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-03-writing-a-custom-skill.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-04-adding-a-channel.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-05-reasoning-with-nal-pln.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-07-grounded-reasoning.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "docs/tutorial-08-reliable-reasoning.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "entrypoint.sh",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "lib_nal.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "3f2894d9b1bc4e39fd7d0384aa6c8503b847eed38826222941ffa14dc0610283"
+    },
+    {
+      "path": "lib_omega.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "eecf316366d8a435931d49ab781025e3350be13aa03f45eb48fe060ba8e00eac"
+    },
+    {
+      "path": "lib_pln.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "05b63266ad79c3cd0b32a83a4596ad47923e612e746303628da7500bbcffa7ae"
+    },
+    {
+      "path": "memory/history.metta",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "memory/prompt.txt",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "74e78cc29262b0899ee96c140095d939e38b05aebed45edabdeb5959480e9762"
+    },
+    {
+      "path": "memory/prompt_ASICloud.txt",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "f1802fece8d51d402d1a6179afccf005498df55f49e5ede42386302a107b53f0"
+    },
+    {
+      "path": "memory/prompt_OpenRouter.txt",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "28c8295bccac631a8e1579fa44b880955f8fb5bd62e78141c3c32ebdcfb37ee3"
+    },
+    {
+      "path": "memory/tg_prompt.txt",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/openclaw/README.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/openclaw/openclaw.metta",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/openclaw/openclaw.py",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/README.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/instructions/research-workflow/SKILL.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/instructions/research-workflow/description.txt",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/instructions/research-workflow/skill.metta",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/instructions/test-workflow/SKILL.md",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/instructions/test-workflow/description.txt",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/instructions/test-workflow/skill.metta",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/utils.py",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "plugins/workflow/workflow.metta",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "profile/policy.metta",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "profile/policy.py",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "profile/policy.yaml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "profile/test_policy.py",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "providers/asione.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "providers/lib_llm_ext.py",
+      "classification": "provider/channel-addon",
+      "vendored": true,
+      "sha256": "0a0b990b57b8642d35a8b3993c7ce14e232587815d94e69b8a7e88dc01418bf9"
+    },
+    {
+      "path": "providers/mockprovider.py",
+      "classification": "provider/channel-addon",
+      "vendored": true,
+      "sha256": "53dbcde77aafa156f2cfda057a7bd16eb089be7bf8c1138ed67dbd93ec502f6d"
+    },
+    {
+      "path": "providers/openai.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "providers/openaiapi.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "providers/openrouter.py",
+      "classification": "provider/channel-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "proxy/nginx.conf.template",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "proxy/nginx.sh",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "pyproject.toml",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "requirements.txt",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "run.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "8047f23d5bac0a43dd3f38c65a58991b1c720b4848582e66cac802c01d7eaa95"
+    },
+    {
+      "path": "scripts/import_knowledge.sh",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "scripts/omega",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "sonar-project.properties",
+      "classification": "deployment-or-optional-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "src/channels.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "fe1aa031924f4ba37e6325f3ab5823998e344562c033ab5125923bd7a7e7ee38"
+    },
+    {
+      "path": "src/channels.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "582b45642c3d49f5af62148ac0d666afe2d39b7918340193f9bab97f2f9e4e2f"
+    },
+    {
+      "path": "src/config.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "f3b0cf344f4a7364ef132f58a07571cb0242013a43c25fb2dda3728f90bacaa8"
+    },
+    {
+      "path": "src/config.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "c057f6962b713ee554495597eff117f70e6a6f353a26f21c84178d701f14ca14"
+    },
+    {
+      "path": "src/embedding_models.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "f545e900a74692e19d6f7ac11fda2851d4882f0fd1ecbf318a083d7baefb66d5"
+    },
+    {
+      "path": "src/fileio.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "e1ffd61ec9a3cf41b92ad384fbb00c81d8d7b744934e35c54ae9a58b9ff54fb9"
+    },
+    {
+      "path": "src/helper.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "1d419e6c3956eb7b9cced587ba82eafb9bab45fe1bc235f1430cc562eeabc52a"
+    },
+    {
+      "path": "src/log.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "f96dd00ab9370f2051d9e569cc93a57aac1df2b4e55ce4593bdaff1c8d5a0d7b"
+    },
+    {
+      "path": "src/logger.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "5ceb810cfd703ac7f87eaeeb7a25b7d675028458c07a24d6fcc74b21e60ffc00"
+    },
+    {
+      "path": "src/loop.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "21f7db7ef994b566451468a7e6341b475ab73f3237fb9e65706407cafc4ad2b7"
+    },
+    {
+      "path": "src/memory.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "b446f967cf0263f37250cfa5d1752a642c290a40933ab68be8379607f975ef14"
+    },
+    {
+      "path": "src/memory_export.py",
+      "classification": "addon",
+      "vendored": true,
+      "sha256": "bccd2778a1837468890f3b46ccc3ab930efe895f425e2f997de28708bd0cc6b7"
+    },
+    {
+      "path": "src/plugin.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "7ddb9d48bc8c7f051fa49100a67da39c0c49c0622fea1faa434cab20e21cdb4f"
+    },
+    {
+      "path": "src/plugin.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "2d384f8708d50d899fb2284cee7928dfb79d01c6acc0e564006dc2037c6391a4"
+    },
+    {
+      "path": "src/providers.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "872f84f39504d69db0b25b9ce3457984d7bdffdf7b9665d6656362150c622ee2"
+    },
+    {
+      "path": "src/providers.py",
+      "classification": "core-host",
+      "vendored": true,
+      "sha256": "aee57c01815be06f0e41b568c8f01f61abc6832e701cab8125fe22281cf62c15"
+    },
+    {
+      "path": "src/rag.py",
+      "classification": "addon",
+      "vendored": true,
+      "sha256": "00239852021a1600e1df31f42961eb727392c7c8c4d509d37666c933cde83e28"
+    },
+    {
+      "path": "src/skills.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "b948b307866616b95950b3bc0cbeb27936d5f6da226dfe935377e47306ea36e1"
+    },
+    {
+      "path": "src/skills.pl",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "27c6e6188e5ed4ebcfa7529fb0324feb616877971e987a7f5d94b5987d7d722b"
+    },
+    {
+      "path": "src/utils.metta",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "9cfa04d6e87228cf533fc677d69099671ba7cf2e2c62b6b4185449b05380f31f"
+    },
+    {
+      "path": "src/websearch.py",
+      "classification": "addon",
+      "vendored": true,
+      "sha256": "8f35474512bd41e1d730b565b3f78c80e4bfc17a20e03d8aab2d3242dcc61ef5"
+    },
+    {
+      "path": "tests/lib/utils.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "851aafa3ad1e9647e13a3796773c7bae375b4ab1dd63c877c22c754df8026804"
+    },
+    {
+      "path": "tests/lib/utils.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "e0c7b3c120f7e091f36a316d93dbb8e7d71cbee57fbd78d8736c47e219ca1b18"
+    },
+    {
+      "path": "tests/mettatest.sh",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "b01b42c7057e223b4083f04be5a98262a84bec25709d1ccceda52ccb836e605b"
+    },
+    {
+      "path": "tests/pytest.sh",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "752805faab02432581e4695a40af83543ba7ab7b25e1996bd5b31ddea62ae705"
+    },
+    {
+      "path": "tests/res/metta_python.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "563b1016edfcd67b4579b5f568f81d6bdd12168674fd630e755a4be2bc9e2ae6"
+    },
+    {
+      "path": "tests/res/src_config_empty.yaml",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/res/src_config_filled.yaml",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "87a23777ac84f463aeb4f28400d75604c1ac78a113eb0900466814c60fd8a46a"
+    },
+    {
+      "path": "tests/res/src_config_priorities.yaml",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "0d6518a63b7533385ca8ff1eaba2da0ce9953d5e01bd6b513a2586a2fe52799c"
+    },
+    {
+      "path": "tests/res/test_plugin.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "453f687877d8a8ee95a6e3e0acc52d26e95c88e45440ab6dec18cb82370b24eb"
+    },
+    {
+      "path": "tests/res/test_plugin_error.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "0800428a331ac08c8f43e1b50ed97783b201311757d54886bc51ceb47d8cb1fb"
+    },
+    {
+      "path": "tests/src_config.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "35d3fa4042c393461310871dc1117c3874cb76102af43c4162dd0f845db57d7b"
+    },
+    {
+      "path": "tests/src_plugin.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "86d1ffb172beb8eb3ead4de1924234c5a67f338f0cbb5e88c5489d17f6629299"
+    },
+    {
+      "path": "tests/src_skills.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "257ab651efdf5aaea0a4c2428e10f662281d26876a72e315fd47a09ac0b91215"
+    },
+    {
+      "path": "tests/src_utils.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "e04ba4c441d3a01ca956020dae12e0780051e75e607db3cef1f4359315d1c508"
+    },
+    {
+      "path": "tests/test.sh",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "42a4960253949dfc8e2a9a5ba1efb3594f80b0c9f0bd06ef6c8686313f02d8e5"
+    },
+    {
+      "path": "tests/test_auth_standalone.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "160d8826f17a3d5adf98fe98294df313057de0b6a620feeb031fab502d33b62a"
+    },
+    {
+      "path": "tests/test_channel_auth_gating.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "877c8426ed9d3e1ddf1155af9c061a70b45e9614eaa582b2e7874fc4fcb11368"
+    },
+    {
+      "path": "tests/test_embedding_models.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "e4ee9c6f9c57e77b9a94e757a9c09d088f60b5c6c9976cc01d45d0433b810ba9"
+    },
+    {
+      "path": "tests/test_memory_export.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "44b9f8afdb4116a3e3d636eb3266bbae2b53b2e6c26fb949761d38b88cdc647d"
+    },
+    {
+      "path": "tests/test_omegaclaw_launcher.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "e8bac2df63de9e4bfa288eaf79ccd3256d3160199ed556fdb02215d8b401fa2e"
+    },
+    {
+      "path": "tests/test_src_channels.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "13470d3c4df1d6aad06e49d18127279110a66ab8e3b476cfd32f251539e6d141"
+    },
+    {
+      "path": "tests/test_telegram_multichat.py",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "d197531ca7f08faf29b37229de5b6f2b613f5845f445c4cc75116be4fe8e4c41"
+    },
+    {
+      "path": "tests/tests_lib_utils.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "b01b204af1607b99f11505de7c1bce2ec041700bd6d90cc2b2c0c1a0cdbe2431"
+    },
+    {
+      "path": "tests/tests_mettta_py_metta.metta",
+      "classification": "conformance",
+      "vendored": true,
+      "sha256": "a9db4b6d4e1be77a6a972dff76b37e87dc70cf158bb507b264e6b3a3cfce4af2"
+    }
+  ]
+}

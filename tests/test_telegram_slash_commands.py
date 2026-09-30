@@ -275,7 +275,15 @@ class SlashCommandTest(unittest.TestCase):
 
     def test_mode_bare_shows_current(self):
         self.assertEqual(self.handle("/mode"), "slash_command:/mode")
-        self.assertIn("active mode: godelclaw", self.sent[-1][1])
+        self.assertIn("selected mode: godelclaw", self.sent[-1][1])
+
+    def test_mode_view_distinguishes_running_loop_from_pending_selection(self):
+        loop_modes.record_active("godelclaw", os.getpid())
+        self.handle("/mode iter")
+        self.handle("/mode")
+        self.assertIn("active mode: godelclaw; requested iter", self.sent[-1][1])
+        self.assertEqual(loop_modes.current_mode(), "iter")
+        self.assertTrue(os.path.exists(os.environ["METTACLAW_RECYCLE_REQUEST_PATH"]))
 
     def test_mode_switch_persists_and_wakes_loop(self):
         telegram._wake_event.clear()
@@ -297,7 +305,7 @@ class SlashCommandTest(unittest.TestCase):
         payload = posts[-1][1]
         callbacks = [row[0]["callback_data"]
                      for row in payload["reply_markup"]["inline_keyboard"]]
-        self.assertEqual(callbacks, ["mode:godelclaw", "mode:coding"])
+        self.assertEqual(callbacks, ["mode:godelclaw", "mode:coding", "mode:iter", "mode:omega"])
 
     def test_engine_bare_shows_active_engine(self):
         self.assertEqual(self.handle("/engine"), "slash_command:/engine")

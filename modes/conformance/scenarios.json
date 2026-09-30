@@ -1,0 +1,112 @@
+{
+  "frozen": true,
+  "iter": [
+    {
+      "id": "human-roundtrip",
+      "contract": "New channel input, tool result and durable experience"
+    },
+    {
+      "id": "autonomous-continuation",
+      "contract": "Initial task-selection prompt followed by autonomous work"
+    },
+    {
+      "id": "nop-in-batch",
+      "contract": "nop before another call still starts a new burst after slow polling"
+    },
+    {
+      "id": "fast-budget",
+      "contract": "50 autonomous turns slow down without declaring task completion"
+    },
+    {
+      "id": "plain-text-retry",
+      "contract": "Text-only reply is quoted back with undelivered annotation"
+    },
+    {
+      "id": "length-retry",
+      "contract": "Token limit without calls yields the concise-tool retry"
+    },
+    {
+      "id": "bad-tools",
+      "contract": "Unknown name, malformed JSON, non-object arguments and a raising tool"
+    },
+    {
+      "id": "tool-caps",
+      "contract": "At most ten calls, results clipped at 5000 characters"
+    },
+    {
+      "id": "transforms-and-reload",
+      "contract": "Sorted transforms, failed transform preserves input, next-capture reload"
+    },
+    {
+      "id": "memory-surface",
+      "contract": "3000-character threshold, private paths omitted, overflow directive"
+    },
+    {
+      "id": "compaction",
+      "contract": "Twenty-message cleanup buckets, reasoning stripping, 100-to-80 retention, leading-tool removal"
+    },
+    {
+      "id": "failure-and-restart",
+      "contract": "Provider exception rolls back after input checkpoint; restart retains experience but resets control"
+    }
+  ],
+  "omega": [
+    {
+      "id": "human-roundtrip",
+      "contract": "Prompt-string provider call, parsed command dispatch and history"
+    },
+    {
+      "id": "plain-and-mixed-text",
+      "contract": "Pinned helper command parsing and feedback for commentary"
+    },
+    {
+      "id": "invalid-and-unknown",
+      "contract": "Unknown command becomes explicit Error and HandleError records feedback"
+    },
+    {
+      "id": "provider-failure",
+      "contract": "Uncaught provider error terminates the loop rather than introducing a new retry policy"
+    },
+    {
+      "id": "duplicate-input",
+      "contract": "Repeated nonempty input updates previous-message state without rearming"
+    },
+    {
+      "id": "budget-exhaustion",
+      "contract": "Later iterations decrement loops before receiving input"
+    },
+    {
+      "id": "wake-boundary",
+      "contract": "Strict nextWakeAt comparison and maxWakeLoops-plus-one rearming"
+    },
+    {
+      "id": "ordered-batch",
+      "contract": "Observe actual collapse/superpose command-result ordering"
+    },
+    {
+      "id": "history-feedback",
+      "contract": "History persistence and maxHistory/maxFeedback tail selection"
+    },
+    {
+      "id": "duplicate-send",
+      "contract": "Duplicate send suppression and newline transport escaping"
+    },
+    {
+      "id": "extensions-heartbeat",
+      "contract": "Dynamic skills, prompt extensions and heartbeat listener behavior"
+    },
+    {
+      "id": "restart",
+      "contract": "History survives; initLoop resets previous message, last results and loop budget"
+    }
+  ],
+  "omega_inapplicable": {
+    "native-tool-call-ids": "src/providers.py: LLMProvider.chat returns str; src/loop.metta parses that text via helper.balance_parentheses.",
+    "iter-compaction-buckets": "src/memory.metta:getHistory reads maxHistory characters; no 20-message bucket algorithm.",
+    "finish-reason-retry": "Provider boundary returns only a string; no finish_reason field at this boundary."
+  },
+  "normalization": [
+    "Fixture-root absolute paths, mapped to $ROOT",
+    "Controlled fixture timestamps and session ID; no semantic fields removed"
+  ]
+}

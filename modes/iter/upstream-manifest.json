@@ -1,0 +1,72 @@
+{
+  "repository": "https://github.com/patham9/iter",
+  "commit": "f4064d97849ecaccac7939315a3f1a68de15c3ef",
+  "files": [
+    {
+      "path": ".gitignore",
+      "classification": "deployment-addon",
+      "vendored": false,
+      "reason": "Outside isolated core qualification; retained by the pinned upstream reference."
+    },
+    {
+      "path": "LICENSE",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "10c448e805927ecb41ed847154db2fd154506cf54f62802b1434cbef9efde463"
+    },
+    {
+      "path": "channels/_example.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "4da50a1260e076ebc6cd3e2a7ac1638a2f47de13255ca6e42690f9095ee72be0"
+    },
+    {
+      "path": "channels/terminal.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "7be809f8131b844ddc1ad75186167b86d5f039037629d6d896778ccd22f289c7"
+    },
+    {
+      "path": "iter.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "281597213d59fc0bc4a352c5d245914db30c1055f78dc6348267633d5696bc4c"
+    },
+    {
+      "path": "prompt.txt",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "baa4c8bc77ad3683810608a688a967873e3058771cc269f07d1b49675b18a9b8"
+    },
+    {
+      "path": "reprogramming.txt",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "53b367ea1a40d0cb0185858dededde9c7b434eac6ec9dd1a23bcb90c85a80f8a"
+    },
+    {
+      "path": "tools/nop.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "ca79cca46193bd726326df3e43a3680bb314364af92df5e2b3cb46b37bf09c58"
+    },
+    {
+      "path": "tools/python.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "cefd54978b57ae5f90722dca29c510c4062b7a249ae81949ddd7d5bccd1c5572"
+    },
+    {
+      "path": "tools/send.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "da4dd1a414babdcef6cea95f65e20aa6d2c9428d4afbb7629cabfff82ac6acc5"
+    },
+    {
+      "path": "tools/shell.py",
+      "classification": "core",
+      "vendored": true,
+      "sha256": "a7bc41169e7edd3268b480ce0b7a81f143b9bbcb68427bb531d4e9cb1a33ea2d"
+    }
+  ]
+}

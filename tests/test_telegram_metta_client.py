@@ -337,7 +337,11 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             redraw = await_(lambda: [d for n, d in api.calls if n == "editMessageText" and d["message_id"] == 778],
                             "modes menu redrawn")
             labels = [b["text"] for row in redraw[-1]["reply_markup"]["inline_keyboard"] for b in row]
-            assert "● " + other in labels, labels
+            # A responder without a cognitive process marks the selection as
+            # pending; it must not claim that the requested loop is running.
+            assert "◌ " + other in labels, labels
+            callbacks = [b["callback_data"] for row in redraw[-1]["reply_markup"]["inline_keyboard"] for b in row]
+            assert callbacks == ["mode:godelclaw", "mode:coding", "mode:iter", "mode:omega"], callbacks
             wake_file.unlink()
             print("taps: energy and mode changed by the responder, answered, and redrawn in place")
 

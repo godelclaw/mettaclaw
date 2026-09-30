@@ -33,7 +33,6 @@ class LoopModeTests(unittest.TestCase):
                                     ("generic", "godelclaw"),
                                     ("agent", "godelclaw"),
                                     ("claw23", "godelclaw"),
-                                    ("iter", "godelclaw"),
                                     ("iter-coding", "coding")):
             self.path.write_text(json.dumps({"mode": historical}) + "\n")
             self.assertEqual(loop_modes.current_mode(), current)
@@ -64,6 +63,12 @@ class LoopModeTests(unittest.TestCase):
         self.assertIn("persists", loop_modes.set_mode("coding"))
         self.assertEqual(loop_modes.current_mode(), "coding")
         self.assertEqual(json.loads(self.path.read_text())["mode"], "coding")
+
+    def test_real_upstream_modes_are_selectable(self):
+        for mode in ("iter", "omega"):
+            self.assertNotIn(mode, loop_modes.ALIASES)
+            self.assertIn("persists", loop_modes.set_mode(mode))
+            self.assertEqual(loop_modes.current_mode(), mode)
 
     def test_autonomy_follows_the_mode_through_its_aliases(self):
         for name in ("godelclaw", "coding", "iter", "iter-coding", "agent"):

@@ -45,3 +45,14 @@ chroma_db.rebuilt-*/
 
 # Agent-authored knowledge base: private facts, quotes, provenance.
 kb/
+
+# Machine-specific verification receipts stay local.
+/modes/completion-audit.json
+/modes/qualification-checkpoint.json
+
+# Only pinned upstream prompt templates may appear under a memory directory.
+!/modes/omega/upstream/memory/
+/modes/omega/upstream/memory/*
+!/modes/omega/upstream/memory/prompt.txt
+!/modes/omega/upstream/memory/prompt_ASICloud.txt
+!/modes/omega/upstream/memory/prompt_OpenRouter.txt

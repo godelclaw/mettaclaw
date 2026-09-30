@@ -3,6 +3,7 @@
 import json
 import os
 import threading
+import time
 
 
 MODES = {
@@ -14,12 +15,18 @@ MODES = {
         "description": "godelclaw with high reasoning effort",
         "autonomous": True,
     },
+    "iter": {
+        "description": "upstream Iter cognitive loop with native tool calls",
+        "autonomous": True,
+    },
+    "omega": {
+        "description": "upstream Omega cognitive loop with command-text dispatch",
+        "autonomous": True,
+    },
 }
 
-# Earlier names keep saved selections working. `iter` names today's
-# godelclaw until the upstream Iter loop arrives as a mode of its own.
+# Earlier names keep saved selections working. Iter is now its own loop.
 ALIASES = {
-    "iter": "godelclaw",
     "agent": "godelclaw",
     "default": "godelclaw",
     "generic": "godelclaw",
@@ -83,13 +90,47 @@ def current_mode():
         return _load()["mode"]
 
 
+def _active_path():
+    state = os.environ.get("METTACLAW_ENGINE_STATE_PATH")
+    if state:
+        return os.path.join(os.path.dirname(state), "active-loop.json")
+    state_home = os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
+    return os.path.join(state_home, os.environ.get("METTACLAW_INSTANCE", "default"), "active-loop.json")
+
+
+def record_active(mode, pid, state_directory=""):
+    path = _active_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = path + ".tmp." + str(os.getpid())
+    with open(temporary, "w", encoding="utf-8") as stream:
+        json.dump({"mode": canonical(mode), "pid": int(pid), "started_at": time.time(),
+                   "state_directory": state_directory}, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+    return True
+
+
+def active_mode():
+    try:
+        with open(_active_path(), encoding="utf-8") as stream:
+            value = json.load(stream)
+        os.kill(int(value["pid"]), 0)
+        return canonical(value["mode"])
+    except (OSError, KeyError, ValueError, TypeError):
+        return None
+
+
 def mode_view():
     mode = current_mode()
-    return "active mode: %s — %s" % (mode, MODES[mode]["description"])
+    active = active_mode()
+    if active and active != mode:
+        return "active mode: %s; requested %s — recycling" % (active, mode)
+    return "%s mode: %s — %s" % ("active" if active else "selected", mode, MODES[mode]["description"])
 
 
 def modes_view():
-    current = current_mode()
+    current = active_mode()
     return "\n".join(
         ("● " if name == current else "  ") + name + " — " + spec["description"]
         for name, spec in MODES.items()
@@ -104,9 +145,17 @@ def set_mode(name):
         return "mode-set failed: choose one of %s" % ", ".join(choices)
     with _lock:
         data = _load()
+        previous = data["mode"]
         data["mode"] = name
         if not _save(data):
             return "mode-set failed: could not persist"
+    if previous != name:
+        import engine_modes
+        if engine_modes.request_recycle():
+            flag = os.environ["METTACLAW_RECYCLE_REQUEST_PATH"]
+            wake = os.environ.get("METTACLAW_WAKE_REQUEST_PATH", os.path.join(os.path.dirname(flag), "wake.requested"))
+            with open(wake, "w", encoding="utf-8") as stream:
+                stream.write("mode switch\n")
     alias = " (from alias '%s')" % requested if requested != name else ""
     return "mode set to '%s'%s; persists across restarts" % (name, alias)
 
