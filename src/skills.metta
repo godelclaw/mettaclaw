@@ -22,6 +22,7 @@
     "- Run a long command in the background; you are woken when it ends, with its exit status and output tail: (background \"command string\")"
     "- Background jobs and their state: (jobs) | the end of a job's output: (job-output \"id\") | stop one: (job-stop \"id\")"
     "- The machine and you right now, on demand: uptime, load, memory and its stalls, swap, heaviest processes: (vitals)"
+    "- Independent execution gateway, when configured: (gateway-tools) lists named tools and input schemas; (gateway-start \"stable-id\" \"tool\" \"json-object\") returns immediately; inspect completion with (gateway-status \"stable-id\") or request cancellation with (gateway-cancel \"stable-id\")."
     "- Read file to string: (read-file \"filename\")"
     "- Propose an exact protected-file replacement: (write-file \"filename\" \"string\")"
     "- Propose appending one line to a protected file: (append-file \"filename\" \"string\")"
@@ -72,6 +73,15 @@
 (= (job-output $id) (py-call (jobs.output $id)))
 (= (job-stop $id) (py-call (jobs.stop $id)))
 (= (vitals) (py-call (helper.vitals)))
+
+;; Shared execution code, separate agent-owned queues. These requests never
+;; start a gateway and do not replace any existing skill implicitly.
+(= (gateway-tools) (py-call (gateway_bridge.tools)))
+(= (gateway-start $id $tool $json)
+   (py-call (gateway_bridge.start $id $tool
+             (py-call (helper.decode_safe_text $json)))))
+(= (gateway-status $id) (py-call (gateway_bridge.status $id)))
+(= (gateway-cancel $id) (py-call (gateway_bridge.cancel $id)))
 
 ;; read-file explains failure instead of silently returning nothing: the old
 ;; Prolog chain FAILED (empty result, no reason) on a missing/unreadable path,

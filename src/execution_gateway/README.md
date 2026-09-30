@@ -116,9 +116,36 @@ execution thread. The queue survives for conservative recovery.
   outside the cognition service's systemd control group to survive its stop.
 - Killing a gateway with SIGKILL can leave an already-started tool child running.
   Its effect is therefore uncertain; no claim of remote cancellation is made.
-- There is no social adapter, provider adapter, automatic reconciliation,
-  completion-event delivery, service installer or live-agent rollout yet.
+- There is no social adapter, provider adapter, automatic reconciliation
+  or completion-event delivery yet.
 - Queued requests carry a trusted tool-configuration fingerprint and do not run
   if the tool's binding changed while they were waiting.
 - Plain clients poll by request ID. Rho can use the same request/receipt envelope;
   no native rho transport bridge has been qualified in this prototype.
+
+## Read-only live pilot
+
+The agent's skill catalog includes `gateway-tools`, `gateway-start`,
+`gateway-status` and `gateway-cancel`. The start skill takes a stable request
+ID, a configured tool name and a JSON object string; `_quote_` is decoded to
+JSON quotation marks. It submits with a 30-second deadline and does not wait
+for the tool to finish. Inspect the receipt on a later turn.
+
+`execution_gateway.read_tools` adapts `project-status`, `vitals`, `read-lines`,
+`ls-tree` and `grep-files`. These reuse bounded file observations and expose
+no shell or network sender. Relative paths resolve in the configured agent
+checkout. Tools retain their domain-level failure messages inside results;
+gateway `succeeded` means the adapter completed, not that a requested file
+necessarily existed.
+
+The optional `systemd/pettaclaw-gateway@.service` template reads a trusted
+`gateway-AGENT.json` and `gateway-AGENT.env` from the operator's pettaclaw
+configuration directory. The env file specifies the module `PYTHONPATH`.
+It has no lifecycle dependency on a cognition service, so stopping cognition
+does not stop the gateway. Each instance has a separate state directory.
+Configure `METTACLAW_GATEWAY_SOCKET` and `METTACLAW_GATEWAY_AGENT` in the
+cognition service. Optional `METTACLAW_GATEWAY_BOOT_PROBE=1` submits one
+read-only project-status canary from that actual process at startup.
+Disabling the gateway skills needs only removal of those service settings;
+the pre-existing tools are unchanged. No completion notification is promised:
+clients currently poll by stable ID.

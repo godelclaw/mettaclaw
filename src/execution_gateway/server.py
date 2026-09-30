@@ -62,6 +62,10 @@ class Gateway:
         if message.get("version") != 1 or message.get("agent") != self.agent:
             raise ValueError("wrong protocol version or agent")
         operation = message["operation"]
+        if operation == "tools":
+            return {name: {key: tool[key] for key in
+                    ("effect", "description", "input_schema") if key in tool}
+                    for name, tool in self.tools.items()}
         if operation in ("status", "cancel"):
             request_id = message["id"]
             if not isinstance(request_id, str) or not NAME.fullmatch(request_id):

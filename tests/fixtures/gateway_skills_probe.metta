@@ -1,0 +1,7 @@
+!(import! &self (library lib_import))
+!(import! &self ./lib_mettaclaw)
+!(println! (gateway-tools))
+!(println! (gateway-start "skill-read" "read-lines" "{_quote_path_quote_:_quote_run.metta_quote_,_quote_count_quote_:4}"))
+!(println! GATEWAY_SKILL_CONTINUES)
+!(println! (gateway-status "skill-read"))
+!(println! (help "gateway-start"))

@@ -56,5 +56,8 @@ class Client:
     def status(self, request_id):
         return self.request("status", id=request_id)
 
+    def tools(self):
+        return self.request("tools")
+
     def cancel(self, request_id):
         return self.request("cancel", id=request_id)

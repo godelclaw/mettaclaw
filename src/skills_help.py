@@ -17,6 +17,8 @@ ARITY = {
     "iter-transform-disable": (1, 1), "iter-transform-enable": (1, 1),
     "shell": (1, 1), "background": (1, 1), "jobs": (0, 0),
     "job-output": (1, 1), "job-stop": (1, 1), "vitals": (0, 0),
+    "gateway-tools": (0, 0), "gateway-start": (3, 3),
+    "gateway-status": (1, 1), "gateway-cancel": (1, 1),
     "read-file": (1, 1), "write-file": (2, 2),
     "append-file": (2, 2), "read-lines": (3, 3), "edit-file": (3, 3),
     "ls-tree": (2, 2), "grep-files": (2, 2),
@@ -36,6 +38,30 @@ ARITY = {
 }
 
 PAGES = {
+    "gateway-start": (
+        'usage: (gateway-start "stable-request-id" "tool" "json-object")\n'
+        'Use (gateway-tools) for configured names and input schemas. JSON\n'
+        'quotes can be written as _quote_ inside a MeTTa string. Submission\n'
+        'returns a queued/running receipt, NOT the completed tool result.\n'
+        'Inspect (gateway-status "stable-request-id") on a later turn;\n'
+        '(gateway-cancel "stable-request-id") requests cancellation.\n'
+        'The first deadline is 30 seconds. Reuse the ID to recover an existing\n'
+        'operation, not to repeat it. Changed intent conflicts. An uncertain\n'
+        'write must be reconciled, never blindly resubmitted with a fresh ID.\n'
+        'The separately launched gateway survives cognition restarts.\n'
+        'If not configured or unavailable, a structured error is returned.'),
+    "gateway-tools": (
+        'usage: (gateway-tools)\n'
+        'Lists the configured tool names, effect classes and JSON input schemas.\n'
+        'The live pilot exposes read-only tools; no shell or social sender.'),
+    "gateway-status": (
+        'usage: (gateway-status "stable-request-id")\n'
+        'Returns state, result/error and transition receipts. queued or running\n'
+        'is not completion; a null value means the ID was not found.'),
+    "gateway-cancel": (
+        'usage: (gateway-cancel "stable-request-id")\n'
+        'Withholds queued work or asks a running child to stop. A started write\n'
+        'can already have acted and remains uncertain when interrupted.'),
     "shell": (
         'usage: (shell "command string")\n'
         'One string, no apostrophes inside. Hard timeout: 5 seconds. Output\n'

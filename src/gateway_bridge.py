@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 
 from execution_gateway import Client, GatewayError
 
@@ -34,3 +35,19 @@ def status(request_id):
 
 def cancel(request_id):
     return _call("cancel", str(request_id))
+
+
+def tools():
+    return _call("tools")
+
+
+def start(request_id, tool, input_json="{}", timeout_seconds=30):
+    return submit(request_id, tool, "[]", input_json, timeout_seconds)
+
+
+def boot_probe():
+    """An opt-in, read-only canary from the actual cognition process."""
+    if os.environ.get("METTACLAW_GATEWAY_BOOT_PROBE") != "1":
+        return "gateway boot probe disabled"
+    request_id = "boot-%d-%d" % (os.getpid(), time.time_ns())
+    return start(request_id, "project-status", "{}", 10)

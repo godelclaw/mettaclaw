@@ -130,6 +130,12 @@ class GatewayTest(unittest.TestCase):
             db = (self.base / agent / "queue.sqlite3").read_bytes()
             self.assertNotIn(("synthetic-token-" + agent).encode(), db)
 
+    def test_tool_discovery_does_not_expose_command_or_credentials(self):
+        tools = self.clients["alpha"].tools()
+        self.assertEqual(tools["identity"], {"effect": "read"})
+        self.assertNotIn("credential_files", json.dumps(tools))
+        self.assertNotIn("synthetic-token", json.dumps(tools))
+
     def test_concurrent_duplicates_execute_one_write_and_conflicts_are_rejected(self):
         client = self.clients["alpha"]
         path = self.base / "effect.txt"
@@ -329,6 +335,47 @@ class GatewayTest(unittest.TestCase):
         self.assertNotIn("SHOULD_NOT_RUN", receipt["result"]["stdout"])
         client.submit("after-native-error", "echo", input="alive")
         self.assertEqual(self.wait("after-native-error", "native")["state"], "succeeded")
+
+    def test_named_gateway_skills_on_both_native_engines(self):
+        cetta = Path(os.environ.get("CETTA_BIN", Path.home() / "repos/CeTTa-runtime/cetta"))
+        petta = Path(os.environ.get("PETTA_ROOT", Path.home() / "repos/PeTTa"))
+        exercised = []
+        for engine in ("petta", "cetta"):
+            if not ((petta / "run.sh").is_file() if engine == "petta" else cetta.is_file()):
+                continue
+            agent = "skills-" + engine
+            self.start(agent, {"read-lines": {
+                "command": [sys.executable, "-m", "execution_gateway.read_tools", "read-lines"],
+                "cwd": str(ROOT), "effect": "read", "result_format": "json",
+                "environment": {"PYTHONPATH": str(ROOT / "src"), "METTACLAW_GATEWAY_AGENT": agent}}})
+            env = self.engine_environment(agent, engine)
+            env["CETTA_BIN"] = str(cetta.resolve())
+            result = subprocess.run(["./run.sh", "tests/fixtures/gateway_skills_probe.metta"],
+                                    cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, timeout=20)
+            with self.subTest(engine=engine):
+                self.assertEqual(result.returncode, 0, (result.stdout + result.stderr)[-3500:])
+                self.assertIn("GATEWAY_SKILL_CONTINUES", result.stdout)
+                self.assertIn('usage: (gateway-start', result.stdout)
+                receipt = self.wait("skill-read", agent)
+                self.assertEqual(receipt["state"], "succeeded")
+                self.assertEqual(receipt["result"]["agent"], agent)
+                self.assertIn("import!", receipt["result"]["value"])
+            exercised.append(engine)
+        if not exercised:
+            self.skipTest("native MeTTa engines are unavailable")
+
+    def test_read_only_adapter_rejects_unknown_tools_and_extra_arguments(self):
+        from execution_gateway import read_tools
+        with self.assertRaises(ValueError):
+            read_tools.execute("shell", {"command": "echo forbidden"})
+        with self.assertRaises(ValueError):
+            read_tools.execute("read-lines", {"path": "run.metta", "command": "ignored"})
+        result = subprocess.run(
+            [sys.executable, "-m", "execution_gateway.read_tools", "vitals", "extra"],
+            env=dict(os.environ, PYTHONPATH=str(ROOT / "src")),
+            input="{}", capture_output=True, text=True, timeout=3)
+        self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
