@@ -1,0 +1,20 @@
+[Unit]
+Description=Independent Telegram command responder for %i
+After=cetta-telegram@%i.socket
+Wants=cetta-telegram@%i.socket cetta-telegram@%i.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pettaclaw-%i
+Environment=HOME=%h
+Environment=METTACLAW_SKIP_INITIALIZE=1
+EnvironmentFile=-%h/.config/pettaclaw/%i-runtime.env
+EnvironmentFile=-%h/.config/pettaclaw/%i-channel.env
+ExecStart=%h/pettaclaw-%i/run.sh telegram-control
+Restart=always
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

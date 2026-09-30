@@ -50,9 +50,10 @@ def chunks(text, limit=TEXT_MAX):
 class Channel:
     """One client of the channel service. Thread-safe."""
 
-    def __init__(self, path, sequence_path):
+    def __init__(self, path, sequence_path, timeout=5):
         self.path = path
         self.sequence_path = sequence_path
+        self.timeout = timeout
         self._lock = threading.Lock()
         self._last = self._load_sequence()
 
@@ -77,7 +78,7 @@ class Channel:
         if len(encoded_name) > 64 or len(encoded_body) > BODY_MAX:
             raise ChannelError("request too large")
         with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as s:
-            s.settimeout(5)
+            s.settimeout(self.timeout)
             s.connect(self.path)
             s.sendall(b"CWP1" + bytes([code, len(encoded_name)]) + encoded_name + encoded_body)
             reply = s.recv(6 + 64 + BODY_MAX)
@@ -124,9 +125,12 @@ class Channel:
         if not chat or thread < 0:
             raise ValueError("invalid lane")
         with self._lock:
-            sequence = max(self._last + 1, time.time_ns())
-            self._save_sequence(sequence)
-            self._last = sequence
+            import fcntl
+            with open(self.sequence_path + ".lock", "a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                sequence = max(self._last + 1, self._load_sequence() + 1, time.time_ns())
+                self._save_sequence(sequence)
+                self._last = sequence
         return "%d.%d.%020d" % (chat, thread, sequence)
 
     def submit(self, key, commands, attempts=4):

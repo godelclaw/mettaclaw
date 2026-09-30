@@ -84,6 +84,17 @@ def status(now=None):
         loops = 0
     active_mode = str(mode.get("mode", "default")).strip().lower()
     autonomous = loop_modes.autonomous(active_mode)
+    control = {}
+    state_path = os.environ.get("METTACLAW_ENGINE_STATE_PATH")
+    if state_path:
+        control = _read_json(os.path.join(os.environ.get("METTACLAW_MODE_STATE_ROOT",
+            os.path.join(os.path.dirname(state_path), "modes")), "control-status.json"))
+    control_age = (max(0, int(now - float(control.get("observed_at", 0)))) if control else None)
+    # Upstream modes checkpoint their own history, not working_set.json.
+    if active_mode in ("iter", "omega"):
+        settled = float(cognition.get("last_settled_at", 0) or 0)
+        if settled:
+            working_age = max(0, int(now - settled))
     # An autonomous mode expects cognition, but a rest in flight is a
     # legitimate reason for there to be none. Without this, every long rest
     # under iter would report a stale model turn.
@@ -93,9 +104,14 @@ def status(now=None):
     stale_after = _positive_seconds(
         "METTACLAW_COGNITIVE_STALE_SECONDS", 900)
     problems = []
-    if channel.get("menu_status") != "ok":
+    if not control and channel.get("menu_status") != "ok":
         problems.append("command-menu-not-registered")
-    if poll_age is None or poll_age > 120:
+    if control:
+        if control_age > 30:
+            problems.append("operator-control-stale")
+        if not control.get("channel_ready"):
+            problems.append("channel-service-unavailable")
+    elif poll_age is None or poll_age > 120:
         problems.append("telegram-poll-stale")
     if (lifecycle_enabled and not legitimate_wait
             and (working_age is None or working_age > 900)):
@@ -120,6 +136,9 @@ def status(now=None):
         "generation": _generation(),
         "menu": channel.get("menu_status", "unknown"),
         "telegram_poll_age_seconds": poll_age,
+        "channel_health_source": "independent-control" if control else "loop-client",
+        "operator_control_age_seconds": control_age,
+        "channel_service_ready": control.get("channel_ready") if control else None,
         "loop": "waiting" if legitimate_wait else channel.get(
             "loop_status", "unknown"),
         "working_set_age_seconds": working_age,
@@ -144,13 +163,16 @@ def report():
     return (
         "runtime-health: {state} | lifecycle={lifecycle} | "
         "generation={generation} | menu={menu} | "
-        "telegram-poll-age={poll}s | loop={loop} | working-set-age={working}s | "
+        "telegram={transport} | loop={loop} | working-set-age={working}s | "
         "model-turn-age={turn}s | model-turn-pending={pending}s | "
         "memory={memories} ({behind}/{threshold} behind) | problems={problems}"
     ).format(
         state=value["state"], lifecycle=value["lifecycle"],
         generation=value["generation"],
-        menu=value["menu"], poll=value["telegram_poll_age_seconds"],
+        menu=value["menu"], transport=("service-ready=%s, control-age=%ss (polling owned by transport)" %
+            (value["channel_service_ready"], value["operator_control_age_seconds"]))
+            if value["channel_health_source"] == "independent-control" else
+            "poll-age=%ss" % value["telegram_poll_age_seconds"],
         loop=value["loop"], working=value["working_set_age_seconds"],
         turn=value["model_turn_age_seconds"],
         pending=value["model_turn_pending_age_seconds"],

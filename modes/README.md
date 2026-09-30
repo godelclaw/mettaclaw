@@ -5,6 +5,33 @@ This work implements Stages 3–4 plus the host integration of the separately
 qualified loops. Each agent retains its identity and uses its own mode state
 directory and process. The native LLM client remains a later task.
 
+Operator controls are independent of the cognitive loop. Every production mode
+uses an independently supervised durable Telegram service and command responder;
+the launcher never starts a bot poller inside cognition. Instance templates are
+provided alongside the existing single-agent units. Each instance has its own
+credential, allowed chats, operator IDs, inbox, outbox and model/mode selections.
+
+The adapters preserve Telegram origin, sender, bot, chat, thread, reply and
+forwarding metadata. `telegram` addresses the configured private operator.
+Group/thread destinations are explicit named channels learned from service-accepted
+input. Iter uses upstream `send(channel, content)`; Omega adds
+`send-channel channel message` and its two-argument parser registration. The host
+supplies the current routes on every provider request. Reading a group cannot
+redirect a default send.
+
+Mode sends first record a keyed durable intent. The independent responder submits
+it to the transport, which returns delivery receipts and holds uncertain lanes.
+Submission acceptance is not delivery success. The service command format includes
+the required `plain` field. Model selection is reloaded from agent-wide persisted
+state before each provider request, including in an already-running process.
+Inputs retained during a transport handover are acknowledged only after the
+consuming mode checkpoints them.
+
+Boundary checks: `python3 -m unittest discover -s tests -p test_mode_control_boundary.py`.
+The real-service test `tests/test_telegram_metta_client.py` also checks controls with
+no cognition running and a mode send whose delivery takes six seconds. Use its
+documented `CETTA_CHANNEL_ROOT`, `CETTA_SERVICE_BIN` and `CETTA_BIN` variables.
+
 **Status:** the isolated offline goal is qualified. Both standalone cores run;
 the fixed twelve-scenario matrix per mode, six semantic mutants, relevant
 upstream tests, Lean models and 380 observed trace checks pass. Omega uses an
@@ -36,10 +63,11 @@ with the existing text provider's default thinking settings. Omega uses the
 existing command-text provider adapter, including its Anthropic path. No new
 credential client exists.
 
-Lila uses her existing durable CWP Telegram service. Gödel keeps his existing
-Bot API client in a separate process, with a private local channel socket. That
-process keeps his controls responsive during provider requests. Both preserve
-their existing bot, identity, model selection and operator lifecycle latch.
+Lila uses her existing durable CWP Telegram service. Gödel uses a separate
+instance of the same transport, with private client/operator sockets and an
+independent command responder. Both preserve their existing bot, identity,
+model selection and operator lifecycle latch. Neither transport nor controller
+is a child of the cognitive process.
 
 Inputs are acknowledged after history checkpoints. Mode switches before a
 checkpoint leave the input with its existing channel owner. Iter experience,

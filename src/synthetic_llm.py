@@ -172,6 +172,8 @@ def _persist_model_locked(name):
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
         return True
     except OSError as exc:
@@ -360,7 +362,7 @@ def _extract_content(payload, provider_name="synthetic"):
 
 
 def chat(model, max_tokens, effort, prompt):
-    effective_model = os.environ.get("SYNTHETIC_MODEL", str(model))
+    effective_model = current_model(str(model))
     provider = _provider_for(effective_model)
     cognitive_health.turn_started(provider["name"])
     key = provider["key"]
@@ -655,8 +657,11 @@ def _get_json(url):
         return {"error": f"bad response: {type(exc).__name__}"}
 
 
-def current_model():
-    return os.environ.get("SYNTHETIC_MODEL", "syn:large:text")
+def current_model(default="syn:large:text"):
+    # The control responder and cognition deliberately have different PIDs.
+    # Their process environments are not a shared settings store.
+    _restore_persisted_model()
+    return os.environ.get("SYNTHETIC_MODEL", default)
 
 
 def _percent(value):

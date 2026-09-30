@@ -213,6 +213,9 @@ def request(experience, temporary, loaded, surface):
     messages, schemas, error = namespace["apply_transformation"](messages, unbox(loaded)["schemas"])
     if error:
         messages += [{"role": "user", "content": error}]
+    if os.environ.get("METTACLAW_MODE_RUNTIME"):
+        import runtime_host
+        messages.insert(0, {"role": "system", "content": runtime_host.route_context()})
     response = client.chat.completions.create(
         model=namespace["MODEL"], messages=messages, tools=schemas,
         tool_choice="required", max_tokens=2524, extra_body={"enable_thinking": True})

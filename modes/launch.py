@@ -29,9 +29,11 @@ def identity(repo):
 
 def adapter_ledger(mode, durable_channel):
     common = {
-        "channel": "existing durable CWP service" if durable_channel else "existing Bot API client in a separate process",
+        "channel": "existing durable CWP service" if durable_channel else "independent durable channel required",
         "identity": "agent prompt appended; identity and mode state kept separate",
-        "lifecycle": "operator latch and supervised recycle at host boundary"}
+        "routing": "full Telegram origin metadata and explicit chat/thread channel names; default pinned to operator",
+        "delivery": "durable keyed intent queue submitted by control responder; acceptance is not delivery",
+        "lifecycle": "independent command responder; operator latch and supervised cognition recycle"}
     if mode == "iter":
         return {**common, "loop": "qualified pinned Iter control port",
             "provider": "existing owned HTTP transport; native OpenAI or Anthropic tool calls",
@@ -114,10 +116,11 @@ def prepare_omega(runtime, repo):
     skills = [form for form in forms((checkout / "src/skills.metta").read_text())
               if not any(form.startswith("(= (" + name + " ") or form.startswith("(= (" + name + ")")
                          for name in ("getStaticSkills", "read-file", "write-file", "append-file", "delete-file", "get-io-policy", "write-file-b64"))]
-    skills += ['(= (getStaticSkills) ("- Send a message to the user: send string" "- Execute shell: shell string" "- Read a file: read-file filename" "- Write a file: write-file filename string" "- Append a file: append-file filename string" "- Remember text: remember string" "- Search remembered text: query string" "- Recall history around a timestamp: episodes time_string" "- Pin text: pin string" "- Execute MeTTa: metta string" "- Finish this action without sending: nop" "- Version: version"))',
+    skills += ['(= (getStaticSkills) ("- Send to the private operator: send string" "- Send to an explicit channel from CHANNEL ROUTES: send-channel channel string" "- Execute shell: shell string" "- Read a file: read-file filename" "- Write a file: write-file filename string" "- Append a file: append-file filename string" "- Remember text: remember string" "- Search remembered text: query string" "- Recall history around a timestamp: episodes time_string" "- Pin text: pin string" "- Execute MeTTa: metta string" "- Finish this action without sending: nop" "- Version: version"))',
                '(= (read-file $p) (py-call (runtime_host.read_file $p)))',
                '(= (write-file $p $text) (py-call (runtime_host.write_file $p $text)))',
                '(= (append-file $p $text) (py-call (runtime_host.write_file $p $text True)))',
+               '(= (send-channel $destination $message) (py-call (runtime_host.send $message $destination)))',
                '(= (nop) NOP)']
     (runtime / "skills.metta").write_text("\n".join(skills) + "\n")
     (runtime / "rag.py").write_text('def init_knowledge(provider): return "Embedding add-on disabled"\n')
@@ -131,6 +134,7 @@ def prepare_omega(runtime, repo):
 !(import! &self "{runtime}/channels.py")
 !(import! &self (library Omega ./src/helper.py))
 !(py-call (helper.add_llm_command "nop"))
+!(py-call (helper.add_llm_command "send-channel"))
 !(import! &self "{runtime}/host.metta")
 !(import! &self "{runtime}/utils.metta")
 !(import! &self "{runtime}/skills.metta")
@@ -192,24 +196,8 @@ def main():
         environment.get("METTACLAW_LOOP_MODE_PATH", str(args.repo / "memory/loop_mode.json")))
     environment["PYTHONPATH"] = os.pathsep.join(paths + [str(args.repo / "src"),
         str(args.repo / "channels"), str(args.repo / "repos/petta_lib_chromadb")])
-    channel_process = None
     if not environment.get("METTACLAW_TELEGRAM_SERVICE_SOCKET"):
-        channel_socket = runtime / "direct-channel.sock"
-        # A filesystem socket can survive its process; do not treat the old
-        # inode as evidence that this generation's channel is ready.
-        channel_socket.unlink(missing_ok=True)
-        channel_environment = environment.copy()
-        channel_environment["PYTHONPATH"] = os.pathsep.join([str(args.repo / "src"),
-            str(args.repo / "channels"), str(args.repo / "repos/petta_lib_chromadb")])
-        channel_process = subprocess.Popen([sys.executable, str(HERE / "direct_channel.py"),
-            "--socket", str(channel_socket)], cwd=args.repo, env=channel_environment)
-        deadline = time.monotonic() + 15
-        while not channel_socket.exists():
-            if channel_process.poll() is not None or time.monotonic() > deadline:
-                channel_process.terminate()
-                raise RuntimeError("Telegram channel adapter failed to start")
-            time.sleep(.05)
-        environment["METTACLAW_MODE_CHANNEL_SOCKET"] = str(channel_socket)
+        raise RuntimeError("Iter/Omega require an independently supervised Telegram channel and control responder")
     if args.engine == "cetta":
         binary = environment.get("METTACLAW_MODE_CETTA_BIN") or environment.get("CETTA_BIN") or str(Path(environment["CETTA_ROOT"]) / "cetta")
         if not (Path(binary).resolve().parent / "lib/petta/lib_import.metta").exists():
@@ -221,15 +209,13 @@ def main():
         child = subprocess.Popen(command, cwd=runtime, env=environment)
         def stop(signum, frame):
             child.terminate()
-            if channel_process:
-                channel_process.terminate()
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
         status = child.wait()
     finally:
-        if channel_process:
-            channel_process.terminate()
-            channel_process.wait(timeout=10)
+        if child.poll() is None:
+            child.terminate()
+            child.wait(timeout=10)
     return max(0, status) if status < 0 else status
 
 

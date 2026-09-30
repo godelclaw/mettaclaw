@@ -1,0 +1,12 @@
+[Unit]
+Description=Private durable Telegram sockets for %i
+
+[Socket]
+ListenSequentialPacket=%t/cetta-telegram-%i/client.sock
+ListenSequentialPacket=%t/cetta-telegram-%i/operator.sock
+SocketMode=0600
+DirectoryMode=0700
+Accept=no
+
+[Install]
+WantedBy=sockets.target

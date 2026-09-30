@@ -18,6 +18,7 @@
 !(import! &self cwp)
 !(import! &self system)
 !(import! &self ./src/helper.py)
+!(import! &self ./src/mode_channel.py)
 !(import! &self ./channels/energy.metta)
 
 (= (tc:env $name $default) (system:getenv-or-default $name $default))
@@ -192,7 +193,7 @@
       ("/model"
        (if (== $args "")
          (let $model (tc:text (py-call (synthetic_llm.current_model)))
-           (format-args "active model: {} — /model <name> to switch, /models to list, /quota for budget" ($model)))
+           (format-args "selected model: {} — applied at the next provider request; /model <name> to switch, /models to list, /quota for budget" ($model)))
          (tc:text (py-call (synthetic_llm.set_model $args)))))
       ($other (format-args "unknown command {}" ($name))))))
 
@@ -219,5 +220,7 @@
 ; Forever: answer what is waiting, then look again shortly.
 (= (tc:serve)
    (let $answered (catch (tc:serve-once))
-     (let $slept (py-call (time.sleep 0.1))
-       (tc:serve))))
+     (let $pumped (catch (py-call (mode_channel.pump)))
+       (let $health (catch (py-call (mode_channel.heartbeat)))
+         (let $slept (py-call (time.sleep 0.1))
+           (tc:serve))))))

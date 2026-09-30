@@ -83,6 +83,9 @@ class BotAPI(Peer):
                                                                     "username": "LilaTestBot"}}).encode()
             self.message += 1
             message = self.message
+        if data.get("text") == "mode async slow":
+            self.slow_started = True
+            time.sleep(6)
         return 200, [], json.dumps({"ok": True, "result": {"message_id": message,
                                     "chat": {"id": data["chat_id"]}}}).encode()
 
@@ -355,6 +358,10 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             # 9. Runtime events from Python threads (a finished job) become
             #    activity; Python and Prolog callers read the client's state.
             api.add(104, CHAT, OPERATOR, "unread in 42")
+            import durable_telegram
+            await_(lambda: any('"unread in 42"' in body for _, body in
+                               durable_telegram.Channel(str(path), os.devnull).pending(256)),
+                   "input durable before freezing the activity frontier")
             lines, err = run('!(tg:start)\n!(py-call (telegram.enqueue_runtime_event "job 7 done" "job"))\n'
                              '!(fs:write "%s" (tg:activity-batch))\n'
                              '!(py-call (telegram.pendingActivityCount))\n'
@@ -456,6 +463,33 @@ with tempfile.TemporaryDirectory(prefix="lila-telegram-metta-") as temp:
             full = window_file.read_text()
             assert full.startswith("TELEGRAM ROUTE") and len(full) <= 30000, (len(full), full[:80])
             print("conversation window and chat recall match the Python readers")
+
+            # A short-lived mode tool records intent only. The independent
+            # responder submits it while no cognitive engine is running;
+            # a delivery slower than Iter's 5s tool deadline cannot kill it.
+            began = time.monotonic()
+            worker = subprocess.run([sys.executable, "-c", "import mode_channel; print(mode_channel.enqueue('mode async slow'))"],
+                                    cwd=ROOT, env=env, text=True, capture_output=True, timeout=5)
+            assert worker.returncode == 0 and worker.stdout.startswith("durably queued:"), worker.stderr
+            assert time.monotonic() - began < 5
+            try:
+                await_(lambda: getattr(api, "slow_started", False), "mode send submitted outside cognition")
+            except AssertionError:
+                print("mode queue debug", worker.stdout.strip(),
+                      [(p.name, p.read_text()[:600]) for p in (temp / "modes/channel-outbox").glob("*.*")],
+                      durable_telegram.Channel(str(path), os.devnull).pending(256)[-6:])
+                raise
+            chosen = "omega" if loop_modes.current_mode() != "omega" else "iter"
+            began = time.monotonic()
+            api.add(200, CHAT, OPERATOR, "/mode " + chosen)
+            await_(lambda: loop_modes.current_mode() == chosen, "control applied while delivery is slow")
+            assert time.monotonic() - began < 3, "control blocked on send"
+            assert responder[0].poll() is None
+            key = worker.stdout.strip().split(": ", 1)[1]
+            await_(lambda: any(key in body and '"delivered"' in body for _, body in
+                               durable_telegram.Channel(str(path), os.devnull).pending(256)),
+                   "delayed send has a delivery receipt")
+            print("mode send survives a 6s delivery and exited tool worker; /mode persists within 3s during delivery")
 
             print("responder: /mode answered in %.0f ms with no loop running, as the Python handler words it; "
                   "/wake ends a rest; /delete stays with the loop client (responder RSS %d kB)" % (latency * 1000, rss))

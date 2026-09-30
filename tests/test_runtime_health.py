@@ -14,6 +14,27 @@ import runtime_health  # noqa: E402
 
 
 class RuntimeHealthTest(unittest.TestCase):
+    def test_external_control_and_upstream_checkpoint_replace_legacy_client_health(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            receipt = root / "modes/control-status.json"
+            receipt.parent.mkdir()
+            self.write(receipt, {"observed_at": 995, "channel_ready": True})
+            self.write(self.channel, {"last_poll_ok_at": 1, "menu_status": "unknown"})
+            self.write(self.working, {"saved_at": 1})
+            self.write(self.mode, {"mode": "iter"})
+            self.write(self.cognitive, {"schema": 2, "last_completed_at": 997, "last_settled_at": 998})
+            with mock.patch.dict(os.environ, {"METTACLAW_ENGINE_STATE_PATH": str(root / "engine")}), \
+                 mock.patch.object(runtime_health.memory_health, "drift", return_value=(0, 0, 0)):
+                value = runtime_health.status(now=1000)
+                self.assertEqual(value["problems"], [])
+                self.assertEqual(value["operator_control_age_seconds"], 5)
+                self.assertEqual(value["working_set_age_seconds"], 2)
+                self.write(receipt, {"observed_at": 950, "channel_ready": False})
+                value = runtime_health.status(now=1000)
+                self.assertIn("operator-control-stale", value["problems"])
+                self.assertIn("channel-service-unavailable", value["problems"])
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

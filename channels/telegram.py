@@ -2122,6 +2122,7 @@ def _register_menu_commands():
 _metta = {}
 _metta_lock = threading.Lock()
 _metta_events = []
+_handover_offered = set()
 
 
 def metta_client():
@@ -2139,7 +2140,23 @@ def metta_take_runtime_events():
     with _metta_lock:
         items = _metta_events[:]
         del _metta_events[:]
+    import mode_channel
+    for uid, update in mode_channel.handover_inputs():
+        if not update or uid in _handover_offered:
+            continue
+        kind, message = _extract_message(update)
+        if message:
+            sender = message.get("from", {})
+            items.append({"chat": str(message["chat"]["id"]),
+                          "text": _format_message(update, kind, message, message.get("text") or message.get("caption") or "[attachment]"),
+                          "from_bot": bool(sender.get("is_bot")), "tier": _tier_for_sender(sender), "update_id": uid})
+            _handover_offered.add(uid)
     return json.dumps(items, ensure_ascii=False)
+
+
+def handover_ack(ids):
+    import mode_channel
+    return mode_channel.acknowledge_handover(str(ids).split(","))
 
 
 _METTA_SHARED = ("pending_count", "prepared_count", "sleep_until", "last_poll",

@@ -14,6 +14,7 @@ import cognitive_health
 import durable_telegram
 import lifecycle
 import loop_modes
+import mode_channel
 import synthetic_llm
 
 
@@ -60,20 +61,6 @@ def channel():
         str(shared() / "mode-channel-sequence"))
 
 
-def direct(action, **fields):
-    import socket
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(35)
-        connection.connect(os.environ["METTACLAW_MODE_CHANNEL_SOCKET"])
-        stream = connection.makefile("rwb")
-        stream.write(json.dumps({"action": action, **fields}).encode() + b"\n")
-        stream.flush()
-        result = json.loads(stream.readline(65537))
-    if not result.get("ok"):
-        raise RuntimeError("channel failed: " + str(result.get("error")))
-    return result["value"]
-
-
 def gate():
     """Stop/switch only between provider/tool turns; controls stay separate."""
     flag = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
@@ -106,12 +93,12 @@ def receive():
     menu taps belong exclusively to the independent command responder.
     """
     gate()
-    if os.environ.get("METTACLAW_MODE_CHANNEL_SOCKET"):
-        return direct("receive")
     offered = []
     texts = []
     client = channel()
-    for task, body in client.pending(128):
+    handover = [("handover:" + uid, json.dumps(["input", "", "message", "", raw]))
+                for uid, raw in mode_channel.handover_inputs() if raw]
+    for task, body in handover + client.pending(128):
         value = json.loads(body)
         if value[0] == "command" and value[2] == "/delete":
             client.answer(task, "Message deletion is unavailable in " + mode() + " mode; switch to godelclaw.")
@@ -123,21 +110,26 @@ def receive():
                 stream.write(json.dumps({"task": task, "receipt": value}) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            client.acknowledge(task)
+            texts.append("[channel receipt; this is delivery status, not a user message]\n" + json.dumps(value))
+            offered.append(task)
             continue
         update = value[4]
-        message = next((update[k] for k in ("message", "edited_message", "channel_post",
-                                           "edited_channel_post") if update.get(k)), {})
+        import telegram
+        kind, message = telegram._extract_message(update)
+        message = message or {}
         text = message.get("text") or message.get("caption") or ""
-        chat = str(message.get("chat", {}).get("id", value[1].split(".")[0]))
-        sender = message.get("from", {})
-        name = sender.get("first_name") or sender.get("username") or "user"
         # Preserve the durable update even for attachment-only messages.
         if not text:
             text = "[attachment received; use the agent attachment tools to inspect it]"
-        texts.append(f"[chat {chat}; {name}] {text}")
+        destination = mode_channel.remember_route(message)
+        if mode() == "iter":
+            # Use Iter's existing named-channel send interface unchanged.
+            (root() / "channels" / (destination + ".py")).write_text(
+                'import runtime_host\ndef send(content): return runtime_host.send(content, '
+                + repr(destination) + ')\n')
+        texts.append("[reply_channel=" + destination + "]\n" +
+                     telegram._format_message(update, kind, message, text))
         offered.append(task)
-        atomic(shared() / "mode-reply-route.json", {"chat": chat})
     if offered:
         atomic(root() / "offered-input.json", offered)
         record("input", count=len(offered))
@@ -145,8 +137,6 @@ def receive():
 
 
 def commit_inputs():
-    if os.environ.get("METTACLAW_MODE_CHANNEL_SOCKET"):
-        return direct("commit")
     path = root() / "offered-input.json"
     tasks = read_json(path, [])
     if not tasks:
@@ -155,46 +145,40 @@ def commit_inputs():
     client = channel()
     for task in tasks:
         try:
-            client.acknowledge(task)
+            if task.startswith("handover:"):
+                mode_channel.acknowledge_handover([task.split(":", 1)[1]])
+            else:
+                client.acknowledge(task)
         except (OSError, durable_telegram.ChannelError):
             remaining.append(task)
     atomic(path, remaining)
     return not remaining
 
 
-def send(message):
-    if os.environ.get("METTACLAW_MODE_CHANNEL_SOCKET"):
-        return direct("send", text=str(message))
-    route = read_json(shared() / "mode-reply-route.json", {})
-    chat = route.get("chat") or os.environ.get("METTACLAW_TELEGRAM_PRIMARY_CHAT_ID", "") or os.environ.get("METTACLAW_TELEGRAM_CHAT_ID", "") or os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not chat:
-        return "not sent: no reply chat until input arrives"
-    chat = str(chat).split(",")[0].strip()
-    client = channel()
-    key = client.key(chat)
-    commands = [["send", piece] for piece in durable_telegram.chunks(str(message))]
-    # Keep the intended key/bytes before submission, including service outages.
-    outbox = root() / "outbox"
-    outbox.mkdir(exist_ok=True)
-    intent = outbox / (key + ".json")
-    atomic(intent, {"key": key, "commands": commands})
-    client.submit(key, commands)
-    intent.unlink()
-    record("send", characters=len(str(message)))
-    return "accepted by durable Telegram service"
+def send(message, destination="telegram"):
+    result = mode_channel.enqueue(str(message), str(destination))
+    record("send-queued", destination=str(destination), characters=len(str(message)))
+    return result
+
+
+def route_context():
+    return mode_channel.context()
 
 
 def recover_outbox():
-    if os.environ.get("METTACLAW_MODE_CHANNEL_SOCKET"):
-        return
+    # Preserve intents from the previous adapter using their original key.
+    # Submission is now owned by the control responder, not a tool worker.
     for path in sorted((root() / "outbox").glob("*.json")):
         item = read_json(path, None)
         if item:
-            channel().submit(item["key"], item["commands"])
+            mode_channel.store(shared() / "channel-outbox" / (item["key"] + ".json"), item)
             path.unlink()
 
 
 def boot():
+    if mode() == "omega":
+        import helper
+        helper.TWO_ARG_COMMANDS.add("send-channel")
     # Provider failure backoff is operational pacing. Keep mode/stop controls
     # responsive while retaining the existing adapter's backoff durations.
     synthetic_llm.time = SimpleNamespace(**{
@@ -239,6 +223,7 @@ def provider_request(request):
     """Use the existing owned HTTP adapter, retaining native tool-call JSON."""
     import urllib.request
     selected = synthetic_llm.current_model()
+    record("model-applied", model=selected)
     provider = synthetic_llm._provider_for(selected)
     cognitive_health.expect_turn(mode())
     try:
@@ -384,8 +369,9 @@ def config(key, default):
 def provider(prompt, max_tokens, reasoning):
     gate()
     cognitive_health.expect_turn(mode())
-    record("provider-request", protocol="command-text")
-    response = synthetic_llm.chat(synthetic_llm.current_model(), max_tokens, reasoning, prompt)
+    selected = synthetic_llm.current_model()
+    record("provider-request", protocol="command-text", model=selected)
+    response = synthetic_llm.chat(selected, max_tokens, reasoning, route_context() + "\n\n" + str(prompt))
     record("provider-response", protocol="command-text")
     return response
 
