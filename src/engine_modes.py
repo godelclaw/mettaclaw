@@ -204,3 +204,18 @@ def request_recycle():
     except OSError as exc:
         print("[engine-mode] recycle request failed:", type(exc).__name__)
         return False
+
+
+def recycle_requested():
+    """Flags and persisted selections are independent switch witnesses."""
+    path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
+    if path and os.path.isfile(path):
+        return True
+    if os.environ.get("METTACLAW_ACTIVE_ENGINE") and selected_engine() != active_engine():
+        return True
+    if __package__:
+        from . import loop_modes
+    else:
+        import loop_modes
+    return bool(os.environ.get("METTACLAW_ACTIVE_LOOP_MODE") and
+                loop_modes.current_mode() != loop_modes.process_mode())

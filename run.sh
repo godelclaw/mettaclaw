@@ -94,6 +94,12 @@ fi
 # newly requested engine that will take effect after recycling.
 export METTACLAW_ENGINE_STATE_PATH="${METTACLAW_ENGINE_STATE_PATH:-$STATE_HOME/$INSTANCE/engine}"
 export METTACLAW_ENGINE_FAILURE_PATH="${METTACLAW_ENGINE_FAILURE_PATH:-$STATE_HOME/$INSTANCE/engine-failure}"
+export METTACLAW_RECYCLE_REQUEST_PATH="${METTACLAW_RECYCLE_REQUEST_PATH:-$STATE_HOME/$INSTANCE/recycle.requested}"
+# Acknowledge before capturing either selection. Anything requested during
+# startup belongs to this process and must survive until its boundary.
+if [ "$REQUESTED_TARGET" = run.metta ] || [ "$REQUESTED_TARGET" = "$ROOT/run.metta" ]; then
+    rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
+fi
 ENGINE_DEFAULT="${METTACLAW_ENGINE:-petta}"
 SELECTED_ENGINE="$ENGINE_DEFAULT"
 HEAL_ENGINE_SELECTION=0
@@ -190,8 +196,8 @@ mkdir -p "$METTACLAW_CHROMA_DIR" "$METTACLAW_MEMORY_LOG_DIR" "$ROOT/chat" "$ROOT
 # root regardless of where this script was invoked from.
 cd "$ROOT"
 
-# Lila's Telegram command responder (channels/telegram_control.metta): a
-# process of its own beside her loop, in the same configured environment.
+# The Telegram command responder (channels/telegram_control.metta) is a
+# process of its own beside cognition, in the same configured environment.
 # It is MeTTa only, so it always runs on CeTTa, and it touches none of the
 # loop's lifecycle: no recycle acknowledgement, no engine fallback.
 if [ "$REQUESTED_TARGET" = telegram-control ]; then
@@ -205,12 +211,6 @@ fi
 #   ./run.sh smoketest.metta   # import-only check; does NOT start the loop
 TARGET="${1:-run.metta}"
 case "$TARGET" in /*) ;; *) TARGET="$ROOT/$TARGET" ;; esac
-
-# Only the real agent process acknowledges a request. Test and utility targets
-# must not clear a flag intended for a concurrently running service.
-if [ "$TARGET" = "$ROOT/run.metta" ]; then
-    rm -f "$METTACLAW_RECYCLE_REQUEST_PATH"
-fi
 
 persist_engine_selection() {
     local engine="$1"
@@ -245,14 +245,16 @@ fallback_to_petta() {
         echo "warning: could not persist engine failure receipt" >&2
     fi
     echo "engine '$METTACLAW_ENGINE' failed ($reason, status $status)" >&2
-    if [ "$TARGET" != "$ROOT/run.metta" ]; then
+    if [ "$TARGET" != "$ROOT/run.metta" ] || [ "${METTACLAW_ENGINE_FALLBACK:-none}" != petta ]; then
+        echo "engine selection preserved; inspect the failure or explicitly select another engine" >&2
         exit "$status"
     fi
     echo "restoring stable engine 'petta'" >&2
     persist_engine_selection petta
     export METTACLAW_ENGINE=petta
     export METTACLAW_ACTIVE_ENGINE=petta
-    exec "$PETTA_ROOT/run.sh" "$TARGET" default
+    # Re-enter mode dispatch; fallback must not always start the framework.
+    exec bash "$ROOT/run.sh"
 }
 
 if [ "$TARGET" = "$ROOT/run.metta" ] && [ -f "$ROOT/modes/launch.py" ]; then
@@ -317,7 +319,8 @@ case "$METTACLAW_ENGINE" in
         if [ "$shutdown_requested" -eq 1 ]; then
             exit 0
         fi
-        if [ "$status" -eq 0 ] && [ -f "$METTACLAW_RECYCLE_REQUEST_PATH" ]; then
+        if [ "$status" -eq 0 ] && "$PETTA_PY_ENV/bin/python3" -c \
+            'import engine_modes; raise SystemExit(0 if engine_modes.recycle_requested() else 1)'; then
             exit 0
         fi
         if [ "$status" -eq 0 ]; then

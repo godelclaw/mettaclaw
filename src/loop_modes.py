@@ -90,6 +90,16 @@ def current_mode():
         return _load()["mode"]
 
 
+def process_mode():
+    """The running process's policy, independent of a newer selection.
+
+    Standalone modes are separate programs, not presets that the framework
+    loop can adopt mid-turn. The launcher captures this value once per boot.
+    """
+    active = canonical(os.environ.get("METTACLAW_ACTIVE_LOOP_MODE", ""))
+    return active if active in MODES else current_mode()
+
+
 def _active_path():
     state = os.environ.get("METTACLAW_ENGINE_STATE_PATH")
     if state:

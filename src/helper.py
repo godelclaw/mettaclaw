@@ -319,8 +319,11 @@ def recycle_requested():
     Python bools marshal into PeTTa as (@ true)/(@ false), which the
     language if does not treat as truth — the 1/0 integer convention is
     the reliable boundary type (bug found live 2026-07-18/19)."""
-    path = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
-    return 1 if path and os.path.isfile(path) else 0
+    if __package__:
+        from . import engine_modes
+    else:
+        import engine_modes
+    return int(engine_modes.recycle_requested())
 
 
 def recycle_ack():

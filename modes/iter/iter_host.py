@@ -49,15 +49,21 @@ def size(value):
 
 
 def truth(value):
-    return bool(unbox(value))
+    # Janus exposes a Python bool as (@ true), which SWI-PeTTa's `if` does
+    # not treat as its Boolean atom. Use the same explicit atom on both hosts.
+    return "true" if bool(unbox(value)) else "false"
+
+
+def flag(value, key):
+    return truth(unbox(value)[key])
 
 
 def equal(left, right):
-    return unbox(left) == unbox(right)
+    return truth(unbox(left) == unbox(right))
 
 
 def not_equal(left, right):
-    return not equal(left, right)
+    return truth(unbox(left) != unbox(right))
 
 
 def put(value, key, item):
@@ -241,11 +247,22 @@ def decode(arguments):
 
 
 def has_tool(loaded, name):
-    return name in unbox(loaded)["snapshot"]
+    return truth(name in unbox(loaded)["snapshot"])
 
 
 def unknown(name):
     return f"Unknown tool: {name!r}"
+
+
+def native_processes():
+    return truth(os.environ.get("METTACLAW_ACTIVE_ENGINE") != "petta")
+
+
+def reference_dynamic(loaded, name, arguments):
+    """Keep the pinned upstream process helper on hosts without lib/proc."""
+    result = namespace["invoke_dynamic"](unbox(loaded)["snapshot"][name][0],
+                                          "run", **unbox(arguments))
+    return boxed(result["result"]) if result["ok"] else f"Tool execution failed: {result['error']}"
 
 
 def prepare_dynamic(loaded, name, arguments):

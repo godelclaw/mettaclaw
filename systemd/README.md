@@ -89,6 +89,8 @@ Provide a cognition unit for your instance. For example, save the following as
 Description=MeTTaClaw cognition (%i)
 Wants=network-online.target cetta-telegram@%i.service pettaclaw-telegram-control@%i.service
 After=network-online.target cetta-telegram@%i.service pettaclaw-telegram-control@%i.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -112,6 +114,12 @@ responder uses the same instance name. Keep provider credentials in the
 instance's `config/secrets.env`. The transport and responder remain independent
 of cognition: the example uses startup dependencies, without `PartOf` or a
 shared service control group.
+
+The start limit stops a persistent startup failure after five attempts within
+two minutes. Inspect `journalctl --user -u pettaclaw@research.service`, fix the
+cause, then use `systemctl --user reset-failed pettaclaw@research.service` before
+starting cognition again. Mode changes preserve the selected evaluator; automatic
+framework fallback requires `METTACLAW_ENGINE_FALLBACK=petta`.
 
 Once the configured files and host bundle are in place:
 

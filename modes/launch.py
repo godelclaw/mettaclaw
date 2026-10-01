@@ -36,12 +36,15 @@ def adapter_ledger(mode, durable_channel):
         "lifecycle": "independent command responder; operator latch and supervised cognition recycle"}
     if mode == "iter":
         return {**common, "loop": "qualified pinned Iter control port",
+            "tool_process": "CeTTa lib/proc; pinned upstream subprocess helper on PeTTa",
+            "booleans": "explicit MeTTa atoms at Python predicate boundaries",
             "provider": "existing owned HTTP transport; native OpenAI or Anthropic tool calls",
             "anthropic_policy": "auto tool choice; core retries no-tool replies; default thinking; opaque signed reasoning preserved",
             "memory": "mode-private upstream experience, files and transformations"}
     return {**common,
         "input_annotations": "migrated to current PeTTa annotations",
         "case": "current engine semantics; no duplicate-evaluation compatibility shim",
+        "host_values": "explicit Boolean atoms and file predicates; deterministic text concatenation",
         "loop": "pinned Omega loop unchanged",
         "provider": "existing configured command-text adapter",
         "memory": "mode-private history and text recall; embedding add-on disabled",
@@ -101,7 +104,8 @@ def prepare_omega(runtime, repo):
                  if form != "!(import_prolog_function get_time)" and
                  not any(form.startswith("(= (" + name + " ") or
                          form.startswith("(= (" + name + ")")
-                         for name in ("sleep", "get_time_as_string", "joinPath", "string-replace"))]
+                         for name in ("sleep", "get_time_as_string", "joinPath", "string-replace",
+                                      "exists-file", "exists-directory"))]
     (runtime / "utils.metta").write_text("\n".join(utilities) + "\n")
     memory = [form for form in forms((checkout / "src/memory.metta").read_text())
               if not any(form.startswith("(= (" + name + " ") or
@@ -150,11 +154,11 @@ def prepare_omega(runtime, repo):
 
 
 OMEGA_HOST = r'''
-(= (py-str-helper () $outp) $outp)
 (= (py-str-helper $L $outp)
-   (let* (($head (car-atom $L)) ($tail (cdr-atom $L))
-          ($outp2 (py-call (operator.add $outp (py-call (str $head))))))
-     (py-str-helper $tail $outp2)))
+   (if (== $L ()) $outp
+       (let* (($head (car-atom $L)) ($tail (cdr-atom $L))
+              ($outp2 (py-call (operator.add $outp (py-call (str $head))))))
+         (py-str-helper $tail $outp2))))
 (= (py-str $L) (py-str-helper $L ""))
 (= (configure $key $default)
    (let $value (py-call (runtime_host.config $key $default))
@@ -171,7 +175,62 @@ OMEGA_HOST = r'''
 (= (joinPath $parts) (py-call (helper.joinPath $parts)))
 (= (sleep $seconds) (py-call (runtime_host.omega_sleep $seconds)))
 (= (string-replace $text $separators $replacement) (py-call (runtime_host.string_replace $text $separators $replacement)))
+(= (exists-file $path) (py-call (runtime_host.path_exists $path "file")))
+(= (exists-directory $path) (py-call (runtime_host.path_exists $path "directory")))
 '''
+
+
+def engine_command(engine, entry, environment):
+    if engine == "cetta":
+        binary = environment.get("METTACLAW_MODE_CETTA_BIN") or environment.get("CETTA_BIN") or str(Path(environment["CETTA_ROOT"]) / "cetta")
+        if not (Path(binary).resolve().parent / "lib/petta/lib_import.metta").exists():
+            raise RuntimeError("mode engine bundle is missing its lib directory")
+        return [binary, "--lang", "petta", "--import-mode", "ancestor-walk", str(entry)]
+    # Upstream run.sh need not have a shebang. Python's exec does not provide
+    # the ENOEXEC shell fallback that an interactive shell does.
+    return ["bash", str(Path(environment["PETTA_ROOT"]) / "run.sh"), str(entry), "--silent"]
+
+
+def run_child(command, runtime, environment):
+    # Spawn before entering cleanup: a failed exec has no child to terminate.
+    child = subprocess.Popen(command, cwd=runtime, env=environment, start_new_session=True)
+    stopped = False
+    stop_deadline = None
+
+    def terminate(signum, frame):
+        nonlocal stopped, stop_deadline
+        stopped = True
+        if stop_deadline is None:
+            stop_deadline = time.monotonic() + 10
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    handlers = {sig: signal.signal(sig, terminate) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        while True:
+            try:
+                status = child.wait(timeout=0.25)
+                break
+            except subprocess.TimeoutExpired:
+                if stop_deadline is not None and time.monotonic() >= stop_deadline:
+                    os.killpg(child.pid, signal.SIGKILL)
+    finally:
+        # PeTTa's runner spawns SWI-Prolog; terminate the entire process group,
+        # including workers, before releasing the single-cognition lock.
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+    return 0 if stopped else (128 - status if status < 0 else status)
 
 
 def main():
@@ -190,7 +249,8 @@ def main():
     environment = os.environ.copy()
     environment.update(METTACLAW_MODE_RUNTIME=str(runtime), METTACLAW_MODE_STATE_ROOT=str(state),
                        METTACLAW_AGENT_ROOT=str(args.repo), METTACLAW_ACTIVE_LOOP_MODE=args.mode,
-                       METTACLAW_ACTIVE_ENGINE=args.engine, PYTHONDONTWRITEBYTECODE="1")
+                       METTACLAW_ENGINE=args.engine, METTACLAW_ACTIVE_ENGINE=args.engine,
+                       PYTHONDONTWRITEBYTECODE="1")
     # The loop's CWD is mode-private; selection remains agent-wide.
     environment["METTACLAW_LOOP_MODE_PATH"] = os.path.abspath(
         environment.get("METTACLAW_LOOP_MODE_PATH", str(args.repo / "memory/loop_mode.json")))
@@ -198,25 +258,7 @@ def main():
         str(args.repo / "channels"), str(args.repo / "repos/petta_lib_chromadb")])
     if not environment.get("METTACLAW_TELEGRAM_SERVICE_SOCKET"):
         raise RuntimeError("Iter/Omega require an independently supervised Telegram channel and control responder")
-    if args.engine == "cetta":
-        binary = environment.get("METTACLAW_MODE_CETTA_BIN") or environment.get("CETTA_BIN") or str(Path(environment["CETTA_ROOT"]) / "cetta")
-        if not (Path(binary).resolve().parent / "lib/petta/lib_import.metta").exists():
-            raise RuntimeError("mode engine bundle is missing its lib directory")
-        command = [binary, "--lang", "petta", "--import-mode", "ancestor-walk", str(entry)]
-    else:
-        command = [str(Path(environment["PETTA_ROOT"]) / "run.sh"), str(entry), "--silent"]
-    try:
-        child = subprocess.Popen(command, cwd=runtime, env=environment)
-        def stop(signum, frame):
-            child.terminate()
-        signal.signal(signal.SIGTERM, stop)
-        signal.signal(signal.SIGINT, stop)
-        status = child.wait()
-    finally:
-        if child.poll() is None:
-            child.terminate()
-            child.wait(timeout=10)
-    return max(0, status) if status < 0 else status
+    return run_child(engine_command(args.engine, entry, environment), runtime, environment)
 
 
 if __name__ == "__main__":

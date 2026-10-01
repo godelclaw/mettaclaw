@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import cognitive_health
 import durable_telegram
+import engine_modes
 import lifecycle
 import loop_modes
 import mode_channel
@@ -63,9 +64,8 @@ def channel():
 
 def gate():
     """Stop/switch only between provider/tool turns; controls stay separate."""
-    flag = os.environ.get("METTACLAW_RECYCLE_REQUEST_PATH", "")
     while True:
-        if (flag and Path(flag).exists()) or loop_modes.current_mode() != mode():
+        if engine_modes.recycle_requested():
             record("recycle")
             sys.stdout.flush()
             sys.stderr.flush()
@@ -362,7 +362,7 @@ def config(key, default):
                  "memoryDirectory": str(root() / "repos/Omega/memory"),
                  "embeddingprovider": "Disabled"}
     if str(key) == "spamShield":
-        return str(default).lower() == "true"
+        return "true" if str(default).lower() == "true" else "false"
     return overrides.get(str(key), default)
 
 
@@ -410,6 +410,12 @@ def string_replace(text, separators, replacement):
 
 def read_file(path):
     return Path(str(path)).read_text()
+
+
+def path_exists(path, kind):
+    target = Path(str(path))
+    exists = target.is_dir() if kind == "directory" else target.is_file()
+    return "true" if exists else "false"
 
 
 def write_file(path, text, append=False):

@@ -3,6 +3,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import shlex
 import socket
 import subprocess
 import sys
@@ -12,6 +13,45 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def accelerated_engine(state, engine, environment):
+    """Replace only Omega's host sleep, keeping its loop and evaluator real."""
+    directory = state / 'test-engine'
+    directory.mkdir(exist_ok=True)
+    clock = directory / 'mode_test_clock.py'
+    clock.write_text('import runtime_host,time\n'
+        'def install():\n'
+        '    def sleep(seconds):\n'
+        '        runtime_host.gate()\n'
+        '        time.sleep(.001)\n'
+        '        return True\n'
+        '    runtime_host.sleep = sleep\n'
+        '    return True\n')
+    prefix = ([environment['MODE_TEST_CETTA_BIN']] if engine == 'cetta' else
+              ['/bin/bash', str(Path(environment['MODE_TEST_PETTA_ROOT']) / 'run.sh')])
+    runner = directory / 'cetta'
+    runner.write_text(f'#!{sys.executable}\n'
+        'import os,sys\nfrom pathlib import Path\n'
+        f'command = {prefix!r} + sys.argv[1:]\n'
+        'for index, argument in enumerate(command):\n'
+        '    if not argument.endswith(".metta") or not Path(argument).is_file(): continue\n'
+        '    entry = Path(argument)\n'
+        '    source = entry.read_text()\n'
+        '    if "!(omega)" not in source: continue\n'
+        f'    replacement = {f"!(import! &self {json.dumps(str(clock))})"!r}\n'
+        '    replacement += "\\n!(py-call (mode_test_clock.install))\\n!(omega)"\n'
+        '    target = entry.with_name("test-clock.metta")\n'
+        '    target.write_text(source.replace("!(omega)", replacement))\n'
+        '    command[index] = str(target)\n'
+        'os.execv(command[0], command)\n')
+    runner.chmod(0o755)
+    if engine == 'cetta':
+        (directory / 'lib').symlink_to(Path(prefix[0]).resolve().parent / 'lib')
+        environment['METTACLAW_MODE_CETTA_BIN'] = str(runner)
+    else:
+        (directory / 'run.sh').write_text('exec ' + shlex.join([sys.executable, str(runner)]) + ' "$@"\n')
+        environment['PETTA_ROOT'] = str(directory)
 
 
 class Provider(http.server.BaseHTTPRequestHandler):
@@ -78,9 +118,17 @@ class ChannelServer:
         self.server.close()
 
 
-@unittest.skipUnless(os.environ.get('MODE_TEST_CETTA_BIN'), 'set MODE_TEST_CETTA_BIN for real CeTTa checks')
 class ModeRuntimeTests(unittest.TestCase):
-    def test_both_modes_checkpoint_restart_and_switch(self):
+    @unittest.skipUnless(os.environ.get('MODE_TEST_CETTA_BIN'), 'set MODE_TEST_CETTA_BIN for real CeTTa checks')
+    def test_cetta_modes_checkpoint_restart_and_switch(self):
+        self.check_modes('cetta')
+
+    @unittest.skipUnless(os.environ.get('MODE_TEST_PETTA_ROOT'), 'set MODE_TEST_PETTA_ROOT for real PeTTa checks')
+    def test_petta_modes_checkpoint_restart_and_switch(self):
+        self.check_modes('petta')
+
+    def check_modes(self, engine):
+        Provider.requests = []
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary)
             agent = state/'agent'
@@ -93,9 +141,11 @@ class ModeRuntimeTests(unittest.TestCase):
             threading.Thread(target=provider.serve_forever, daemon=True).start()
             channel = ChannelServer(state/'channel.sock')
             try:
+                fixture_environment = os.environ.copy()
+                accelerated_engine(state, engine, fixture_environment)
                 for mode in ('iter', 'omega'):
                     (agent/'memory/loop_mode.json').write_text(json.dumps({'mode': mode}))
-                    environment = os.environ.copy()
+                    environment = fixture_environment.copy()
                     environment.update({
                         'PYTHONPATH': str(ROOT/'src'),
                         'PYTHONHOME': sys.prefix,
@@ -111,14 +161,13 @@ class ModeRuntimeTests(unittest.TestCase):
                         'METTACLAW_TELEGRAM_SERVICE_SOCKET': str(state/'channel.sock'),
                         'METTACLAW_TELEGRAM_PRIMARY_CHAT_ID': '1',
                         'METTACLAW_PROMPT_PATH': str(state/'identity.txt'),
-                        'METTACLAW_MODE_CETTA_BIN': environment['MODE_TEST_CETTA_BIN'],
-                        'PETTA_ROOT': '/unused', 'SYNTHETIC_MODEL': 'fixture-model',
+                        'SYNTHETIC_MODEL': 'fixture-model',
                         'SYNTHETIC_BASE_URL': f'http://127.0.0.1:{provider.server_port}/v1',
                         'SYNTHETIC_API_KEY': 'fixture-only',
                     })
                     environment.pop('METTACLAW_LOOP_MODE_PATH', None)
                     command = [sys.executable, str(ROOT/'modes/launch.py'), '--repo', str(agent),
-                               '--mode', mode, '--engine', 'cetta']
+                               '--mode', mode, '--engine', engine]
                     for restart in range(2):
                         trace = state/'modes'/mode/'runtime.jsonl'
                         count_before = trace.read_text().count('"kind": "boundary"') if trace.exists() else 0
@@ -128,7 +177,8 @@ class ModeRuntimeTests(unittest.TestCase):
                                 deadline = time.monotonic()+45
                                 while time.monotonic() < deadline:
                                     self.assertIsNone(process.poll(), (state/f'{mode}-{restart}.log').read_text())
-                                    if trace.exists() and trace.read_text().count('"kind": "boundary"') > count_before+1:
+                                    required = 100 if mode == 'omega' else 2
+                                    if trace.exists() and trace.read_text().count('"kind": "boundary"') >= count_before+required:
                                         break
                                     time.sleep(.1)
                                 else:
@@ -137,14 +187,17 @@ class ModeRuntimeTests(unittest.TestCase):
                                 self.assertEqual(process.wait(timeout=8), 0)
                             finally:
                                 if process.poll() is None:
-                                    process.kill()
-                                    process.wait()
+                                    process.terminate()
+                                    process.wait(timeout=15)
                                 (state/'recycle').unlink(missing_ok=True)
                         active = json.loads((state/'active-loop.json').read_text())
                         self.assertEqual(active['mode'], mode)
                         self.assertEqual(Path(active['state_directory']), state/'modes'/mode)
                     if mode == 'iter':
                         history = json.loads((state/'modes/iter/experience.json').read_text())
+                        tools = [m['content'] for m in history if m.get('role') == 'tool']
+                        self.assertTrue(tools, 'no tool result was checkpointed')
+                        self.assertTrue(all(m.endswith(': SUCCESS') for m in tools), tools)
                         self.assertTrue(any('remember this fixture' in m.get('content','') for m in history))
                         self.assertIn('fixture-input', channel.acks)
                         channel.pending['omega-input'] = json.dumps(['input','1.0','message','operator',

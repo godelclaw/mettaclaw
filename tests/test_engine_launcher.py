@@ -39,7 +39,8 @@ class EngineLauncherTests(unittest.TestCase):
         (self.root / "run.metta").write_text("", encoding="utf-8")
         (self.root / "src" / "memory_health.py").write_text(
             "", encoding="utf-8")
-        self._script(self.pyenv / "bin" / "python3", "exit 0")
+        self._script(self.pyenv / "bin" / "python3",
+                     'if [ "$1" = -c ]; then test -f "$METTACLAW_RECYCLE_REQUEST_PATH"; else exit 0; fi')
         self.result = self.base / "result"
         self._script(
             self.petta / "run.sh",
@@ -117,7 +118,7 @@ class EngineLauncherTests(unittest.TestCase):
 
     def test_cetta_selection_launches_petta_profile(self):
         self.select("cetta")
-        result = self.launch()
+        result = self.launch(CETTA_REQUEST_RECYCLE=1)
         self.assertEqual(result.returncode, 0, result.stderr)
         line = self.result_lines()[0]
         self.assertTrue(line.startswith("cetta:cetta:"))
@@ -130,15 +131,15 @@ class EngineLauncherTests(unittest.TestCase):
         self.assertNotIn(str(self.root / "src" / ""), line)
         self.assertNotIn(str(self.root / "lib_nal.metta"), line)
 
-    def test_clean_unrequested_cetta_stop_falls_back(self):
+    def test_clean_unrequested_stop_preserves_engine(self):
         self.select("cetta")
         result = self.launch()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual([line.split(":", 1)[0]
                           for line in self.result_lines()],
-                         ["cetta", "petta"])
+                         ["cetta"])
         self.assertEqual(self.state_path.read_text(encoding="utf-8"),
-                         "petta\n")
+                         "cetta\n")
         self.assertIn("stopped without a recycle request", result.stderr)
         failure = self.failure_path.read_text(encoding="utf-8")
         self.assertIn("engine=cetta\n", failure)
@@ -147,9 +148,17 @@ class EngineLauncherTests(unittest.TestCase):
                       failure)
         self.assertEqual(self.failure_path.stat().st_mode & 0o777, 0o600)
 
-    def test_cetta_failure_heals_selection_and_falls_back(self):
+    def test_cetta_failure_preserves_selection_by_default(self):
         self.select("cetta")
         result = self.launch(CETTA_EXIT_CODE=7)
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertEqual(len(self.result_lines()), 1)
+        self.assertEqual(self.state_path.read_text(), "cetta\n")
+        self.assertIn("status=7\n", self.failure_path.read_text())
+
+    def test_explicit_fallback_heals_selection(self):
+        self.select("cetta")
+        result = self.launch(CETTA_EXIT_CODE=7, METTACLAW_ENGINE_FALLBACK="petta")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([line.split(":", 1)[0]
                           for line in self.result_lines()],
@@ -196,6 +205,7 @@ class EngineLauncherTests(unittest.TestCase):
         try:
             result = self.launch(
                 CETTA_EXIT_CODE=7,
+                METTACLAW_ENGINE_FALLBACK="petta",
                 METTACLAW_ENGINE_FAILURE_PATH=(
                     failure_parent / "engine-failure"),
             )

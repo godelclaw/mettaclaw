@@ -7,7 +7,7 @@
    (py-call (helper.int_env "METTACLAW_HEARTBEAT_INTERVAL_SECONDS" 1800)))
 
 (= (initialPeriphery)
-   (let $selected (py-call (loop_modes.current_mode))
+   (let $selected (py-call (loop_modes.process_mode))
      (coordinate iteration 1
      (coordinate loops
        (py-call (helper.boot_int "loops" (policy-burst-budget $selected)))
@@ -26,7 +26,8 @@
 
 (= (initLoop)
    (progn
-     (py-call (helper.recycle_ack))
+     ;; Only the launcher acknowledges the previous process's request,
+     ;; before selecting its engine and mode. A newer request belongs to us.
      (py-call (helper.working_boot))
      (configure sleepInterval 1)
      (configure LLM syn:large:text)
@@ -305,7 +306,7 @@
 ;; to the kernel's success/failure vocabulary.
 (= (enabledTurnCandidate $periphery)
    (let* (($iteration (loop-iteration $periphery))
-          ($selected (py-call (loop_modes.current_mode)))
+          ($selected (py-call (loop_modes.process_mode)))
           ($selectedPeriphery
             (coordinate-set active-policy $selected
               (coordinate-set autonomous-ready 0 $periphery)))
@@ -447,7 +448,9 @@
          (coordinate-get-or banked-loops 0 $periphery)))))
 
 (= (processLoop $state)
-   (let* (($periphery (process-periphery $state))
+   (if (== (py-call (helper.recycle_requested)) 1)
+     (py-call (helper.recycle_exit))
+     (let* (($periphery (process-periphery $state))
           ($_ (println! (---------iteration (loop-iteration $periphery))))
           ($outcome (turnProcess $periphery))
           ($next (process-step $state $outcome))
@@ -461,7 +464,7 @@
          (let* (($waitOutcome (waitProcess (process-periphery $next)))
                 ($waiting (process-step $next $waitOutcome))
                 ($_ (persistProcessState $waiting)))
-           (processLoop $waiting)))))
+           (processLoop $waiting))))))
 
 (= (mettaclaw)
    (progn

@@ -28,6 +28,13 @@ names `agent`, `default`, `generic` and `claw23` map to `godelclaw`;
 `iter-coding` maps to `coding`. The current `iter` selection runs the actual
 upstream core port.
 
+The running process keeps its original mode until it checkpoints and exits;
+a newer selection never becomes a policy inside the old loop. Startup consumes
+only the previous restart request, before selecting its engine and mode.
+Unexpected evaluator exits preserve the selected engine and report failure.
+Automatic framework fallback to PeTTa is opt-in via
+`METTACLAW_ENGINE_FALLBACK=petta`; an explicit `/engine petta` remains available.
+
 Iter renews its work after an idle boundary and can make provider calls without
 new input. Omega keeps its own wake/counter behavior. Framework fuel settings
 do not automatically impose quota control on these loops. Select and supervise
@@ -81,6 +88,37 @@ The UI distinguishes the requested selection from the currently running loop.
 It freezes the agent-wide selection path before changing CWD. The installed
 CeTTa bundle includes its library directory beside the binary. Tests exercise
 this installed layout with implicit selection-path defaults.
+
+The PeTTa runner is invoked through Bash, including upstream scripts without a
+shebang. Both evaluators use explicit MeTTa Boolean atoms at Iter's Python
+predicate boundary. A Python `True` alone crosses Janus as `(@ true)`, which is
+not SWI-PeTTa's Boolean `true`.
+On PeTTa, tool subprocesses use Iter's pinned upstream Python helper; on CeTTa,
+they use `lib/proc`. The loop's tool selection, ordering and result protocol stay
+the same. Omega's Boolean configuration and filesystem predicates also use
+explicit MeTTa atoms. Its host text concatenation has an exclusive empty-list
+case: the inherited overlapping helper otherwise enumerates indefinitely when
+asked for all answers. These adaptations leave the vendored loops unchanged.
+
+To check startup, switching, checkpoints and restart with both installed engines:
+
+```sh
+MODE_TEST_CETTA_BIN=/path/to/cetta \
+MODE_TEST_PETTA_ROOT=/path/to/PeTTa \
+python3 -m unittest discover -s tests -p 'test_mode_launcher.py'
+MODE_TEST_CETTA_BIN=/path/to/cetta \
+MODE_TEST_PETTA_ROOT=/path/to/PeTTa \
+python3 -m unittest discover -s tests -p 'test_upstream_mode_runtime.py'
+```
+
+Use the Python environment configured for the engines. These checks use local
+fake providers and channels and temporary instance state. Omega runs through
+100 boundaries per restart with a controlled host sleep, exercising evaluator
+cleanup beyond a short startup smoke test.
+
+For long-running Omega on CeTTa, use a build containing
+[the suspended-cursor relocation fix](https://github.com/godelclaw/CeTTa/commit/b256939464c4b334016b8cc7500aa8933511d745).
+Earlier builds can pass startup checks and then fail during evaluator cleanup.
 
 Iter uses native tool-call JSON through the existing owned HTTP transport and
 the configured provider/model. Anthropic messages translate native tool-use
