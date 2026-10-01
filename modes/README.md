@@ -1,9 +1,39 @@
-# Iter and Omega isolated upstream cores
+# Iter and Omega modes
 
-These cores are selectable modes in **both Lila and Gödel**.
-This work implements Stages 3–4 plus the host integration of the separately
-qualified loops. Each agent retains its identity and uses its own mode state
-directory and process. The native LLM client remains a later task.
+Iter and Omega are selectable cognitive loops in MeTTaClaw. Each configured
+instance keeps its own identity, credentials, process and mode state. A single
+instance can switch loops without sharing its state with another instance.
+Provider access currently uses Python host adapters; a native CeTTa LLM client
+remains future work.
+
+Start with the [project README](../README.md) for installation and the
+[service guide](../systemd/README.md) for supervised deployment. This guide
+describes the mode interfaces, pinned sources, compatibility adapters and
+verification scope on `integration/upstream-modes-20260930`.
+
+## Select and operate a mode
+
+| Operator command | Purpose |
+|---|---|
+| `/modes` | List cognitive loops and the active selection. |
+| `/mode iter` | Request the Iter loop. |
+| `/mode omega` | Request the Omega loop. |
+| `/mode godelclaw` | Return to the framework loop. |
+| `/models`, `/model` | Inspect or change the LLM independently of the loop. |
+| `/engines`, `/engine` | Inspect or change the MeTTa evaluator. |
+
+Mode changes persist and take effect through a supervised cognition restart.
+The operator UI distinguishes a requested mode from a running one. Older saved
+names `agent`, `default`, `generic` and `claw23` map to `godelclaw`;
+`iter-coding` maps to `coding`. The current `iter` selection runs the actual
+upstream core port.
+
+Iter renews its work after an idle boundary and can make provider calls without
+new input. Omega keeps its own wake/counter behavior. Framework fuel settings
+do not automatically impose quota control on these loops. Select and supervise
+each mode according to its actual pacing policy.
+
+## Channel and control boundary
 
 Operator controls are independent of the cognitive loop. Every production mode
 uses an independently supervised durable Telegram service and command responder;
@@ -32,9 +62,9 @@ The real-service test `tests/test_telegram_metta_client.py` also checks controls
 no cognition running and a mode send whose delivery takes six seconds. Use its
 documented `CETTA_CHANNEL_ROOT`, `CETTA_SERVICE_BIN` and `CETTA_BIN` variables.
 
-**Status:** the isolated offline goal is qualified. Both standalone cores run;
-the fixed twelve-scenario matrix per mode, six semantic mutants, relevant
-upstream tests, Lean models and 380 observed trace checks pass. Omega uses an
+**Recorded qualification (2026-09-30):** both standalone cores ran; the fixed
+twelve-scenario matrix per mode, six semantic mutants, relevant upstream tests,
+Lean models and 380 observed trace checks passed. Omega uses an
 explicit loader adapter for its pinned PeTTa v1.0.4 utility semantics. Vendored
 files and existing upstream test files remain unchanged. The production loader
 uses current evaluator semantics instead of the old utility reevaluation shim.
@@ -45,7 +75,7 @@ The existing `/modes` menu exposes `godelclaw`, `coding`, `iter` and `omega`.
 `/mode iter` and `/mode omega` select the actual standalone loops; `iter` is
 no longer an alias. Mode changes persist and request a supervised recycle.
 The UI distinguishes the requested selection from the currently running loop.
-`/mode godelclaw` returns to the previous local loop.
+`/mode godelclaw` returns to the framework loop.
 
 `launch.py` prepares private state and launches the selected MeTTa entrypoint.
 It freezes the agent-wide selection path before changing CWD. The installed
@@ -56,18 +86,17 @@ Iter uses native tool-call JSON through the existing owned HTTP transport and
 the configured provider/model. Anthropic messages translate native tool-use
 IDs, argument objects, grouped tool results and token-limit stop reasons at
 this boundary. Claude requests use `tool_choice=auto`; Iter's existing loop
-rejects/retries replies with no tools. Recent Claude models reject forced-tool
-API options ([provider contract](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)).
+rejects/retries replies with no tools. The adapter therefore leaves tool
+selection to the provider and retains the core's retry rule.
 The OpenAI-specific `enable_thinking` option is omitted on Anthropic, consistent
 with the existing text provider's default thinking settings. Omega uses the
 existing command-text provider adapter, including its Anthropic path. No new
 credential client exists.
 
-Lila uses her existing durable CWP Telegram service. Gödel uses a separate
-instance of the same transport, with private client/operator sockets and an
-independent command responder. Both preserve their existing bot, identity,
-model selection and operator lifecycle latch. Neither transport nor controller
-is a child of the cognitive process.
+Each configured agent uses a separate durable CWP Telegram service, with its own
+client/operator sockets and independent command responder. Bot identity, model
+selection and the operator lifecycle latch are instance-specific. Neither
+transport nor controller is a child of the cognitive process.
 
 Inputs are acknowledged after history checkpoints. Mode switches before a
 checkpoint leave the input with its existing channel owner. Iter experience,
@@ -89,21 +118,22 @@ restarts and cooperative exits. Runtime receipts contain event metadata, not
 provider prompts or credentials.
 
 Live verification on 2026-09-30 completed a real provider/tool turn, history
-checkpoint and supervised restart for each of Lila/Iter, Lila/Omega,
-Gödel/Iter and Gödel/Omega. Both agents returned to `godelclaw` afterward.
-Gödel kept his selected Claude model; signed thinking blocks are retained in
-Iter's existing `reasoning_details` checkpoint field and passed back unchanged
-until its upstream context cleanup prunes them. The native Anthropic boundary
-tests exercise batch IDs, grouped results, reasoning signatures, token stops
-and sanitized failure pacing:
+checkpoint and supervised restart in both modes on two independently configured
+instances. Both returned to `godelclaw` afterward, including one retaining its
+selected Claude model. This checked startup, turns and recovery, rather than
+long-duration operation.
+
+Signed thinking blocks are retained in Iter's existing `reasoning_details`
+checkpoint field and passed back unchanged until its upstream context cleanup
+prunes them. The Anthropic boundary tests exercise batch IDs, grouped results,
+reasoning signatures, token stops and sanitized failure pacing:
 
 ```sh
 python -m unittest discover -s tests -p test_iter_anthropic_provider.py
 ```
 
-The local deployment receipt and original-file backups are kept outside the
-garden, in the operator's integration verification directory. This live check
-qualifies startup, turns and recovery; it is not a long-duration soak.
+Instance-specific deployment receipts and original-file backups are kept in
+operator-controlled storage outside the published source tree.
 
 ## Pins and review locations
 
@@ -115,7 +145,7 @@ qualifies startup, turns and recovery; it is not a long-duration soak.
 | CeTTa qualification | `godelclaw/CeTTa` [`9a535530`](https://github.com/godelclaw/CeTTa/commit/9a5355309c57d94e99e5a279e088b69cbe4486d8), branch `qualify/upstream-core-tests-20260930`, with `src/library_proc.c` text-boundary support |
 | Lean models | `godelclaw/MeTTapedia` [`a4dafeb37`](https://github.com/godelclaw/MeTTapedia/commit/a4dafeb37243a9f8546fede9561321a2348077a5), `lean/pettaclaw/`, branch `pettaclaw/upstream-cores-20260930` |
 | Offline core implementation | `modes/iter/`, `modes/omega/` and `modes/conformance/` in this repository |
-| Production mode integration | This worktree, branch `integration/upstream-modes-20260930` |
+| Production mode integration | Branch `integration/upstream-modes-20260930` |
 
 The per-mode `upstream-manifest.json` lists **every tracked upstream file**, its
 classification, whether it was vendored, and its digest or exclusion reason.
@@ -255,16 +285,15 @@ This proves properties of the executable models and tests correspondence at
 that boundary. It is not a full verification of Python, MeTTa, real providers,
 arbitrary tool bodies or OS/filesystem behavior.
 
-## Completion and boundaries
+## Verification scope
 
-The exact command exits zero; its output `qualification.json` records every
-required stage, the evaluator digest and the toolchain. Local verification
-receipts bind the run to reviewed source digests and are not published. No blocker remains for this
-isolated goal. Compatibility is established through the listed adapters,
-not by redesigning the engine or changing the reference.
+The recorded qualification command exited zero. Reproducing it creates a
+`qualification.json` with each stage's result, the evaluator digest and the
+toolchain. Keep that receipt with the tested source revisions. The claims apply
+to the listed adapters and scenarios, with the host assumptions stated above.
 
 Mode registration, real providers/channels/tools and supervised startup are
 implemented by `launch.py`, `runtime_host.py` and the agent host hooks described
 above. The native CeTTa LLM client remains later work; credentials continue to
-use the existing provider transport. All active code, worktrees, traces and
-build outputs remain outside Zahrada.
+use the existing provider transport. Keep generated traces, state and build
+outputs in your own runtime or verification directories.

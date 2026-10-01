@@ -1,0 +1,147 @@
+# Run an independent agent instance
+
+The templates in this directory separate the cognitive loop, Telegram transport,
+operator controls and optional execution gateway. Each has its own lifetime;
+restarting cognition need not disconnect the operator channel.
+
+These instructions describe `integration/upstream-modes-20260930`. Begin with
+the [project setup](../README.md#get-started). The durable Telegram service also
+needs a built CeTTa service host and its configured `channel` application root;
+this repository supplies the client, command definitions and launch wrapper,
+not an automatic installer for that host bundle.
+
+## Choose an instance name and layout
+
+Use a short instance name such as `research`. It identifies services and state,
+while the agent's conversational identity comes from its private prompt.
+Repeat the layout with a different name for another instance.
+
+| Template convention | Example for `research` |
+|---|---|
+| Checkout `%h/pettaclaw-%i` | `~/pettaclaw-research` |
+| Channel environment | `~/.config/pettaclaw/research-channel.env` |
+| Runtime environment | `~/.config/pettaclaw/research-runtime.env` |
+| Bot credential | `~/.config/cetta-telegram-credentials/research/token` |
+| Transport state | systemd's user state directory, `cetta-telegram-research/` |
+| Private sockets | systemd's user runtime directory, `cetta-telegram-research/client.sock` and `operator.sock` |
+
+`%h`, `%i`, `%t` and `%S` are systemd specifiers. The `pettaclaw` filenames are
+retained interface names; the project is MeTTaClaw. If your checkout lives
+elsewhere, adapt the unit's `WorkingDirectory` and `ExecStart` together.
+
+Initialize with the same instance name that the services will use:
+
+```sh
+cd ~/pettaclaw-research
+METTACLAW_INSTANCE=research ./initialize.sh
+```
+
+Edit `config/local.toml`, `config/secrets.env` and `memory/prompt.txt` for this
+instance, then repeat initialization. Use separate credentials and state for
+each instance. The templates share code, not agent memories.
+
+## Configure the channel and runtime
+
+The channel environment must supply these values:
+
+| Setting | Meaning |
+|---|---|
+| `CETTA_TELEGRAM_SERVICE_BIN` | Absolute path to the built durable Telegram service executable. |
+| `CETTA_TELEGRAM_SERVICE_ROOT` | Application root containing the configured `channel` program for that service. |
+| `METTACLAW_TELEGRAM_OPERATOR_IDS` | Comma-separated operator user IDs. |
+| `METTACLAW_TELEGRAM_PRIMARY_CHAT_ID` | Default private destination for this instance. |
+| `METTACLAW_TELEGRAM_ALLOWED_CHAT_IDS` | Additional permitted chats, when needed. |
+
+Store the bot token as the sole content of the credential file. systemd supplies
+it through `LoadCredential`; the service launcher passes its filename to the
+host. Keep credentials and both environment files private, outside Git.
+`EnvironmentFile` values must contain actual paths: shell variables and `~`
+are not expanded there.
+
+In `config/local.toml`, set `[telegram]` to `transport = "durable"`,
+`client = "metta"`, and `service_socket` to this instance's **client** socket.
+This socket is also used by the command responder. Configure identical routing
+and authorization values in the channel environment and `config/secrets.env`.
+The separate operator socket is reserved for the service's administrative
+interface.
+
+The runtime environment can supply instance-specific engine, mode, model,
+lifecycle and gateway settings. Use the same values for cognition and the
+command responder. Both run through `run.sh`, which loads the generated `.env`
+and then `config/secrets.env`; avoid conflicting values across these files.
+With `METTACLAW_SKIP_INITIALIZE=1`, rerun initialization after changing the TOML.
+
+## Install the reusable services
+
+Copy these templates into your user systemd directory:
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp systemd/cetta-telegram@.socket systemd/cetta-telegram@.service \
+  systemd/pettaclaw-telegram-control@.service ~/.config/systemd/user/
+```
+
+Provide a cognition unit for your instance. For example, save the following as
+`~/.config/systemd/user/pettaclaw@.service`:
+
+```ini
+[Unit]
+Description=MeTTaClaw cognition (%i)
+Wants=network-online.target cetta-telegram@%i.service pettaclaw-telegram-control@%i.service
+After=network-online.target cetta-telegram@%i.service pettaclaw-telegram-control@%i.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/pettaclaw-%i
+Environment=METTACLAW_INSTANCE=%i
+Environment=METTACLAW_SKIP_INITIALIZE=1
+EnvironmentFile=%h/.config/pettaclaw/%i-runtime.env
+EnvironmentFile=%h/.config/pettaclaw/%i-channel.env
+ExecStart=%h/pettaclaw-%i/run.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
+```
+
+Set `METTACLAW_INSTANCE=research` in `research-runtime.env` too, so the command
+responder uses the same instance name. Keep provider credentials in the
+instance's `config/secrets.env`. The transport and responder remain independent
+of cognition: the example uses startup dependencies, without `PartOf` or a
+shared service control group.
+
+Once the configured files and host bundle are in place:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now cetta-telegram@research.socket
+systemctl --user enable --now cetta-telegram@research.service
+systemctl --user enable --now pettaclaw-telegram-control@research.service
+systemctl --user enable --now pettaclaw@research.service
+```
+
+Check each unit's status and journal separately. `/modes` should answer through
+the independent responder, including while cognition is stopped. `/mode iter`
+or `/mode omega` selects the loop for the next supervised cognition process.
+Both require the durable channel; the responder always executes on CeTTa.
+
+## Optional services and existing deployment examples
+
+The [execution gateway](../src/execution_gateway/README.md) has its own
+`pettaclaw-gateway@.service` template and configuration. Start it separately,
+then configure the instance's gateway socket and agent ID. It is optional for
+the supplied loops.
+
+The non-template units and deployment watcher files predate this reusable
+layout. They encode a particular installation and are not defaults to copy
+unchanged. Likewise, `src/sibling.py` currently contains a fixed two-peer map;
+it is not a general multi-instance registry. Ordinary mode operation does not
+require peer control. Adapt that optional integration separately if you need it.
+
+For expected request, checkpoint and restart behavior, see the
+[mode guide](../modes/README.md). For fixture-based checks of the service boundary,
+see `tests/test_durable_telegram_service.py` and
+`tests/test_mode_control_boundary.py`.

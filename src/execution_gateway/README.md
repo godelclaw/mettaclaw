@@ -1,5 +1,8 @@
 # Independent execution gateway prototype
 
+Part of [MeTTaClaw](../../README.md). See the [service setup guide](../../systemd/README.md)
+for the surrounding channel and cognition processes.
+
 One reusable implementation, independently configured per agent. The optional
 Python/MeTTa client submits work and reads receipts; it never starts the server.
 Run the gateway separately from the cognition service so their lifetimes differ.
