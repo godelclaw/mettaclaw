@@ -1,6 +1,17 @@
-## MeTTaClaw
+# MeTTaClaw
 
 <img width="362" alt="image" src="https://github.com/user-attachments/assets/197d745f-1562-4d31-88c2-b813a56ccbf1" />
+
+**Looking for CeTTa, Iter/Omega modes and independent channel services?**
+Use the [integration branch and its setup guide](https://github.com/godelclaw/mettaclaw/tree/integration/upstream-modes-20260930#readme).
+That branch contains the newer cognitive loops and service integration. This
+`main` README describes the earlier framework and its policy presets; its
+`iter` preset is distinct from the upstream Iter loop on the integration branch.
+
+```sh
+git clone --branch integration/upstream-modes-20260930 \
+  https://github.com/godelclaw/mettaclaw.git
+```
 
 An agentic AI system implemented in MeTTa, guided by the MeTTaClaw proposal and an agent core inspired by Nanobot.
 Beyond basic tool use, it features embedding-based long-term memory represented entirely in MeTTa AtomSpace format.
@@ -166,3 +177,10 @@ with `METTACLAW_PROTECTED_ROOT`, `METTACLAW_SELFMOD_PROPOSAL_STORE`, and
 `PETTA_ROOT`. Optional external governance is enabled only when
 `METTACLAW_SELFMOD_REQUIRE_GOVERNANCE=1`; its executable is supplied through
 `METTACLAW_GGB_SELFMOD_CLI`.
+
+## Credits and license
+
+This fork builds on [patham9/mettaclaw](https://github.com/patham9/mettaclaw).
+Zar is the lead human contributor to this fork; Oruži is the collective
+attribution for collaborating AI agents. See the Git history for the development
+of the work and [LICENSE](LICENSE) for its license.
