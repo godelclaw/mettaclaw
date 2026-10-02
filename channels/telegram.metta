@@ -194,7 +194,7 @@
 ;; ------------------------------------------------------------ formatting
 
 ; Lengths and cuts count Unicode scalars (str:char-*), as Python does; the
-; byte-based str:length and str:slice could split a UTF-8 sequence.
+; byte-based str:byte-length and str:byte-slice could split a UTF-8 sequence.
 (= (tg:compact $text $limit)
    (let $flat (str:join " " (str:split-whitespace $text))
      (if (> (str:char-length $flat) $limit)

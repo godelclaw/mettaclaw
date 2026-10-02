@@ -69,8 +69,8 @@
    (collapse (let $part (energy:items (energy:csv (energy:env "METTACLAW_TELEGRAM_SENDER_NAMES" "")))
                (case (str:find $part ":")
                  (((TextNotFound $needle) (empty))
-                  ($at (let $id (str:trim (str:slice $part 0 $at))
-                         (let $name (str:trim (str:slice $part (+ $at 1) (str:length $part)))
+                  ($at (let $id (str:trim (str:byte-slice $part 0 $at))
+                         (let $name (str:trim (str:byte-slice $part (+ $at 1) (str:byte-length $part)))
                            (if (or (== $id "") (== $name "")) (empty) ($id $name))))))))))
 
 (= (energy:env-name $id)
@@ -166,8 +166,8 @@
      (let ($digit $rest) (energy:uncons $digits)
        (energy:strip (str:join "" (str:split $digit $text)) $rest))))
 (= (energy:id? $text)
-   (let $body (if (str:starts-with $text "-") (str:slice $text 1 (str:length $text)) $text)
-     (and (> (str:length $body) 0)
+   (let $body (if (str:starts-with $text "-") (str:byte-slice $text 1 (str:byte-length $text)) $text)
+     (and (> (str:byte-length $body) 0)
           (== (energy:strip $body ("0" "1" "2" "3" "4" "5" "6" "7" "8" "9")) ""))))
 
 ; A sender named WHO, case aside: from the file's names, else the
@@ -250,6 +250,6 @@
                                       (let $name (energy:label $data $id)
                                         (JsonArray (collapse (let $tier (energy:items (energy:tiers))
                                                                (let $cbd (format-args "energy:{}:{}" ($id $tier))
-                                                                 (if (> (str:length $cbd) 64) (empty)
+                                                                 (if (> (str:byte-length $cbd) 64) (empty)
                                                                    (energy:button (format-args "{}{}: {}" ((if (== $tier $current) "● " "") $name $tier)) $cbd))))))))))
                (JsonArray (collapse (superpose ($everyone (energy:items $rows))))))))))))

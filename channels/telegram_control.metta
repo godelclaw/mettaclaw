@@ -111,7 +111,7 @@
          (let $unavailable (tc:strings (tc:at $state "unavailable"))
            (let $rows (collapse (let $name (tc:items (tc:strings (tc:at $state "names")))
                                   (let $data (format-args "{}:{}" ($prefix $name))
-                                    (if (> (str:length $data) 64) (empty)
+                                    (if (> (str:byte-length $data) 64) (empty)
                                       (let $off (tc:member? $name $unavailable)
                                         (let $mark (if (== $name $current) "● "
                                                      (if (== $name $selected) "◌ "
@@ -141,8 +141,8 @@
 (= (tc:tap $data)
    (case (str:find $data ":")
      (((TextNotFound $needle) (format-args "unknown button {}" ($data)))
-      ($at (let $kind (str:slice $data 0 $at)
-             (let $arg (str:slice $data (+ $at 1) (str:length $data))
+      ($at (let $kind (str:byte-slice $data 0 $at)
+             (let $arg (str:byte-slice $data (+ $at 1) (str:byte-length $data))
                (case $kind
                  (("mode" (let $reply (tc:text (py-call (loop_modes.set_mode $arg)))
                             (let $woken (tc:wake "mode switch") (tc:settings-menu "modes" "mode" $reply))))
@@ -153,7 +153,7 @@
                              (tc:settings-menu "models" "model" $reply)))
                   ("energy" (case (str:find $arg ":")
                               (((TextNotFound $n) (format-args "unknown button {}" ($data)))
-                               ($cut (let $reply (energy:set (str:slice $arg 0 $cut) (str:slice $arg (+ $cut 1) (str:length $arg)))
+                               ($cut (let $reply (energy:set (str:byte-slice $arg 0 $cut) (str:byte-slice $arg (+ $cut 1) (str:byte-length $arg)))
                                        (tc:energy-menu $reply))))))
                   ($other (format-args "unknown button {}" ($data)))))))))))
 
